@@ -72,6 +72,8 @@ cp .env.example .env     # değerleri doldur (Supabase'siz de DATABASE_URL yerel
 npm run dev              # http://localhost:3000
 ```
 
+Üretimde Render Build Command olarak `npm install && npm run build` kullanın. Yerelde `npm run build` ile derleme oluşturabilirsiniz; `dist/` varsa sunucu onu kullanır.
+
 Yerelde `SUPABASE_*` boşsa dosyalar `data/uploads/` klasörüne yazılır. Üretimde bu kabul edilmez.
 
 ## Testler
@@ -94,6 +96,10 @@ izolasyonu, parola değişimi, silme, hız sınırı, sayfalama, toplu not, deva
 Müdür "Denetim" sayfasından okul bilgisi, sınıf/ders, hesap, parola, ödev, not ve yoklama işlemlerini görür.
 Her kayıtta kişi, zaman, işlem, hedef ve ayrıntı bulunur. Parolalar hiçbir zaman kaydedilmez.
 Kayıtlar silinmez; kullanıcı silinse bile kalır.
+
+## Tasarım sistemi (v11)
+
+Tüm görünüm tek bir stil dosyasında (`public/styles.css`) tutulur. Üstteki `:root` bölümü renk, boşluk, köşe yuvarlama, gölge, yazı tipi ve hareket değerlerini tanımlar. Koyu tema aynı değerleri `[data-theme=dark]` altında yeniden tanımlar. Yeni renk veya boyut gerektiğinde bu değerleri değiştirmek tüm uygulamayı günceller.
 
 ## Giriş ve kullanım
 
@@ -121,6 +127,21 @@ Düzenli yedek için bu dosyaları periyodik olarak indirmeniz önerilir (Supaba
 
 - Müdür genel bakışında, okul kurulumunun hangi adımlarının tamamlandığını gösteren bir liste bulunur. Hepsi tamamlanınca gizlenir.
 - Herkes sol alttaki **Hesabım** düğmesiyle kendi adını değiştirebilir ve şifresini değiştirebilir. Kullanıcı adı değiştirilemez.
+
+## Pano atamaları, onay ve resimler (v10)
+
+- **Öğrenci atama:** Sınıf panosunda "Yalnızca atanan öğrenciler not eklesin" açılırsa yalnızca öğretmenin seçtiği öğrenciler not (resim dahil) ekleyebilir. Atamalar pano ayarlarından "Öğrencileri ata" ile yapılır.
+- **Onay:** "Öğrenci notları onaylansın" açılırsa öğrenci notu öğretmen onaylayana kadar yalnızca yazarda görünür. Bekleyen notlar pano sayfasında sayılır ve "Onayla" ile yayına alınır.
+- **Resimler:** JPG ve PNG dosyaları notta önizleme olarak görünür. PDF ve Word yalnızca indirilir.
+
+## Kopyalama koruması (v10)
+
+- Bilinen kopyalama araçlarının kullanıcı ajanları (HTTrack, WebCopier, Teleport, SiteSucker, wget, Scrapy vb.) 403 ile reddedilir.
+- Sayfada normal kullanıcıya görünmeyen bir tuzak bağlantı vardır. Kopyalayıcılar bu bağlantıyı izleyince IP adresi 1 saat engellenir. `/.env` ve `/.git` gibi yollar da tuzaktır.
+- Statik dosyalar IP başına dakikada 600 istekle sınırlıdır. `robots.txt` API ve tuzağı dışlar. API yanıtları `noindex` başlığı taşır.
+- JS ve CSS derlemesi küçültülür ve içerik özetiyle adlandırılır (`npm run build`, çıktı `dist/` klasöründe). Bu dosyalar uzun süre önbelleğe alınır.
+
+Not: Tarayıcının çalıştırmak için indirdiği herkese açık sayfalar (ana sayfa, kılavuz, okul duyuruları) hiçbir yazılım tarafından tam olarak engellenemez. Okul verisi ise yalnızca giriş yapan yetkili kullanıcılara sunulduğu için kopyalayıcılar veriyi alamaz.
 
 ## Panolar (Padlet benzeri)
 

@@ -75,7 +75,7 @@ const loginView = portal => {
           <p class="form-error" data-error role="alert"></p>
           <button class="btn primary block lg" type="submit">Giriş yap</button>
         </form>
-        <p class="small muted switch">${principal
+        <p class="small muted switch-line">${principal
           ? 'Öğretmen veya öğrenciyseniz <a href="#/giris">Öğretmen / Öğrenci girişi</a>ni kullanın.'
           : 'Müdürseniz <a href="#/mudur-girisi">Müdür girişi</a>ni kullanın.'}</p>
         <p class="small muted">Hesabınız yoksa okul müdüründen isteyin. Nasıl kullanılacağını <a href="#/yardim">kılavuzdan</a> öğrenebilirsiniz.</p>

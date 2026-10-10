@@ -197,3 +197,15 @@ alter table board_notes enable row level security;
 alter table users add column if not exists session_version integer not null default 0;
 alter table users add column if not exists last_login_at timestamptz;
 alter table users add column if not exists last_login_ip text;
+
+-- v10: pano öğrenci atamaları, onay (moderasyon) ve resim önizleme
+alter table boards add column if not exists assigned_only boolean not null default false;
+alter table boards add column if not exists moderated boolean not null default false;
+alter table board_notes add column if not exists approved boolean not null default true;
+
+create table if not exists board_members (
+  board_id uuid not null references boards(id) on delete cascade,
+  student_id uuid not null references users(id) on delete cascade,
+  primary key (board_id, student_id)
+);
+alter table board_members enable row level security;

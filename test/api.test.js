@@ -19,8 +19,8 @@ const PDF = Buffer.from('%PDF-1.4\n% okulum test\n');
 const DOCX = Buffer.concat([Buffer.from([0x50, 0x4b, 0x03, 0x04]), Buffer.from('docx-body')]);
 const b64 = buffer => buffer.toString('base64');
 
-async function call(method, route, { body, cookie, origin = BASE, raw } = {}) {
-  const headers = {};
+async function call(method, route, { body, cookie, origin = BASE, raw, headers: extra = {} } = {}) {
+  const headers = { ...extra };
   if (method !== 'GET' && method !== 'HEAD') headers['Content-Type'] = raw ?? 'application/json';
   if (cookie) headers.Cookie = cookie;
   if (origin) headers.Origin = origin;
@@ -49,7 +49,7 @@ before(async () => {
   fs.rmSync(path.join(ROOT, 'data'), { recursive: true, force: true });
   child = spawn(process.execPath, [path.join(ROOT, 'server.js')], {
     cwd: ROOT,
-    env: { ...process.env, DATABASE_URL: DB, PORT: String(PORT), HOST: '127.0.0.1', SESSION_SECRET: 'test-secret-value-0123456789', API_RATE_PER_MIN: '100000', WRITE_RATE_PER_MIN: '100000' },
+    env: { ...process.env, DATABASE_URL: DB, PORT: String(PORT), HOST: '127.0.0.1', SESSION_SECRET: 'test-secret-value-0123456789', API_RATE_PER_MIN: '100000', WRITE_RATE_PER_MIN: '100000', STATIC_RATE_PER_MIN: '100000', TRUST_PROXY: '1' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   await new Promise((resolve, reject) => {
@@ -615,6 +615,78 @@ test('koruma: güvenlik başlıkları ve denetim (ana sayfada COOP/CORP)', async
   assert.equal(page.headers.get('cross-origin-resource-policy'), 'same-origin');
   const log = (await call('GET', '/api/audit?action=sessions_revoked', { cookie: state.principal })).data;
   assert.ok(log.total >= 0);
+});
+
+test('pano atamaları: öğretmen öğrenci atar, yalnızca atananlar not ekler', async () => {
+  const derya = await call('POST', '/api/users', { cookie: state.principal, body: { role: 'student', name: 'Derya Kaya', username: 'derya', password: 'derya-sifre-1', studentNo: '301', classId: state.class6A } });
+  assert.equal(derya.status, 201);
+  state.deryaId = derya.data.user.id;
+  state.deryaCookie = await login('derya', 'derya-sifre-1');
+  const created = await call('POST', '/api/boards', { cookie: state.ayse, body: { title: 'Atamalı pano', scope: 'class', classId: state.class6A, assignedOnly: true } });
+  assert.equal(created.status, 201);
+  state.boardAssigned = created.data.id;
+  assert.equal((await call('POST', `/api/boards/${state.boardAssigned}/notes`, { cookie: state.ece, body: { title: 'Atanmadan', body: 'x' } })).status, 403, 'atanmamış öğrenci yazamaz');
+  const members = await call('GET', `/api/boards/${state.boardAssigned}/members`, { cookie: state.ayse });
+  assert.equal(members.status, 200);
+  assert.ok(members.data.students.some(st => st.name === 'Ece Yılmaz' && st.assigned === false));
+  assert.equal((await call('PUT', `/api/boards/${state.boardAssigned}/members`, { cookie: state.ece, body: { studentIds: [state.eceId] } })).status, 403, 'öğrenci atama yapamaz');
+  assert.equal((await call('PUT', `/api/boards/${state.boardAssigned}/members`, { cookie: state.ayse, body: { studentIds: [state.canId] } })).status, 400, 'başka sınıfın öğrencisi atanamaz');
+  assert.equal((await call('PUT', `/api/boards/${state.boardAssigned}/members`, { cookie: state.ayse, body: { studentIds: [state.eceId] } })).status, 200);
+  assert.equal((await call('POST', `/api/boards/${state.boardAssigned}/notes`, { cookie: state.ece, body: { title: 'Atanmış not', body: 'merhaba' } })).status, 201);
+  assert.equal((await call('POST', `/api/boards/${state.boardAssigned}/notes`, { cookie: state.deryaCookie, body: { title: 'Atanmamış', body: 'x' } })).status, 403);
+  const eceView = (await call('GET', `/api/boards/${state.boardAssigned}/notes`, { cookie: state.ece })).data;
+  assert.equal(eceView.board.rights.post, true);
+  const deryaView = (await call('GET', `/api/boards/${state.boardAssigned}/notes`, { cookie: state.deryaCookie })).data;
+  assert.equal(deryaView.board.rights.post, false, 'atanmamış öğrenciye yazma hakkı görünmez');
+  assert.equal((await call('POST', `/api/boards/${state.boardAssigned}/notes`, { cookie: state.ayse, body: { title: 'Öğretmen notu', body: 'y' } })).status, 201, 'öğretmen her zaman yazar');
+});
+
+test('pano onayı: öğrenci notu onaylanana kadar yalnızca yazarda görünür, resim satır içi gösterilir', async () => {
+  const created = await call('POST', '/api/boards', { cookie: state.ayse, body: { title: 'Onaylı pano', scope: 'class', classId: state.class6A, moderated: true } });
+  state.boardMod = created.data.id;
+  const pending = await call('POST', `/api/boards/${state.boardMod}/notes`, { cookie: state.ece, body: { title: 'Onay bekleyen', body: 'bekliyor' } });
+  assert.equal(pending.status, 201);
+  assert.equal(pending.data.approved, false);
+  state.pendingNote = pending.data.id;
+  const deryaSees = (await call('GET', `/api/boards/${state.boardMod}/notes`, { cookie: state.deryaCookie })).data.notes;
+  assert.equal(deryaSees.length, 0, 'başkası onay bekleyen notu görmez');
+  const eceSees = (await call('GET', `/api/boards/${state.boardMod}/notes`, { cookie: state.ece })).data.notes;
+  assert.equal(eceSees.length, 1, 'yazar kendi notunu görür');
+  const teacherView = (await call('GET', `/api/boards/${state.boardMod}/notes`, { cookie: state.ayse })).data;
+  assert.equal(teacherView.board.rights.pendingCount, 1);
+  assert.equal((await call('PATCH', `/api/board-notes/${state.pendingNote}`, { cookie: state.ece, body: { approved: true } })).status, 403, 'öğrenci onaylayamaz');
+  assert.equal((await call('PATCH', `/api/board-notes/${state.pendingNote}`, { cookie: state.ayse, body: { approved: true } })).status, 200);
+  const deryaAfter = (await call('GET', `/api/boards/${state.boardMod}/notes`, { cookie: state.deryaCookie })).data.notes;
+  assert.equal(deryaAfter.length, 1, 'onaylanınca herkes görür');
+  // Resim: PNG satır içi, PDF her zaman indirme
+  const png = Buffer.concat([Buffer.from('89504e470d0a1a0a', 'hex'), Buffer.from('okulum-resim')]);
+  const pic = await call('POST', `/api/boards/${state.boardMod}/notes`, { cookie: state.ayse, body: { title: 'Sınıf resmi', file: { name: 'resim.png', data: b64(png) } } });
+  assert.equal(pic.status, 201);
+  const inline = await call('GET', `/api/files/board-note/${pic.data.id}?inline=1`, { cookie: state.ece });
+  assert.equal(inline.status, 200);
+  assert.match(inline.headers.get('content-disposition'), /^inline/);
+  assert.equal(inline.headers.get('content-type'), 'image/png');
+  const pdfNote = await call('POST', `/api/boards/${state.boardMod}/notes`, { cookie: state.ayse, body: { title: 'Kâğıt', file: { name: 'kagit.pdf', data: b64(PDF) } } });
+  assert.equal(pdfNote.status, 201);
+  const pdfInline = await call('GET', `/api/files/board-note/${pdfNote.data.id}?inline=1`, { cookie: state.ayse });
+  assert.match(pdfInline.headers.get('content-disposition') || '', /^attachment/, 'PDF satır içi açılmaz');
+  assert.equal((await call('GET', `/api/files/board-note/${pending.data.id}`, { cookie: state.deryaCookie })).status, 404, 'onaysız not dosyası görünmez');
+  assert.equal((await call('PUT', `/api/boards/${state.boardMod}/members`, { cookie: state.ece, body: { studentIds: [] } })).status, 403);
+});
+
+test('kopyalama koruması: kopyalama araçları engellenir, tuzak IP yasaklar, robots.txt yayınlanır', async () => {
+  assert.equal((await call('GET', '/', { headers: { 'User-Agent': 'HTTrack 3.49-2' } })).status, 403, 'HTTrack reddedilir');
+  assert.equal((await call('GET', '/', { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0) Chrome/120' } })).status, 200, 'normal tarayıcı serbest');
+  const robots = await call('GET', '/robots.txt');
+  assert.equal(robots.status, 200);
+  assert.ok(robots.data.includes('Disallow: /api/'));
+  const ip = { headers: { 'X-Forwarded-For': '203.0.113.9' } };
+  assert.equal((await call('GET', '/gizli-dizin/', ip)).status, 403, 'tuzağa basılınca 403');
+  assert.equal((await call('GET', '/', ip)).status, 403, 'aynı IP artık yasaklı');
+  assert.equal((await call('GET', '/healthz', ip)).status, 200, 'sağlık kontrolü muaf');
+  assert.equal((await call('GET', '/', { headers: { 'X-Forwarded-For': '198.51.100.7' } })).status, 200, 'başka IP etkilenmez');
+  assert.equal((await call('GET', '/.env', { headers: { 'X-Forwarded-For': '198.51.100.8' } })).status, 403, '.env denemesi de tuzaktır');
+  assert.equal((await call('GET', '/api/me')).status, 401, 'API yanıtları noindex başlığı taşır');
 });
 
 test('hız sınırı: çok sayıda başarısız girişten sonra 429', async () => {

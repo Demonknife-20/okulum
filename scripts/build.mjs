@@ -1,0 +1,39 @@
+// Üretim derlemesi: JS ve CSS'i küçültür, içerik özetiyle adlandırır, index.html'i buna göre günceller.
+// Çıktı dist/ klasörüne yazılır; sunucu dist varsa onu kullanır.
+import { build } from 'esbuild';
+import fs from 'node:fs';
+import path from 'node:path';
+
+const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
+const src = path.join(root, 'public');
+const out = path.join(root, 'dist');
+
+fs.rmSync(out, { recursive: true, force: true });
+fs.mkdirSync(out, { recursive: true });
+
+const js = await build({
+  entryPoints: [path.join(src, 'app.js')],
+  bundle: true, minify: true, format: 'esm', target: ['es2020'], legalComments: 'none',
+  outdir: out, entryNames: 'app.[hash]', metafile: true, write: true,
+});
+const css = await build({
+  entryPoints: [path.join(src, 'styles.css')],
+  bundle: true, minify: true, legalComments: 'none',
+  outdir: out, entryNames: 'styles.[hash]', metafile: true, write: true,
+});
+
+const jsFile = path.basename(Object.keys(js.metafile.outputs).find(file => file.endsWith('.js')));
+const cssFile = path.basename(Object.keys(css.metafile.outputs).find(file => file.endsWith('.css')));
+
+let html = fs.readFileSync(path.join(src, 'index.html'), 'utf8');
+const replaceOnce = (text, from, to) => {
+  if (text.split(from).length !== 2) throw new Error(`index.html içinde beklenen metin bulunamadı: ${from}`);
+  return text.replace(from, to);
+};
+html = replaceOnce(html, 'src="/app.js"', `src="/${jsFile}"`);
+html = replaceOnce(html, 'href="/styles.css"', `href="/${cssFile}"`);
+fs.writeFileSync(path.join(out, 'index.html'), html);
+fs.copyFileSync(path.join(src, 'icon.svg'), path.join(out, 'icon.svg'));
+
+const kb = file => (fs.statSync(path.join(out, file)).size / 1024).toFixed(1);
+console.log(`dist hazır: ${jsFile} (${kb(jsFile)} KB), ${cssFile} (${kb(cssFile)} KB)`);

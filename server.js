@@ -8,10 +8,24 @@ const { createLimiter } = require('./src/security');
 
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || (process.env.RENDER ? '0.0.0.0' : '127.0.0.1');
-const PUBLIC = path.join(__dirname, 'public');
+const PUBLIC = fs.existsSync(path.join(__dirname, 'dist', 'index.html')) ? path.join(__dirname, 'dist') : path.join(__dirname, 'public');
 const BODY_LIMIT = 8 * 1024 * 1024;
 const API_LIMIT = createLimiter({ max: Number(process.env.API_RATE_PER_MIN || 900), windowMs: 60 * 1000 });
 const WRITE_LIMIT = createLimiter({ max: Number(process.env.WRITE_RATE_PER_MIN || 240), windowMs: 60 * 1000 });
+// ---- Kopyalama (HTTrack, wget, WebCopier vb.) koruması ----
+const STATIC_LIMIT = createLimiter({ max: Number(process.env.STATIC_RATE_PER_MIN || 600), windowMs: 60 * 1000 });
+const BOT_UA = /httrack|webcopier|teleport|offline\s?explorer|sitesucker|webzip|webreaper|grab-site|getleft|website\s?quester|wget|scrapy|sitesnagger/i;
+// Gizli tuzak: normal kullanıcı bu adresleri görmez; kopyalayıcılar bağlantıları izleyince yakalanır.
+const TRAP = /^\/(gizli-dizin|wp-admin|wp-login\.php|\.env|\.git|phpmyadmin)(\/|$)/i;
+const BAN_MS = 60 * 60 * 1000;
+const bans = new Map();
+const isBanned = key => (bans.get(key) ?? 0) > Date.now();
+setInterval(() => { const now = Date.now(); for (const [key, until] of bans) if (until <= now) bans.delete(key); }, 10 * 60 * 1000).unref();
+const ROBOTS = `User-agent: *
+Disallow: /api/
+Disallow: /gizli-dizin/
+Crawl-delay: 10
+`;
 const clientKey = req => {
   if (process.env.TRUST_PROXY) {
     const forwarded = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
@@ -81,7 +95,8 @@ function serveStatic(res, pathname) {
   if (!file.startsWith(PUBLIC + path.sep)) return send(res, 404, { error: 'Bulunamadı.' });
   fs.stat(file, (error, stat) => {
     if (error || !stat.isFile()) return send(res, 404, { error: 'Bulunamadı.' });
-    res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-cache' });
+    const hashed = /\.[A-Za-z0-9]{8,}\.(js|css)$/.test(file);
+    res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream', 'Cache-Control': hashed ? 'public, max-age=31536000, immutable' : 'no-cache' });
     fs.createReadStream(file).pipe(res);
   });
 }
@@ -91,6 +106,7 @@ const server = http.createServer(async (req, res) => {
   if (process.env.NODE_ENV === 'production') res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
   const url = new URL(req.url, 'http://localhost');
 
+  const key0 = clientKey(req);
   if (url.pathname === '/healthz') {
     try {
       await q('select 1');
@@ -100,10 +116,27 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
+  // Yasaklı IP'ler ve kopyalama araçları tüm uygulamaya erişemez
+  if (isBanned(key0)) return send(res, 403, { error: 'Erişim geçici olarak engellendi.' });
+  if (BOT_UA.test(req.headers['user-agent'] || '')) {
+    return send(res, 403, { error: 'Bu istemciye izin verilmiyor.' });
+  }
+  if (TRAP.test(url.pathname)) {
+    bans.set(key0, Date.now() + BAN_MS);
+    console.warn(new Date().toISOString(), 'kopyalama tuzağı tetiklendi:', key0, url.pathname);
+    return send(res, 403, { error: 'Erişim engellendi.' });
+  }
+  if (url.pathname === '/robots.txt') {
+    res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=3600' });
+    return res.end(ROBOTS);
+  }
+
   if (!url.pathname.startsWith('/api/')) {
     if (!['GET', 'HEAD'].includes(req.method)) return send(res, 405, { error: 'Bu işlem desteklenmiyor.' });
+    if (STATIC_LIMIT(key0)) return send(res, 429, { error: 'Çok fazla istek. Lütfen biraz bekleyin.' });
     return serveStatic(res, url.pathname);
   }
+  res.setHeader('X-Robots-Tag', 'noindex, nofollow');
 
   try {
     const key = clientKey(req);
@@ -128,11 +161,11 @@ const server = http.createServer(async (req, res) => {
       return res.end(body);
     }
     if (result.file) {
-      const { buffer, mime, name } = result.file;
+      const { buffer, mime, name, inline } = result.file;
       res.writeHead(200, {
         'Content-Type': mime,
         'Content-Length': buffer.length,
-        'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(name)}`,
+        'Content-Disposition': `${inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(name)}`,
         'Cache-Control': 'private, no-store',
       });
       return res.end(buffer);

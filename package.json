@@ -1,15 +1,19 @@
 {
   "name": "okulum",
-  "version": "3.0.0",
+  "version": "11.0.0",
   "private": true,
   "description": "Okulum okul yönetim sistemi · Render + Supabase",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "start": "node server.js",
     "dev": "node --env-file-if-exists=.env server.js",
+    "build": "node scripts/build.mjs",
     "test": "node --test --test-concurrency=1 test/security.test.js test/api.test.js"
   },
   "dependencies": {
+    "esbuild": "^0.24.2",
     "pg": "^8.13.0"
   }
 }

@@ -1000,6 +1000,7 @@ async function pagePanolar(params) {
     <a class="board-card ${b.scope}" href="#/pano?id=${esc(b.id)}">
       <div class="board-card-top">
         ${badge(scopeLabel(b.scope), b.scope === 'school' ? 'brand' : 'ok')}
+        ${b.assignedOnly ? badge('Atamalı', 'warn') : ''}${b.moderated ? badge('Onaylı', 'brand') : ''}
         ${b.className ? `<span class="muted small">${esc(b.className)}</span>` : ''}
       </div>
       <h3>${esc(b.title)}</h3>
@@ -1034,6 +1035,13 @@ function boardForm(board = null) {
   return `<form class="stack" data-form="${editing ? 'board-edit' : 'board-create'}" ${editing ? `data-id="${esc(board.id)}"` : ''}>
     <label class="field"><span>Pano adı</span><input name="title" required minlength="2" maxlength="120" value="${esc(board?.title || '')}"></label>
     <label class="field"><span>Açıklama</span><textarea name="description" rows="2" maxlength="500">${esc(board?.description || '')}</textarea></label>
+    ${editing && board.scope !== 'class' ? '' : `
+      <div class="toggle-stack" ${editing ? '' : 'data-for-scope="class"'}>
+        <label class="switch"><input type="checkbox" name="assignedOnly" ${board?.assignedOnly ? 'checked' : ''}><span class="switch-ui" aria-hidden="true"></span>
+          <span><strong>Yalnızca atanan öğrenciler not eklesin</strong><small>Öğrencileri pano ayarlarından siz seçersiniz. Öğretmen ve müdür her zaman ekleyebilir.</small></span></label>
+        <label class="switch"><input type="checkbox" name="moderated" ${board?.moderated ? 'checked' : ''}><span class="switch-ui" aria-hidden="true"></span>
+          <span><strong>Öğrenci notları onaylansın</strong><small>Öğrenci notu siz onaylayana kadar yalnızca yazarın ekranında görünür.</small></span></label>
+      </div>`}
     ${editing ? '' : `
       <div class="grid-2">
         <label class="field"><span>Pano türü</span>
@@ -1058,12 +1066,52 @@ CHANGES.boardScope = el => {
 };
 
 ACTIONS['board-new'] = () => openModal('Yeni pano', boardForm());
+
+// Öğrenci atama: sınıftaki öğrenciler listelenir, işaretlenenler panoya not ekleyebilir.
+ACTIONS['board-members-open'] = async () => {
+  if (!currentBoard) return;
+  const { students } = await api(`/boards/${currentBoard.id}/members`);
+  const list = students.length
+    ? students.map(st => `<label class="member-row">
+        <input type="checkbox" name="student" value="${esc(st.id)}" ${st.assigned ? 'checked' : ''}>
+        <span class="avatar sm blue">${esc(initials(st.name))}</span>
+        <span><strong>${esc(st.name)}</strong><small class="muted">${esc(st.studentNo || '')}</small></span>
+      </label>`).join('')
+    : empty('Öğrenci yok', 'Bu sınıfa henüz öğrenci eklenmemiş.');
+  openModal('Öğrencileri ata', `<form class="stack" data-form="board-members" data-id="${esc(currentBoard.id)}">
+    <p class="muted small">${currentBoard.assignedOnly
+      ? 'İşaretli öğrenciler bu panoya not ekleyebilir.'
+      : 'Bu pano atamalı değil: "Yalnızca atanan öğrenciler not eklesin" açılırsa yalnızca işaretliler ekleyebilir.'}</p>
+    <div class="member-list">${list}</div>
+    <p class="form-error" data-error role="alert"></p>
+    <div class="form-actions"><button class="btn ghost" type="button" data-action="close-modal">Vazgeç</button>
+      <button class="btn primary" type="submit">Atamaları kaydet</button></div>
+  </form>`);
+};
+
+FORMS['board-members'] = async form => {
+  const studentIds = [...form.querySelectorAll('input[name=student]:checked')].map(input => input.value);
+  await api(`/boards/${form.dataset.id}/members`, { method: 'PUT', body: { studentIds } });
+  closeModal();
+  toast(`${studentIds.length} öğrenci atandı`);
+  refresh();
+};
+
+ACTIONS['note-approve'] = async el => {
+  await api(`/board-notes/${el.dataset.id}`, { method: 'PATCH', body: { approved: true } });
+  toast('Not onaylandı');
+  refresh();
+};
 ACTIONS['board-edit-open'] = () => currentBoard && openModal('Panoyu düzenle', boardForm(currentBoard));
 
 FORMS['board-create'] = async form => {
   const scope = val(form, 'scope');
   const body = { title: val(form, 'title').trim(), description: val(form, 'description').trim(), scope };
-  if (scope === 'class') body.classId = val(form, 'classId');
+  if (scope === 'class') {
+    body.classId = val(form, 'classId');
+    body.assignedOnly = form.querySelector('[name=assignedOnly]')?.checked === true;
+    body.moderated = form.querySelector('[name=moderated]')?.checked === true;
+  }
   const { id } = await api('/boards', { method: 'POST', body });
   closeModal();
   toast('Pano açıldı');
@@ -1071,7 +1119,12 @@ FORMS['board-create'] = async form => {
 };
 
 FORMS['board-edit'] = async form => {
-  await api(`/boards/${form.dataset.id}`, { method: 'PATCH', body: { title: val(form, 'title').trim(), description: val(form, 'description').trim() } });
+  const body = { title: val(form, 'title').trim(), description: val(form, 'description').trim() };
+  if (form.querySelector('[name=assignedOnly]')) {
+    body.assignedOnly = form.querySelector('[name=assignedOnly]').checked;
+    body.moderated = form.querySelector('[name=moderated]').checked;
+  }
+  await api(`/boards/${form.dataset.id}`, { method: 'PATCH', body });
   closeModal();
   toast('Pano güncellendi');
   refresh();
@@ -1092,23 +1145,35 @@ async function pageBoard(params) {
   const rights = board.rights;
   const actions = [
     rights.post ? `<button class="btn primary" type="button" data-action="note-new" data-id="${esc(board.id)}">${icon('plus')}<span>Not ekle</span></button>` : '',
+    rights.moderate && board.scope === 'class' ? `<button class="btn ghost" type="button" data-action="board-members-open">Öğrencileri ata</button>` : '',
     rights.moderate ? `<button class="btn ghost" type="button" data-action="board-edit-open">Düzenle</button>
       <button class="btn ghost" type="button" data-action="board-delete" data-id="${esc(board.id)}">${icon('trash')}<span>Panoyu sil</span></button>` : '',
     '<a class="btn ghost" href="#/panolar">← Panolar</a>',
   ].join('');
+  const isImage = n => ['image/png', 'image/jpeg'].includes(n.fileMime);
   const cards = notes.map(n => `
-    <article class="pin pin-${esc(n.color)}">
+    <article class="pin pin-${esc(n.color)}${n.approved === false ? ' pin-pending' : ''}">
+      ${n.hasFile && isImage(n) ? `<img class="pin-img" src="/api/files/board-note/${esc(n.id)}?inline=1" alt="${esc(n.fileName || 'Pano resmi')}" loading="lazy" decoding="async">` : ''}
       ${n.title ? `<h3>${esc(n.title)}</h3>` : ''}
       ${n.body ? `<p>${esc(n.body)}</p>` : ''}
       ${n.link ? `<a class="note-link" href="${esc(n.link)}" target="_blank" rel="noopener noreferrer">${icon('send')}<span>${esc(n.link.replace(/^https?:\/\//, '').slice(0, 60))}</span></a>` : ''}
       ${n.hasFile ? `<a class="note-link" href="/api/files/board-note/${esc(n.id)}" download>${icon('download')}<span>${esc(n.fileName)}</span></a>` : ''}
+      ${n.approved === false ? '<span class="badge warn">Onay bekliyor</span>' : ''}
       <footer class="note-foot">
         <span>${esc(n.authorName || 'Silinmiş kullanıcı')} · ${esc(ROLE[n.authorRole] || '')} · ${esc(fmtDate(n.createdAt))}</span>
-        ${n.canDelete ? `<button class="icon-btn sm" type="button" data-action="note-delete" data-id="${esc(n.id)}" aria-label="Notu sil">${icon('trash')}</button>` : ''}
+        <span class="note-actions">
+          ${n.canApprove ? `<button class="btn ghost sm" type="button" data-action="note-approve" data-id="${esc(n.id)}">Onayla</button>` : ''}
+          ${n.canDelete ? `<button class="icon-btn sm" type="button" data-action="note-delete" data-id="${esc(n.id)}" aria-label="Notu sil">${icon('trash')}</button>` : ''}
+        </span>
       </footer>
     </article>`).join('');
+  const pending = rights.pendingCount
+    ? `<div class="pending-banner" role="status">${rights.pendingCount} öğrenci notu onayınızı bekliyor.</div>` : '';
+  const assignNotice = board.assignedOnly && !rights.post
+    ? '<p class="notice">Bu panoya yalnızca öğretmeninin atadığı öğrenciler not ekleyebilir.</p>' : '';
   return { html: `
     ${head(board.title, `${scopeLabel(board.scope)}${board.className ? ` · ${board.className}` : ''}${board.description ? ` — ${board.description}` : ''}`, actions)}
+    ${assignNotice}${pending}
     ${notes.length
       ? `<div class="pin-grid">${cards}</div>`
       : empty('Henüz not yok', rights.post ? 'İlk notu ekleyerek panoyu başlatın.' : 'Bu pano için henüz not eklenmedi.')}` };
@@ -1124,7 +1189,7 @@ function noteForm(boardId) {
         <select name="color">${NOTE_COLORS.map(([value, label]) => `<option value="${value}">${label}</option>`).join('')}</select></label>
     </div>
     <label class="field"><span>Dosya (isteğe bağlı)</span>
-      <input name="file" type="file" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"><small>PDF, Word veya görsel · en fazla 5 MB</small></label>
+      <input name="file" type="file" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"><small>Resim (JPG, PNG) notta önizleme olarak görünür. PDF ve Word de eklenebilir · en fazla 5 MB</small></label>
     <p class="form-error" data-error role="alert"></p>
     <div class="form-actions"><button class="btn ghost" type="button" data-action="close-modal">Vazgeç</button>
       <button class="btn primary" type="submit">Notu ekle</button></div>

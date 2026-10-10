@@ -1101,9 +1101,17 @@ function rightsFor(user, board, mine) {
   return { view: inClass, post: inClass, moderate: mine.taught.has(board.classId) };
 }
 
+// Öğrenci, atama modunda yalnızca öğretmenin atadığı panoda not ekleyebilir.
+async function studentCanPost(user, board, rights) {
+  if (user.role !== 'student' || !rights.post || !board.assignedOnly) return rights;
+  const { rowCount } = await q('select 1 from board_members where board_id = $1 and student_id = $2', [board.id, user.id]);
+  return { ...rights, post: rowCount > 0 };
+}
+
 async function loadBoard(id) {
   const { rows: [b] } = await q(`select b.id, b.title, b.description, b.scope, b.class_id as "classId",
-      c.name as "className", u.name as "createdBy", b.created_by as "createdById", b.created_at as "createdAt"
+      c.name as "className", u.name as "createdBy", b.created_by as "createdById", b.created_at as "createdAt",
+      b.assigned_only as "assignedOnly", b.moderated
     from boards b left join classes c on c.id = b.class_id left join users u on u.id = b.created_by where b.id = $1`, [id]);
   if (!b) fail(404, 'Pano bulunamadı.');
   return b;
@@ -1134,7 +1142,7 @@ on('GET', '/api/boards', async ({ user, query }) => {
   if (term) { params.push(`%${escapeLike(term)}%`); conditions.push(`lower(b.title) like $${params.length}`); }
   const where = conditions.length ? conditions.join(' and ') : 'true';
   const { rows } = await q(`select b.id, b.title, b.description, b.scope, b.class_id as "classId", c.name as "className",
-      u.name as "createdBy", b.created_at as "createdAt",
+      u.name as "createdBy", b.created_at as "createdAt", b.assigned_only as "assignedOnly", b.moderated,
       (select count(*)::int from board_notes n where n.board_id = b.id) as "noteCount",
       (select max(n.created_at) from board_notes n where n.board_id = b.id) as "lastNoteAt"
     from boards b left join classes c on c.id = b.class_id left join users u on u.id = b.created_by
@@ -1160,9 +1168,11 @@ on('POST', '/api/boards', async ({ body, user }) => {
   } else {
     fail(400, 'Pano türü sınıf veya okul olmalı.');
   }
-  const { rows: [row] } = await q(`insert into boards (title, description, scope, class_id, created_by)
-    values ($1, $2, $3, $4, $5) returning id`, [title, description, body.scope, classId, user.id]);
-  await audit(user, 'board_created', title, { scope: body.scope });
+  const assignedOnly = body.scope === 'class' && body.assignedOnly === true;
+  const moderated = body.scope === 'class' && body.moderated === true;
+  const { rows: [row] } = await q(`insert into boards (title, description, scope, class_id, created_by, assigned_only, moderated)
+    values ($1, $2, $3, $4, $5, $6, $7) returning id`, [title, description, body.scope, classId, user.id, assignedOnly, moderated]);
+  await audit(user, 'board_created', title, { scope: body.scope, assignedOnly, moderated });
   return created({ id: row.id });
 }, { roles: STAFF });
 
@@ -1175,7 +1185,10 @@ on('PATCH', '/api/boards/:id', async ({ params, body, user }) => {
   const title = body.title !== undefined ? str(body.title, 120) : board.title;
   if (title.length < 2) fail(400, 'Pano başlığı en az 2 karakter olmalı.');
   const description = body.description !== undefined ? str(body.description, 500) : board.description;
-  await q('update boards set title = $2, description = $3 where id = $1', [id, title, description]);
+  const assignedOnly = board.scope === 'class' && (body.assignedOnly !== undefined ? body.assignedOnly === true : board.assignedOnly);
+  const moderated = board.scope === 'class' && (body.moderated !== undefined ? body.moderated === true : board.moderated);
+  await q('update boards set title = $2, description = $3, assigned_only = $4, moderated = $5 where id = $1', [id, title, description, assignedOnly, moderated]);
+  await audit(user, 'board_updated', title, { assignedOnly, moderated });
   return ok({ updated: true });
 });
 
@@ -1195,23 +1208,74 @@ on('DELETE', '/api/boards/:id', async ({ params, user }) => {
 on('GET', '/api/boards/:id/notes', async ({ params, user }) => {
   const id = requireId(params.id, 'pano');
   const board = await loadBoard(id);
-  const rights = rightsFor(user, { scope: board.scope, classId: board.classId }, await membership(user));
-  if (!rights.view) fail(403, 'Bu panoyu görme yetkin yok.');
-  const { rows } = await q(`select n.id, n.title, n.body, n.link, n.color, n.file_name as "fileName",
-      (n.file_path is not null) as "hasFile", n.created_at as "createdAt", n.author_id as "authorId",
+  const base = rightsFor(user, { scope: board.scope, classId: board.classId }, await membership(user));
+  if (!base.view) fail(403, 'Bu panoyu görme yetkin yok.');
+  const rights = await studentCanPost(user, board, base);
+  // Onay bekleyen notları yalnızca yöneticiler ve yazarın kendisi görür.
+  const { rows } = await q(`select n.id, n.title, n.body, n.link, n.color, n.file_name as "fileName", n.file_mime as "fileMime",
+      (n.file_path is not null) as "hasFile", n.approved, n.created_at as "createdAt", n.author_id as "authorId",
       u.name as "authorName", u.role as "authorRole"
     from board_notes n left join users u on u.id = n.author_id
-    where n.board_id = $1 order by n.created_at desc limit 300`, [id]);
-  const notes = rows.map(n => ({ ...n, canDelete: rights.moderate || n.authorId === user.id }));
-  return ok({ board: { ...board, rights }, notes });
+    where n.board_id = $1 and (${rights.moderate ? 'true' : 'n.approved or n.author_id = $2'})
+    order by n.created_at desc limit 300`, rights.moderate ? [id] : [id, user.id]);
+  const pendingCount = rights.moderate ? rows.filter(n => !n.approved).length : 0;
+  const notes = rows.map(n => ({ ...n, canDelete: rights.moderate || n.authorId === user.id, canApprove: rights.moderate && !n.approved }));
+  return ok({ board: { ...board, rights: { ...rights, pendingCount } }, notes });
+});
+
+// Atanabilir öğrenciler ve mevcut atamalar (yalnızca sınıf panosu yöneticisi)
+on('GET', '/api/boards/:id/members', async ({ params, user }) => {
+  const id = requireId(params.id, 'pano');
+  const board = await loadBoard(id);
+  if (!rightsFor(user, { scope: board.scope, classId: board.classId }, await membership(user)).moderate) fail(403, 'Bu panonun atamalarını görme yetkin yok.');
+  if (board.scope !== 'class') fail(400, 'Okul panosunda öğrenci ataması yapılmaz.');
+  const { rows } = await q(`select u.id, u.name, u.student_no as "studentNo", (bm.student_id is not null) as assigned
+    from enrollments e join users u on u.id = e.student_id
+    left join board_members bm on bm.board_id = $1 and bm.student_id = u.id
+    where e.class_id = $2 order by u.name`, [id, board.classId]);
+  return ok({ students: rows });
+}, { roles: STAFF });
+
+on('PUT', '/api/boards/:id/members', async ({ params, body, user }) => {
+  const id = requireId(params.id, 'pano');
+  const board = await loadBoard(id);
+  if (!rightsFor(user, { scope: board.scope, classId: board.classId }, await membership(user)).moderate) fail(403, 'Bu panonun atamalarını değiştirme yetkin yok.');
+  if (board.scope !== 'class') fail(400, 'Okul panosunda öğrenci ataması yapılmaz.');
+  const ids = Array.isArray(body.studentIds) ? body.studentIds.map(v => requireId(v, 'öğrenci')) : fail(400, 'Öğrenci listesi geçersiz.');
+  if (ids.length > 300) fail(400, 'Tek seferde en fazla 300 öğrenci atanabilir.');
+  const { rows: enrolled } = await q('select student_id from enrollments where class_id = $1', [board.classId]);
+  const allowed = new Set(enrolled.map(r => r.student_id));
+  if (ids.some(v => !allowed.has(v))) fail(400, 'Listede bu sınıfa ait olmayan bir öğrenci var.');
+  await tx(async client => {
+    await client.query('delete from board_members where board_id = $1 and not (student_id = any($2::uuid[]))', [id, ids]);
+    for (const studentId of ids) {
+      await client.query('insert into board_members (board_id, student_id) values ($1, $2) on conflict do nothing', [id, studentId]);
+    }
+  });
+  await audit(user, 'board_members_saved', board.title, { count: ids.length });
+  return ok({ saved: ids.length });
+}, { roles: STAFF });
+
+// Onay: yalnızca pano yöneticisi bekleyen notu onaylar veya geri çeker
+on('PATCH', '/api/board-notes/:id', async ({ params, body, user }) => {
+  const id = requireId(params.id, 'not');
+  const { rows: [n] } = await q('select board_id from board_notes where id = $1', [id]);
+  if (!n) fail(404, 'Not bulunamadı.');
+  const board = await loadBoard(n.board_id);
+  if (!rightsFor(user, { scope: board.scope, classId: board.classId }, await membership(user)).moderate) fail(403, 'Bu notu onaylama yetkin yok.');
+  if (typeof body.approved !== 'boolean') fail(400, 'Onay durumu geçersiz.');
+  await q('update board_notes set approved = $2 where id = $1', [id, body.approved]);
+  return ok({ approved: body.approved });
 });
 
 on('POST', '/api/boards/:id/notes', async ({ params, body, user }) => {
   const id = requireId(params.id, 'pano');
   const board = await loadBoard(id);
-  if (!rightsFor(user, { scope: board.scope, classId: board.classId }, await membership(user)).post) {
-    fail(403, 'Bu panoya not ekleme yetkin yok.');
+  const rights = await studentCanPost(user, board, rightsFor(user, { scope: board.scope, classId: board.classId }, await membership(user)));
+  if (!rights.post) {
+    fail(403, board.assignedOnly ? 'Bu panoya yalnızca öğretmeninin atadığı öğrenciler not ekleyebilir.' : 'Bu panoya not ekleme yetkin yok.');
   }
+  const approved = !(user.role === 'student' && board.moderated);
   const title = str(body.title, 120);
   const text = String(body.body ?? '').trim();
   if (text.length > 2000) fail(400, 'Not metni en fazla 2000 karakter olabilir.');
@@ -1225,10 +1289,10 @@ on('POST', '/api/boards/:id/notes', async ({ params, body, user }) => {
     await storage.put(filePath, upload.buffer, upload.mime);
   }
   try {
-    const { rows: [row] } = await q(`insert into board_notes (board_id, author_id, title, body, link, color, file_path, file_name, file_mime, file_size)
-      values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) returning id`,
-      [id, user.id, title, text, link, color, filePath, upload?.name ?? null, upload?.mime ?? null, upload?.buffer.length ?? null]);
-    return created({ id: row.id });
+    const { rows: [row] } = await q(`insert into board_notes (board_id, author_id, title, body, link, color, file_path, file_name, file_mime, file_size, approved)
+      values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) returning id`,
+      [id, user.id, title, text, link, color, filePath, upload?.name ?? null, upload?.mime ?? null, upload?.buffer.length ?? null, approved]);
+    return created({ id: row.id, approved });
   } catch (error) {
     if (filePath) await storage.remove(filePath);
     throw error;
@@ -1249,13 +1313,18 @@ on('DELETE', '/api/board-notes/:id', async ({ params, user }) => {
   return ok({ deleted: true });
 });
 
-on('GET', '/api/files/board-note/:id', async ({ params, user }) => {
+on('GET', '/api/files/board-note/:id', async ({ params, query, user }) => {
   const id = requireId(params.id, 'not');
-  const { rows: [n] } = await q('select board_id, file_path, file_name, file_mime from board_notes where id = $1', [id]);
+  const { rows: [n] } = await q('select board_id, file_path, file_name, file_mime, approved, author_id from board_notes where id = $1', [id]);
   if (!n || !n.file_path) fail(404, 'Dosya bulunamadı.');
   const board = await loadBoard(n.board_id);
-  if (!rightsFor(user, { scope: board.scope, classId: board.classId }, await membership(user)).view) fail(403, 'Bu dosyaya erişimin yok.');
-  return fileOf(n.file_path, n.file_mime, n.file_name);
+  const rights = rightsFor(user, { scope: board.scope, classId: board.classId }, await membership(user));
+  if (!rights.view) fail(403, 'Bu dosyaya erişimin yok.');
+  if (!rights.moderate && !n.approved && n.author_id !== user.id) fail(403, 'Bu not henüz onaylanmadı.');
+  const result = await fileOf(n.file_path, n.file_mime, n.file_name);
+  // Yalnızca resimler sayfa içinde gösterilir; diğer dosyalar her zaman indirme olarak sunulur.
+  result.file.inline = query.get('inline') === '1' && ['image/png', 'image/jpeg'].includes(n.file_mime);
+  return result;
 });
 
 // Ana sayfadaki okul duyuruları: yalnızca okul panolarındaki notlar, giriş gerektirmez.
