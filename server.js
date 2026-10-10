@@ -1,0 +1,148 @@
+const http = require('node:http');
+const fs = require('node:fs');
+const path = require('node:path');
+const { migrate, q, pool } = require('./src/db');
+const storage = require('./src/storage');
+const { handleApi, toHttpError, HttpError } = require('./src/api');
+
+const PORT = Number(process.env.PORT || 3000);
+const HOST = process.env.HOST || (process.env.RENDER ? '0.0.0.0' : '127.0.0.1');
+const PUBLIC = path.join(__dirname, 'public');
+const BODY_LIMIT = 8 * 1024 * 1024;
+const MIME = {
+  '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
+  '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.webmanifest': 'application/manifest+json',
+};
+const SECURITY = {
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'DENY',
+  'Referrer-Policy': 'same-origin',
+  'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+  'Content-Security-Policy': [
+    "default-src 'self'", "script-src 'self'", "style-src 'self' https://fonts.googleapis.com",
+    "font-src 'self' https://fonts.gstatic.com", "img-src 'self' data:", "connect-src 'self'",
+    "object-src 'none'", "base-uri 'none'", "form-action 'self'", "frame-ancestors 'none'",
+  ].join('; '),
+};
+
+function send(res, status, body, headers = {}) {
+  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...headers });
+  res.end(JSON.stringify(body));
+}
+
+function sameOrigin(req) {
+  const origin = req.headers.origin;
+  if (!origin) return true;
+  try {
+    const host = new URL(origin).host;
+    return host === req.headers.host || host === req.headers['x-forwarded-host'];
+  } catch {
+    return false;
+  }
+}
+
+function readBody(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let size = 0;
+    req.on('data', chunk => {
+      size += chunk.length;
+      if (size > BODY_LIMIT) { reject(new HttpError(413, 'İstek boyutu çok büyük.')); req.destroy(); return; }
+      chunks.push(chunk);
+    });
+    req.on('end', () => {
+      if (!size) return resolve({});
+      try {
+        const parsed = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+        resolve(parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {});
+      } catch {
+        reject(new HttpError(400, 'Geçerli bir JSON gönderilmeli.'));
+      }
+    });
+    req.on('error', reject);
+  });
+}
+
+function serveStatic(res, pathname) {
+  const requested = pathname === '/' ? '/index.html' : pathname;
+  const file = path.normalize(path.join(PUBLIC, requested));
+  if (!file.startsWith(PUBLIC + path.sep)) return send(res, 404, { error: 'Bulunamadı.' });
+  fs.stat(file, (error, stat) => {
+    if (error || !stat.isFile()) return send(res, 404, { error: 'Bulunamadı.' });
+    res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream', 'Cache-Control': 'no-cache' });
+    fs.createReadStream(file).pipe(res);
+  });
+}
+
+const server = http.createServer(async (req, res) => {
+  for (const [key, value] of Object.entries(SECURITY)) res.setHeader(key, value);
+  const url = new URL(req.url, 'http://localhost');
+
+  if (url.pathname === '/healthz') {
+    try {
+      await q('select 1');
+      return send(res, 200, { ok: true, storage: storage.useSupabase ? 'supabase' : 'local' });
+    } catch {
+      return send(res, 503, { ok: false, error: 'Veritabanına ulaşılamıyor.' });
+    }
+  }
+
+  if (!url.pathname.startsWith('/api/')) {
+    if (!['GET', 'HEAD'].includes(req.method)) return send(res, 405, { error: 'Bu işlem desteklenmiyor.' });
+    return serveStatic(res, url.pathname);
+  }
+
+  try {
+    if (!['GET', 'HEAD'].includes(req.method)) {
+      if (!sameOrigin(req)) throw new HttpError(403, 'İstek kaynağı doğrulanamadı.');
+      if (req.method !== 'DELETE' && !/application\/json/i.test(req.headers['content-type'] || '')) {
+        throw new HttpError(415, 'JSON içerik türü gerekli.');
+      }
+    }
+    const body = ['POST', 'PUT', 'PATCH'].includes(req.method) ? await readBody(req) : {};
+    const result = await handleApi({ req, res, url, body });
+    if (result.file) {
+      const { buffer, mime, name } = result.file;
+      res.writeHead(200, {
+        'Content-Type': mime,
+        'Content-Length': buffer.length,
+        'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(name)}`,
+        'Cache-Control': 'private, no-store',
+      });
+      return res.end(buffer);
+    }
+    return send(res, result.status || 200, result.body ?? {});
+  } catch (error) {
+    const mapped = toHttpError(error);
+    if (mapped) return send(res, mapped.status, { error: mapped.message });
+    console.error(new Date().toISOString(), req.method, url.pathname, error);
+    return send(res, 500, { error: 'Beklenmeyen bir hata oluştu.' });
+  }
+});
+
+async function start() {
+  if (process.env.NODE_ENV === 'production' && !storage.useSupabase) {
+    throw new Error('Üretimde SUPABASE_URL ve SUPABASE_SERVICE_ROLE_KEY zorunlu (dosyalar Supabase Storage\'da tutulur).');
+  }
+  await migrate();
+  await storage.ensureBucket();
+  server.listen(PORT, HOST, () => {
+    console.log(`Okulum hazır: http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT} · depolama: ${storage.useSupabase ? 'Supabase' : 'yerel (geliştirme)'}`);
+  });
+}
+
+function shutdown() {
+  server.close(() => pool.end().then(() => process.exit(0)));
+  setTimeout(() => process.exit(0), 5000).unref();
+}
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);
+
+if (require.main === module) {
+  start().catch(error => {
+    console.error('Başlatma hatası:', error.message);
+    process.exit(1);
+  });
+}
+
+module.exports = { server, start };

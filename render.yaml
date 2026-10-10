@@ -1,0 +1,26 @@
+# Render Blueprint: "New → Blueprint" ile bu depoyu bağla.
+services:
+  - type: web
+    name: okulum
+    runtime: node
+    plan: free
+    region: frankfurt
+    buildCommand: npm install --omit=dev
+    startCommand: npm start
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: TRUST_PROXY
+        value: "1"
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false   # Supabase → Connect → URI (Session pooler)
+      - key: SUPABASE_URL
+        sync: false   # https://<proje>.supabase.co
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false   # Supabase → Settings → API → service_role
