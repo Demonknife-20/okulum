@@ -185,6 +185,7 @@ async function start() {
   }
   await migrate();
   await storage.ensureBucket();
+  require('./src/ai').startRetention();
   server.listen(PORT, HOST, () => {
     console.log(`Okulum hazır: http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT} · depolama: ${storage.useSupabase ? 'Supabase' : 'yerel (geliştirme)'}`);
   });

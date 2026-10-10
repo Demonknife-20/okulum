@@ -1,6 +1,8 @@
+const crypto = require('node:crypto');
 const { q, tx } = require('./db');
 const sec = require('./security');
 const storage = require('./storage');
+const ai = require('./ai');
 
 // ---------- Yardımcılar ----------
 class HttpError extends Error {
@@ -27,12 +29,17 @@ const requireDate = value => {
   return value;
 };
 const COMMON_PASSWORDS = new Set(['password', 'password1', '12345678', '123456789', 'qwerty123', 'sifre1234', 'parola123', '11111111', 'mudur1234', 'ogretmen1', 'ogrenci1', 'okulum123']);
-const checkPassword = value => {
+const passwordProblem = value => {
   const text = typeof value === 'string' ? value : '';
-  if (text.length < 8 || text.length > 128) fail(400, 'Şifre 8-128 karakter olmalı.');
-  if (!/[A-Za-z]/.test(text) || !/\d/.test(text)) fail(400, 'Şifre en az bir harf ve bir rakam içermeli.');
-  if (COMMON_PASSWORDS.has(text.toLowerCase())) fail(400, 'Bu şifre çok yaygın. Daha zor bir şifre seçin.');
-  return text;
+  if (text.length < 8 || text.length > 128) return 'Şifre 8-128 karakter olmalı.';
+  if (!/[A-Za-z]/.test(text) || !/\d/.test(text)) return 'Şifre en az bir harf ve bir rakam içermeli.';
+  if (COMMON_PASSWORDS.has(text.toLowerCase())) return 'Bu şifre çok yaygın. Daha zor bir şifre seçin.';
+  return null;
+};
+const checkPassword = value => {
+  const problem = passwordProblem(value);
+  if (problem) fail(400, problem);
+  return value;
 };
 const istanbulDate = (date = new Date()) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Istanbul' }).format(date);
 const todayIso = () => istanbulDate();
@@ -1335,6 +1342,247 @@ on('GET', '/api/public/announcements', async () => {
     where b.scope = 'school' order by n.created_at desc limit 6`);
   return ok({ announcements: rows });
 }, { auth: false });
+
+// ---------- Okulum Asistanı (Gemini) ----------
+on('GET', '/api/ai/status', async ({ user }) => {
+  const { rows: [consent] } = await q('select 1 from ai_consents where user_id = $1 and version = $2', [user.id, ai.NOTICE_VERSION]);
+  const { rows: [usage] } = await q('select used from ai_usage where user_id = $1 and day = current_date', [user.id]);
+  const used = usage?.used ?? 0;
+  return ok({
+    enabled: ai.enabled(), notice: ai.NOTICE, accepted: Boolean(consent),
+    limit: ai.DAILY_LIMIT, usedToday: used, remaining: Math.max(0, ai.DAILY_LIMIT - used),
+  });
+});
+
+on('POST', '/api/ai/consent', async ({ body, user }) => {
+  if (body.version !== ai.NOTICE_VERSION) fail(400, 'Bildirim sürümü güncel değil. Sayfayı yenileyip tekrar okuyun.');
+  await q('insert into ai_consents (user_id, version) values ($1, $2) on conflict do nothing', [user.id, body.version]);
+  return ok({ accepted: true });
+});
+
+on('POST', '/api/ai/chat', async ({ body, user }) => {
+  if (!ai.enabled()) fail(503, 'Asistan henüz etkin değil. Okul yöneticinizle konuşun.');
+  const { rowCount: accepted } = await q('select 1 from ai_consents where user_id = $1 and version = $2', [user.id, ai.NOTICE_VERSION]);
+  if (!accepted) fail(403, 'Asistanı kullanmadan önce kullanım bildirimini kabul etmelisiniz.');
+  const text = String(body.message ?? '').trim();
+  if (!text) fail(400, 'Mesaj boş olamaz.');
+  if (text.length > 2000) fail(400, 'Mesaj en fazla 2000 karakter olabilir.');
+
+  const { rows: [usage] } = await q('select used from ai_usage where user_id = $1 and day = current_date', [user.id]);
+  if ((usage?.used ?? 0) >= ai.DAILY_LIMIT) fail(429, `Bugünkü ${ai.DAILY_LIMIT} soru hakkınızı kullandınız. Yarın tekrar deneyin.`);
+  const { rows: [all] } = await q('select coalesce(sum(used), 0)::int as n from ai_usage where day = current_date');
+  if (all.n >= ai.GLOBAL_DAILY) fail(429, 'Asistan bugün çok yoğun. Lütfen yarın tekrar deneyin.');
+
+  let conversationId = body.conversationId ? requireId(body.conversationId, 'sohbet') : null;
+  let history = [];
+  if (conversationId) {
+    const { rowCount } = await q('select 1 from ai_conversations where id = $1 and user_id = $2', [conversationId, user.id]);
+    if (!rowCount) fail(404, 'Sohbet bulunamadı.');
+    history = (await q('select role, content from ai_messages where conversation_id = $1 order by id desc limit 12', [conversationId])).rows.reverse();
+  }
+
+  const safe = sec.redact(text);
+  let reply;
+  if (ai.isInjection(text)) {
+    reply = ai.INJECTION_REPLY; // kural dışı istek: yapay zekâya gönderilmez, kota harcanmaz
+  } else {
+    await q(`insert into ai_usage (user_id, day, used) values ($1, current_date, 1)
+      on conflict (user_id, day) do update set used = ai_usage.used + 1`, [user.id]);
+    try {
+      reply = await ai.askGemini({ role: user.role, history, message: safe });
+    } catch (error) {
+      if (error instanceof ai.AiError) fail(error.status, error.message);
+      throw error;
+    }
+  }
+  await tx(async client => {
+    if (!conversationId) {
+      const { rows: [row] } = await client.query('insert into ai_conversations (user_id, title) values ($1, $2) returning id', [user.id, safe.slice(0, 60)]);
+      conversationId = row.id;
+    }
+    await client.query(`insert into ai_messages (conversation_id, role, content) values ($1, 'user', $2), ($1, 'assistant', $3)`, [conversationId, safe, reply]);
+    await client.query('update ai_conversations set updated_at = now() where id = $1', [conversationId]);
+  });
+  return ok({ conversationId, reply, redacted: safe !== text });
+});
+
+on('GET', '/api/ai/conversations', async ({ user }) => {
+  const { rows } = await q(`select c.id, c.title, c.updated_at as "updatedAt",
+      (select count(*)::int from ai_messages m where m.conversation_id = c.id) as "messageCount"
+    from ai_conversations c where c.user_id = $1 order by c.updated_at desc limit 50`, [user.id]);
+  return ok({ conversations: rows });
+});
+
+on('GET', '/api/ai/conversations/:id/messages', async ({ params, user }) => {
+  const id = requireId(params.id, 'sohbet');
+  const { rows: [c] } = await q(`select c.id, c.title, c.user_id, u.name as "userName", u.role as "userRole"
+    from ai_conversations c join users u on u.id = c.user_id where c.id = $1`, [id]);
+  if (!c) fail(404, 'Sohbet bulunamadı.');
+  const own = c.user_id === user.id;
+  if (!own && user.role !== 'principal') fail(403, 'Bu sohbeti görme yetkin yok.');
+  if (!own) await audit(user, 'ai_logs_viewed', c.title, { owner: c.userName });
+  const { rows: messages } = await q('select id, role, content, created_at as "createdAt" from ai_messages where conversation_id = $1 order by id asc', [id]);
+  return ok({ conversation: { id: c.id, title: c.title, userName: c.userName, userRole: c.userRole }, messages, readOnly: !own });
+});
+
+on('DELETE', '/api/ai/conversations/:id', async ({ params, user }) => {
+  const id = requireId(params.id, 'sohbet');
+  const { rowCount } = await q('delete from ai_conversations where id = $1 and user_id = $2', [id, user.id]);
+  if (!rowCount) fail(404, 'Sohbet bulunamadı.');
+  return ok({ deleted: true });
+});
+
+on('GET', '/api/ai/logs', async ({ query }) => {
+  const { page, size, offset } = pageOf(query, 25);
+  const { rows: [{ n }] } = await q('select count(*)::int as n from ai_conversations');
+  const { rows } = await q(`select c.id, c.title, c.updated_at as "updatedAt", u.name as "userName", u.role as "userRole",
+      (select count(*)::int from ai_messages m where m.conversation_id = c.id) as "messageCount"
+    from ai_conversations c join users u on u.id = c.user_id order by c.updated_at desc limit $1 offset $2`, [size, offset]);
+  return ok({ conversations: rows, total: n, page, size });
+}, { roles: PRINCIPAL });
+
+// ---------- Toplu kullanıcı içe aktarma (CSV) ----------
+// Sütunlar: ad_soyad, rol (öğrenci/öğretmen), kullanici_adi, parola (boşsa üretilir), okul_no, sinif, ders_atamalari
+// Ders atamaları: "6/A:Matematik|7/B:Türkçe"
+const IMPORT_MAX_ROWS = 500;
+const IMPORT_MAX_CHARS = 300000;
+const normKey = value => String(value ?? '').trim().toLocaleLowerCase('tr-TR')
+  .replace(/ı/g, 'i').replace(/ş/g, 's').replace(/ğ/g, 'g').replace(/ü/g, 'u').replace(/ö/g, 'o').replace(/ç/g, 'c')
+  .replace(/[\s-]+/g, '_');
+
+function parseCsvText(text) {
+  const clean = String(text ?? '').replace(/^\uFEFF/, '');
+  const firstLine = clean.split(/\r?\n/)[0] || '';
+  const delimiter = firstLine.includes(';') ? ';' : ',';
+  const rows = [];
+  let row = [];
+  let field = '';
+  let quoted = false;
+  for (let i = 0; i < clean.length; i += 1) {
+    const ch = clean[i];
+    if (quoted) {
+      if (ch === '"') {
+        if (clean[i + 1] === '"') { field += '"'; i += 1; } else { quoted = false; }
+      } else {
+        field += ch;
+      }
+    } else if (ch === '"') {
+      quoted = true;
+    } else if (ch === delimiter) {
+      row.push(field); field = '';
+    } else if (ch === '\n' || ch === '\r') {
+      if (ch === '\r' && clean[i + 1] === '\n') i += 1;
+      row.push(field); rows.push(row); row = []; field = '';
+    } else {
+      field += ch;
+    }
+  }
+  if (field.length || row.length) { row.push(field); rows.push(row); }
+  return rows.filter(cells => cells.some(cell => cell.trim() !== ''));
+}
+
+const GENERATED_CHARS = 'abcdefghjkmnpqrstuvwxyz';
+const GENERATED_DIGITS = '23456789';
+function generatePassword() {
+  for (;;) {
+    const bytes = crypto.randomBytes(10);
+    let out = '';
+    for (let i = 0; i < 8; i += 1) out += GENERATED_CHARS[bytes[i] % GENERATED_CHARS.length];
+    out += GENERATED_DIGITS[bytes[8] % GENERATED_DIGITS.length] + GENERATED_DIGITS[bytes[9] % GENERATED_DIGITS.length];
+    if (!passwordProblem(out)) return out;
+  }
+}
+
+// Dosyayı kayda dönüştürür ve her satırı doğrular. Veritabanına yazmaz.
+async function planImport(text) {
+  const rows = parseCsvText(text);
+  if (rows.length < 2) fail(400, 'Dosyada başlık satırı ve en az bir kayıt olmalı.');
+  if (rows.length - 1 > IMPORT_MAX_ROWS) fail(400, `Tek seferde en fazla ${IMPORT_MAX_ROWS} kayıt içe aktarılabilir.`);
+  const header = rows[0].map(normKey);
+  for (const required of ['ad_soyad', 'rol', 'kullanici_adi']) {
+    if (!header.includes(required)) fail(400, `Başlık satırında "${required}" sütunu eksik.`);
+  }
+  const classes = new Map((await q('select id, name from classes')).rows.map(r => [normKey(r.name), r.id]));
+  const subjects = new Map((await q('select id, name from subjects')).rows.map(r => [normKey(r.name), r.id]));
+  const taken = await q('select username, student_no from users');
+  const takenUsernames = new Set(taken.rows.map(r => r.username));
+  const takenNumbers = new Set(taken.rows.map(r => r.student_no).filter(Boolean));
+  const fileUsernames = new Set();
+  const fileNumbers = new Set();
+
+  return rows.slice(1).map((cells, index) => {
+    const get = key => (header.includes(key) ? String(cells[header.indexOf(key)] ?? '').trim() : '');
+    const item = { line: index + 2, name: get('ad_soyad'), username: get('kullanici_adi').toLocaleLowerCase('tr-TR'), errors: [] };
+    if (item.name.length < 2 || item.name.length > 80) item.errors.push('Ad soyad 2-80 karakter olmalı.');
+    const roleKey = normKey(get('rol'));
+    item.role = ['ogrenci', 'student'].includes(roleKey) ? 'student' : (['ogretmen', 'teacher'].includes(roleKey) ? 'teacher' : null);
+    if (!item.role) item.errors.push('Rol "öğrenci" veya "öğretmen" olmalı.');
+    if (!USERNAME.test(item.username)) item.errors.push('Kullanıcı adı 3-32 karakter: küçük harf, rakam, nokta, tire, alt çizgi.');
+    else if (takenUsernames.has(item.username) || fileUsernames.has(item.username)) item.errors.push('Bu kullanıcı adı zaten kullanılıyor.');
+    else fileUsernames.add(item.username);
+    const password = get('parola');
+    if (password) {
+      const problem = passwordProblem(password);
+      if (problem) item.errors.push(problem);
+      item.password = password;
+    } else {
+      item.password = generatePassword();
+      item.generated = true;
+    }
+    if (item.role === 'student') {
+      item.studentNo = get('okul_no');
+      if (!item.studentNo) item.errors.push('Öğrenci için okul no zorunlu.');
+      else if (takenNumbers.has(item.studentNo) || fileNumbers.has(item.studentNo)) item.errors.push('Bu okul no zaten kayıtlı.');
+      else fileNumbers.add(item.studentNo);
+      const classId = classes.get(normKey(get('sinif')));
+      if (!classId) item.errors.push(`Sınıf bulunamadı: "${get('sinif') || '(boş)'}".`);
+      item.classId = classId || null;
+    }
+    if (item.role === 'teacher') {
+      item.teaching = [];
+      for (const part of get('ders_atamalari').split('|').map(v => v.trim()).filter(Boolean)) {
+        const [className, subjectName] = part.split(':').map(v => (v || '').trim());
+        const classId = classes.get(normKey(className));
+        const subjectId = subjects.get(normKey(subjectName));
+        if (!classId || !subjectId) { item.errors.push(`Ders ataması geçersiz: "${part}" (sınıf:ders biçiminde yazın).`); continue; }
+        item.teaching.push({ classId, subjectId });
+      }
+    }
+    item.status = item.errors.length ? 'hata' : 'ok';
+    item.message = item.errors.join(' ') || 'Eklenebilir';
+    return item;
+  });
+}
+
+on('POST', '/api/import/users', async ({ body, user }) => {
+  const text = String(body.csv ?? '');
+  if (text.length > IMPORT_MAX_CHARS) fail(400, 'Dosya çok büyük. En fazla 300 KB olmalı.');
+  const plan = await planImport(text);
+  const errorCount = plan.filter(item => item.status === 'hata').length;
+  const preview = plan.map(({ line, name, username, role, status, message, generated }) => ({ line, name, username, role, status, message, generated: Boolean(generated) }));
+  if (body.dryRun !== false) return ok({ dryRun: true, rows: preview, okCount: plan.length - errorCount, errorCount });
+  if (errorCount) fail(400, `Dosyada ${errorCount} hatalı satır var. Önce hataları düzeltin; hiçbir kayıt eklenmedi.`);
+
+  // Parolalar paralel hesaplanır; yazma tek işlemde, hepsi ya da hiçbiri
+  const hashes = [];
+  for (let i = 0; i < plan.length; i += 8) {
+    hashes.push(...await Promise.all(plan.slice(i, i + 8).map(item => sec.hashPasswordAsync(item.password))));
+  }
+  await tx(async client => {
+    for (let i = 0; i < plan.length; i += 1) {
+      const item = plan[i];
+      const { rows: [row] } = await client.query(`insert into users (username, password_hash, name, role, student_no)
+        values ($1, $2, $3, $4, $5) returning id`, [item.username, hashes[i], item.name, item.role, item.studentNo || null]);
+      if (item.role === 'student') await client.query('insert into enrollments (student_id, class_id) values ($1, $2)', [row.id, item.classId]);
+      for (const pair of item.teaching || []) {
+        await client.query('insert into teaching (teacher_id, class_id, subject_id) values ($1, $2, $3)', [row.id, pair.classId, pair.subjectId]);
+      }
+    }
+  });
+  const credentials = plan.filter(item => item.generated).map(item => ({ name: item.name, username: item.username, role: item.role, password: item.password }));
+  await audit(user, 'users_imported', `${plan.length} kayıt`, { students: plan.filter(i => i.role === 'student').length, teachers: plan.filter(i => i.role === 'teacher').length, generatedPasswords: credentials.length });
+  return created({ created: plan.length, credentials });
+}, { roles: PRINCIPAL });
 
 // ---------- Hata eşleme ----------
 function toHttpError(error) {

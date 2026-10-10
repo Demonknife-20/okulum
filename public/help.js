@@ -59,6 +59,16 @@ const SECTIONS = [
     ],
   },
   {
+    title: 'Okulum Asistanı',
+    intro: 'Asistan, site kullanımı, ders konuları ve öğretim fikirleri için yardımcı bir yapay zekâdır. Kullanmadan önce kullanım bildirimini kabul etmeniz gerekir.',
+    items: [
+      ['Ne yapar?', 'Öğrenciye sitenin nasıl kullanılacağını anlatır ve konuları adım adım açıklar. Öğretmene ders planı, soru örnekleri ve ödev yönergesi taslakları önerir. Müdüre duyuru taslağı hazırlar.'],
+      ['Ödev sorusu sorarsanız', 'Asistan ödevin cevabını vermez. Sizi düşündürecek sorular sorar, çözüm yolunu adım adım anlatır.'],
+      ['Gizlilik', 'Sohbetler okul tarafından saklanır ve 180 gün sonra silinir. T.C. kimlik no, telefon ve e-posta gibi bilgiler gönderilmeden önce maskelenir, yine de yazmamanız önerilir.'],
+      ['Günlük sınır', 'Her kullanıcı günde belirli sayıda soru sorabilir. Sınır dolunca yarın yeniden deneyebilirsiniz.'],
+    ],
+  },
+  {
     title: 'Sık sorulanlar',
     intro: '',
     items: [

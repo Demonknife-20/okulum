@@ -209,3 +209,41 @@ create table if not exists board_members (
   primary key (board_id, student_id)
 );
 alter table board_members enable row level security;
+
+-- v12: Okulum Asistanı (Gemini): onaylar, sohbetler, mesajlar, günlük kullanım
+create table if not exists ai_consents (
+  user_id uuid not null references users(id) on delete cascade,
+  version text not null,
+  accepted_at timestamptz not null default now(),
+  primary key (user_id, version)
+);
+
+create table if not exists ai_conversations (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references users(id) on delete cascade,
+  title text not null default 'Sohbet' check (char_length(title) between 1 and 120),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+create index if not exists ai_conversations_user on ai_conversations(user_id, updated_at desc);
+
+create table if not exists ai_messages (
+  id bigint generated always as identity primary key,
+  conversation_id uuid not null references ai_conversations(id) on delete cascade,
+  role text not null check (role in ('user', 'assistant')),
+  content text not null check (char_length(content) between 1 and 6000),
+  created_at timestamptz not null default now()
+);
+create index if not exists ai_messages_conv on ai_messages(conversation_id, id);
+
+create table if not exists ai_usage (
+  user_id uuid not null references users(id) on delete cascade,
+  day date not null default current_date,
+  used integer not null default 0,
+  primary key (user_id, day)
+);
+
+alter table ai_consents enable row level security;
+alter table ai_conversations enable row level security;
+alter table ai_messages enable row level security;
+alter table ai_usage enable row level security;

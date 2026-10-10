@@ -749,3 +749,27 @@ input:disabled,select:disabled{opacity:.6}
 .chat>div:first-child{background:var(--surface-2);border-right:1px solid var(--line);min-height:100%}
 .chat .conv-list{background:transparent;border-right:0;max-height:none}
 @media (max-width:820px){.chat>div:first-child{border-right:0;border-bottom:1px solid var(--line)}}
+
+/* v12: Okulum Asistanı */
+.ai-banner{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;margin:0 0 var(--sp-4);padding:12px 16px;border-radius:var(--r);background:var(--brand-soft);color:var(--brand);font-weight:700;font-size:14px;border:1px solid color-mix(in srgb,var(--brand) 22%,transparent)}
+.ai-banner>span{display:inline-flex;align-items:center;gap:10px}
+.ai-banner .ico{width:18px;height:18px;flex:0 0 auto}
+.ai-gate-title{font-size:26px;margin:14px 0 10px}
+.ai-sections{display:grid;gap:12px;margin-top:var(--sp-4)}
+.ai-section{padding:16px 18px;border-radius:var(--r);background:var(--surface-2);border:1px solid var(--line)}
+.ai-section h3{font-size:15px;margin-bottom:6px}
+.ai-section p{color:var(--ink-2);font-size:14px;line-height:1.65}
+.ai-chips{display:flex;flex-wrap:wrap;gap:8px;padding:12px 16px 4px;border-top:1px solid var(--line);background:var(--surface)}
+.ai-chip{padding:8px 13px;border-radius:var(--r-pill);border:1px solid var(--line-2);background:var(--surface);color:var(--ink-2);font-size:13px;font-weight:600;text-align:left;transition:transform .2s var(--ease),border-color .2s,background .2s}
+.ai-chip:hover{transform:translateY(-2px);border-color:var(--brand);color:var(--brand);background:var(--brand-soft)}
+.ai-foot{padding:0 16px 14px;background:var(--surface)}
+.bubble.ai{background:var(--surface);border-color:color-mix(in srgb,var(--brand) 18%,var(--line))}
+.empty-inline{padding:24px;color:var(--muted);font-size:14px;text-align:center}
+
+/* v13: toplu içe aktarma */
+.file-pick{position:relative;cursor:pointer}
+.import-summary{font-size:15px}
+.import-table{max-height:340px;overflow:auto}
+.row-error td{background:var(--danger-bg)!important}
+.row-error td:first-child{box-shadow:inset 3px 0 0 var(--danger)}
+code{font:600 13px ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:var(--surface-3);padding:3px 7px;border-radius:7px}

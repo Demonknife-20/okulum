@@ -21,6 +21,7 @@ const ICONS = {
   send: '<path d="M4 12 20 4l-4 16-4-6z"/>',
   close: '<path d="M6 6l12 12M18 6 6 18"/>',
   board: '<rect x="3" y="4" width="8" height="10" rx="2"/><rect x="13" y="4" width="8" height="6" rx="2"/><rect x="13" y="12" width="8" height="8" rx="2"/><rect x="3" y="16" width="8" height="4" rx="2"/>',
+  spark: '<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="M19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8z"/>',
   help: '<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .9-1 1.7M12 17h.01"/>',
   moon: '<path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',

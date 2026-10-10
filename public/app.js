@@ -3,9 +3,9 @@ import { ACTIONS, FORMS, CHANGES, INPUTS, renderView, stopTimers } from './views
 import { renderPublic } from './public.js';
 
 const NAV = {
-  principal: [['overview', 'Genel bakış', 'home'], ['people', 'Kişiler', 'users'], ['school', 'Okul', 'school'], ['panolar', 'Panolar', 'board'], ['messages', 'Mesajlar', 'chat'], ['audit', 'Denetim', 'file'], ['yardim', 'Kullanım', 'help']],
-  teacher: [['overview', 'Genel bakış', 'home'], ['classes', 'Sınıflarım', 'grid'], ['assignments', 'Ödevler', 'file'], ['attendance', 'Yoklama', 'check'], ['panolar', 'Panolar', 'board'], ['messages', 'Mesajlar', 'chat'], ['people', 'Kişiler', 'users'], ['yardim', 'Kullanım', 'help']],
-  student: [['overview', 'Genel bakış', 'home'], ['assignments', 'Ödevlerim', 'file'], ['attendance', 'Devamım', 'check'], ['panolar', 'Panolar', 'board'], ['messages', 'Mesajlar', 'chat'], ['yardim', 'Kullanım', 'help']],
+  principal: [['overview', 'Genel bakış', 'home'], ['people', 'Kişiler', 'users'], ['school', 'Okul', 'school'], ['panolar', 'Panolar', 'board'], ['asistan', 'Asistan', 'spark'], ['messages', 'Mesajlar', 'chat'], ['audit', 'Denetim', 'file'], ['yardim', 'Kullanım', 'help']],
+  teacher: [['overview', 'Genel bakış', 'home'], ['classes', 'Sınıflarım', 'grid'], ['assignments', 'Ödevler', 'file'], ['attendance', 'Yoklama', 'check'], ['panolar', 'Panolar', 'board'], ['asistan', 'Asistan', 'spark'], ['messages', 'Mesajlar', 'chat'], ['people', 'Kişiler', 'users'], ['yardim', 'Kullanım', 'help']],
+  student: [['overview', 'Genel bakış', 'home'], ['assignments', 'Ödevlerim', 'file'], ['attendance', 'Devamım', 'check'], ['panolar', 'Panolar', 'board'], ['asistan', 'Asistan', 'spark'], ['messages', 'Mesajlar', 'chat'], ['yardim', 'Kullanım', 'help']],
 };
 const BADGES = ['messages', 'assignments'];
 // Yükleme sırasında gösterilen iskelet ekran (metin yerine).

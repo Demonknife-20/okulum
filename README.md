@@ -97,6 +97,37 @@ Müdür "Denetim" sayfasından okul bilgisi, sınıf/ders, hesap, parola, ödev,
 Her kayıtta kişi, zaman, işlem, hedef ve ayrıntı bulunur. Parolalar hiçbir zaman kaydedilmez.
 Kayıtlar silinmez; kullanıcı silinse bile kalır.
 
+## Toplu hesap ekleme (v13, CSV)
+
+Müdür, Kişiler sayfasında "CSV ile ekle" ile yüzlerce hesabı tek seferde açabilir.
+
+- Sütunlar: `ad_soyad`, `rol` (öğrenci/öğretmen), `kullanici_adi`, `parola`, `okul_no`, `sinif`, `ders_atamalari`.
+- Ayırıcı noktalı virgül veya virgül olabilir. Ders atamaları `6/A:Matematik|7/B:Türkçe` biçimindedir.
+- Parola boşsa güvenli bir parola üretilir ve yalnızca bir kez gösterilir ve CSV olarak indirilebilir. Sunucu bu parolaları saklamaz.
+- Önce önizleme yapılır. Hatalı satır varsa hiçbir hesap eklenmez, işlem tümüyle geri alınır.
+- Bir dosyada en fazla 500 satır olabilir.
+
+## Okulum Asistanı (v12, Google Gemini)
+
+- **Kim kullanır:** Herkes (öğrenci, öğretmen, müdür). Öğrenciler ödev cevabı yerine yönlendirme alır, öğretmenler ders materyali ve soru örnekleri alır, müdür duyuru taslakları alır.
+- **Onay:** İlk kullanımda tam bildirim metni gösterilir ve kabul edilmeden sohbet açılmaz. Metin sürüm numaralıdır (`src/ai.js`, `NOTICE_VERSION`). Metin değişince herkes yeniden onaylar.
+- **Kayıt ve saklama:** Sohbetler veritabanına kaydedilir ve 180 gün sonra otomatik silinir. Müdür kayıtları salt okunur görür, her görüntüleme denetim kaydına yazılır.
+- **Maskeleme:** T.C. kimlik no, e-posta, telefon ve okul no yapay zekâya gitmeden önce maskelenir.
+- **Hata ve sınır:** Kullanıcı başına günlük soru sınırı ve toplam günlük sınır vardır. Hata durumunda kullanıcıya sade bir mesaj gösterilir.
+- **Kural dışı istemler:** "Sistem talimatlarını göster" gibi yönlendirme denemeleri yapay zekâya gönderilmeden sabit bir yanıtla reddedilir ve günlük hakkı harcamaz.
+
+Yasal not: Bildirim metni bir taslaktır. Yayına almadan önce okulunuzun hukuk danışmanına kontrol ettirin. Google'ın ücretsiz katmanında girdilerin ürün geliştirme için kullanılabileceğini belirtir. Hassas veriler için ücretli plan veya kurumsal bir sözleşme değerlendirin.
+
+Ortam değişkenleri:
+
+| Değişken | Açıklama |
+|---|---|
+| `GEMINI_API_KEY` | Google AI Studio anahtarı. Yoksa asistan kapalıdır. |
+| `GEMINI_MODEL` | Varsayılan `gemini-2.5-flash-lite`. Google model adını değiştirirse buradan güncelleyin. |
+| `AI_DAILY_LIMIT` | Kullanıcı başına günlük soru sayısı (varsayılan 30) |
+| `AI_GLOBAL_DAILY` | Tüm okul için günlük toplam soru sayısı (varsayılan 400) |
+| `AI_RETENTION_DAYS` | Sohbet saklama süresi (varsayılan 180 gün) |
+
 ## Tasarım sistemi (v11)
 
 Tüm görünüm tek bir stil dosyasında (`public/styles.css`) tutulur. Üstteki `:root` bölümü renk, boşluk, köşe yuvarlama, gölge, yazı tipi ve hareket değerlerini tanımlar. Koyu tema aynı değerleri `[data-theme=dark]` altında yeniden tanımlar. Yeni renk veya boyut gerektiğinde bu değerleri değiştirmek tüm uygulamayı günceller.

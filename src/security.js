@@ -1,4 +1,6 @@
 const crypto = require('node:crypto');
+const { promisify } = require('node:util');
+const scryptAsync = promisify(crypto.scrypt);
 
 const SCRYPT = { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
 const SESSION_MS = 12 * 60 * 60 * 1000;
@@ -12,6 +14,13 @@ if (!SECRET) throw new Error('Üretimde SESSION_SECRET tanımlı olmalı.');
 function hashPassword(password) {
   const salt = crypto.randomBytes(16).toString('hex');
   return `scrypt$${salt}$${crypto.scryptSync(password, salt, 64, SCRYPT).toString('hex')}`;
+}
+
+// Toplu işlemlerde paralel hesaplama için eşzamansız sürüm (olay döngüsünü tıkamaz).
+async function hashPasswordAsync(password) {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const key = await scryptAsync(password, salt, 64, SCRYPT);
+  return `scrypt$${salt}$${key.toString('hex')}`;
 }
 
 function verifyPassword(password, stored) {
@@ -103,9 +112,24 @@ function createLimiter({ max, windowMs }) {
   };
 }
 
+
+// Kişisel veriyi yapay zekâya göndermeden maskeler (T.C. kimlik, e-posta, telefon, okul no).
+const REDACTIONS = [
+  [/\b[1-9]\d{10}\b/g, '[kimlik no]'],
+  [/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, '[e-posta]'],
+  [/(\+?90[\s-]?)?0?5\d{2}[\s-]?\d{3}[\s-]?\d{2}[\s-]?\d{2}\b/g, '[telefon]'],
+  [/okul\s*no\s*[:=]?\s*\d+/gi, '[okul no]'],
+];
+function redact(text) {
+  let out = String(text ?? '');
+  for (const [pattern, replacement] of REDACTIONS) out = out.replace(pattern, replacement);
+  return out;
+}
+
 module.exports = {
+  redact,
   createLimiter,
-  COOKIE, hashPassword, verifyPassword, burnTime, fingerprint,
+  COOKIE, hashPassword, hashPasswordAsync, verifyPassword, burnTime, fingerprint,
   readToken, setSessionCookie, clearSessionCookie, readCookie,
   isLimited, recordFailure, clearFailures,
 };

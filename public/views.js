@@ -850,7 +850,7 @@ ACTIONS['page-people'] = el => { people.page = Number(el.dataset.page); loadPeop
 
 async function pagePeople() {
   const principal = state.me.role === 'principal';
-  const actions = principal ? `<a class="btn ghost" href="/api/export/users" download>${icon('download')}<span>CSV indir</span></a><button class="btn primary" type="button" data-action="new-user">${icon('plus')}<span>Yeni hesap</span></button>` : '';
+  const actions = principal ? `<button class="btn ghost" type="button" data-action="import-open">${icon('plus')}<span>CSV ile ekle</span></button><a class="btn ghost" href="/api/export/users" download>${icon('download')}<span>CSV indir</span></a><button class="btn primary" type="button" data-action="new-user">${icon('plus')}<span>Yeni hesap</span></button>` : '';
   const option = (value, label) => `<option value="${value}" ${people.role === value ? 'selected' : ''}>${label}</option>`;
   return {
     html: `${head('Kişiler', principal ? 'Okul hesaplarını yönet: ekle, düzenle, şifre sıfırla.' : 'Sınıfınla ilgili kişiler ve iletişim.', actions)}
@@ -873,6 +873,93 @@ async function pagePeople() {
     after: () => loadPeople().catch(e => toast(e.message, 'error')),
   };
 }
+
+// ---------- Toplu hesap ekleme (CSV) ----------
+const IMPORT_TEMPLATE = [
+  'ad_soyad;rol;kullanici_adi;parola;okul_no;sinif;ders_atamalari',
+  'Örnek Öğrenci;öğrenci;ornek.ogrenci;;1001;6/A;',
+  'Örnek Öğretmen;öğretmen;ornek.ogretmen;;;;6/A:Matematik|7/B:Türkçe',
+].join('\n');
+
+function downloadText(filename, text) {
+  const url = URL.createObjectURL(new Blob(['\uFEFF' + text], { type: 'text/csv;charset=utf-8' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+let importCredentials = [];
+
+ACTIONS['import-open'] = () => openModal('CSV ile toplu hesap ekleme', `
+  <div class="stack">
+    <p class="muted small">Dosyayı Excel'de hazırlayıp CSV olarak kaydedin. Sütunlar: ad_soyad, rol, kullanici_adi, parola, okul_no, sinif, ders_atamalari. Parolayı boş bırakırsanız güvenli bir parola üretilir ve size bir kez gösterilir. Önce önizleme yapılır; hatalı satır varsa hiçbir hesap eklenmez.</p>
+    <div class="grid-2">
+      <button class="btn ghost" type="button" data-action="import-template">${icon('download')}<span>Şablonu indir</span></button>
+      <label class="btn ghost file-pick">${icon('plus')}<span>CSV dosyası seç</span><input type="file" accept=".csv,text/csv" data-change="importFile" hidden></label>
+    </div>
+    <label class="field"><span>CSV içeriği</span><textarea id="importText" rows="7" placeholder="ad_soyad;rol;kullanici_adi;parola;okul_no;sinif;ders_atamalari"></textarea></label>
+    <div id="importPreview"></div>
+    <p class="form-error" data-error role="alert"></p>
+    <div class="form-actions">
+      <button class="btn ghost" type="button" data-action="import-preview">Önizle</button>
+      <button class="btn primary" type="button" id="importCommit" data-action="import-commit" disabled>Hesapları ekle</button>
+    </div>
+  </div>`, { wide: true });
+
+CHANGES.importFile = el => {
+  const file = el.files[0];
+  if (!file) return;
+  if (file.size > 300 * 1024) { toast('Dosya 300 KB sınırını aşıyor.', 'error'); return; }
+  file.text().then(text => { const box = document.querySelector('#importText'); if (box) box.value = text; });
+};
+
+ACTIONS['import-template'] = () => downloadText('okulum-hesap-sablonu.csv', IMPORT_TEMPLATE);
+
+ACTIONS['import-preview'] = async () => {
+  const csv = document.querySelector('#importText')?.value || '';
+  if (!csv.trim()) throw new Error('Önce bir CSV dosyası seçin ya da içeriği yapıştırın.');
+  const result = await api('/import/users', { method: 'POST', body: { csv, dryRun: true } });
+  const rows = result.rows.map(row => `
+    <tr class="${row.status === 'hata' ? 'row-error' : ''}">
+      <td>${row.line}</td><td><strong>${esc(row.name)}</strong></td><td>${esc(row.username)}</td>
+      <td>${badge(ROLE[row.role] || row.role, row.role === 'teacher' ? 'ok' : 'neutral')}</td>
+      <td>${row.status === 'ok' ? badge('Uygun', 'ok') : badge('Hata', 'danger')}${row.generated ? ' <span class="small muted">parola üretilecek</span>' : ''}</td>
+      <td><small>${esc(row.message)}</small></td>
+    </tr>`).join('');
+  document.querySelector('#importPreview').innerHTML = `
+    <p class="import-summary"><strong>${result.okCount}</strong> uygun, <strong>${result.errorCount}</strong> hatalı satır.</p>
+    <div class="table-wrap import-table"><table class="table"><thead><tr><th>Satır</th><th>Ad soyad</th><th>Kullanıcı adı</th><th>Rol</th><th>Durum</th><th>Mesaj</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  const commit = document.querySelector('#importCommit');
+  if (commit) commit.disabled = result.errorCount > 0 || result.okCount === 0;
+};
+
+ACTIONS['import-commit'] = async () => {
+  const csv = document.querySelector('#importText')?.value || '';
+  const result = await api('/import/users', { method: 'POST', body: { csv, dryRun: false } });
+  const generated = result.credentials || [];
+  const list = generated.length
+    ? `<h3 class="sub-title">Üretilen parolalar (bir kez gösterilir)</h3>
+       <div class="table-wrap"><table class="table"><thead><tr><th>Ad soyad</th><th>Kullanıcı adı</th><th>Parola</th></tr></thead>
+       <tbody>${generated.map(c => `<tr><td>${esc(c.name)}</td><td>${esc(c.username)}</td><td><code>${esc(c.password)}</code></td></tr>`).join('')}</tbody></table></div>
+       <div class="form-actions"><button class="btn ghost" type="button" data-action="import-credentials">${icon('download')}<span>Parolaları CSV indir</span></button></div>`
+    : '<p class="muted">Tüm parolalar dosyada belirtildi, üretilen parola yok.</p>';
+  openModal('Hesaplar eklendi', `<div class="stack">
+    <p class="import-summary"><strong>${result.created}</strong> hesap eklendi.</p>${list}
+    <div class="form-actions"><button class="btn primary" type="button" data-action="import-done">Tamam</button></div>
+  </div>`, { wide: true });
+  importCredentials = generated;
+};
+
+ACTIONS['import-credentials'] = () => {
+  const rows = importCredentials.map(c => [c.name, c.username, c.password].map(v => `"${String(v).replace(/"/g, '""')}"`).join(';'));
+  downloadText('okulum-uretilen-parolalar.csv', ['ad_soyad;kullanici_adi;parola', ...rows].join('\r\n'));
+};
+
+ACTIONS['import-done'] = () => { closeModal(); refresh(); };
 
 // ---------- Okul (müdür) ----------
 async function pageSchool() {
@@ -1226,7 +1313,7 @@ const AUDIT_LABELS = {
   class_created: 'Sınıf eklendi', class_deleted: 'Sınıf silindi', subject_created: 'Ders eklendi', subject_deleted: 'Ders silindi',
   user_created: 'Hesap açıldı', user_updated: 'Hesap düzenlendi', user_deleted: 'Hesap silindi',
   password_reset: 'Şifre sıfırlandı', password_changed: 'Kendi şifresini değiştirdi', profile_updated: 'Ad değiştirildi',
-  board_created: 'Pano açıldı', board_deleted: 'Pano silindi', board_note_deleted: 'Pano notu silindi',
+  board_created: 'Pano açıldı', board_deleted: 'Pano silindi', board_note_deleted: 'Pano notu silindi', ai_logs_viewed: 'Asistan kaydı görüntülendi', users_imported: 'Toplu hesap eklendi',
   assignment_created: 'Ödev oluşturuldu', assignment_updated: 'Ödev düzenlendi', assignment_deleted: 'Ödev silindi',
   grades_saved: 'Not kaydedildi', attendance_saved: 'Yoklama kaydedildi',
 };
@@ -1281,12 +1368,178 @@ async function pageAudit(params) {
 CHANGES.auditAction = el => setQuery('audit', { action: el.value, page: 1 });
 ACTIONS['page-audit'] = el => setQuery('audit', { ...parseHash().params, page: el.dataset.page });
 
+// ---------- Okulum Asistanı ----------
+const AI_SUGGESTIONS = {
+  student: ['Bu siteyi nasıl kullanırım?', 'Bir konuyu anlamakta zorlanıyorum, yol gösterir misin?', 'Ödevimi nasıl planlayabilirim?'],
+  teacher: ['5. sınıf kesirler konusu için 5 çoktan seçmeli soru hazırla', 'Ödev yönergesi için kısa bir taslak yaz', 'Veli toplantısı için bilgilendirme mesajı taslağı yaz'],
+  principal: ['Okul panosu için kayıt dönemi duyurusu yaz', 'Yeni öğretmenler için site kullanım adımlarını özetle', 'Devamsızlık uyarılarında hangi adımları izlemeliyim?'],
+};
+const AI_INTRO = {
+  student: 'Merhaba! Ben Okulum Asistanı. Siteyi nasıl kullanacağını anlatabilir, konuları adım adım açıklayabilirim. Ödevlerin cevabını vermem; seni düşünmeye yönlendiririm.',
+  teacher: 'Merhaba! Ben Okulum Asistanı. Ders planı, soru örnekleri, ödev yönergesi ve veli mesajı taslakları hazırlamanıza yardımcı olabilirim. Öğrencilerin kişisel bilgilerini yazmayın.',
+  principal: 'Merhaba! Ben Okulum Asistanı. Duyuru ve okul panosu metinleri, site kullanımı ve yönetim süreçleri için yardımcı olabilirim. Kişisel bilgi yazmayın.',
+};
+
+const aiBubble = (role, text, time) => `<div class="bubble ${role === 'user' ? 'mine' : 'ai'}">
+  ${role === 'user' ? '' : '<span class="who">Okulum Asistanı</span>'}
+  <p>${esc(text)}</p>
+  ${time ? `<time>${esc(fmtDate(time))}</time>` : ''}
+</div>`;
+
+const aiConsentView = notice => `
+  <section class="panel ai-gate">
+    <div class="pad">
+      <p class="kicker">Kullanım bildirimi</p>
+      <h2 class="ai-gate-title">${esc(notice.title)}</h2>
+      <p class="muted">${esc(notice.intro)}</p>
+      <div class="ai-sections">${notice.sections.map(section => `
+        <article class="ai-section"><h3>${esc(section.title)}</h3><p>${esc(section.text)}</p></article>`).join('')}</div>
+      <form class="stack mt" data-form="ai-consent" data-version="${esc(notice.version)}">
+        <label class="switch">
+          <input type="checkbox" name="accept">
+          <span class="switch-ui" aria-hidden="true"></span>
+          <span><strong>Bildirimi okudum ve kabul ediyorum.</strong>
+            <small>Onay vermeden asistanı kullanamam. Rızamı istediğim zaman okul müdürüme başvurarak geri çekebilirim.</small></span>
+        </label>
+        <p class="form-error" data-error role="alert"></p>
+        <div class="form-actions"><button class="btn primary lg" type="submit">Kabul ediyorum, asistana geç</button></div>
+      </form>
+    </div>
+  </section>`;
+
+FORMS['ai-consent'] = async form => {
+  if (!form.querySelector('[name=accept]').checked) throw new Error('Devam etmek için bildirimi kabul kutusunu işaretleyin.');
+  await api('/ai/consent', { method: 'POST', body: { version: form.dataset.version } });
+  toast('Teşekkürler. Asistanı kullanabilirsiniz.');
+  refresh();
+};
+
+ACTIONS['ai-notice'] = async () => {
+  const status = await api('/ai/status');
+  openModal(status.notice.title, `<div class="ai-sections">${status.notice.sections.map(section => `
+    <article class="ai-section"><h3>${esc(section.title)}</h3><p>${esc(section.text)}</p></article>`).join('')}</div>`, { wide: true });
+};
+
+ACTIONS['ai-suggest'] = el => {
+  const input = document.querySelector('form[data-form=ai-chat] [name=message]');
+  if (!input) return;
+  input.value = el.dataset.text;
+  input.focus();
+};
+
+ACTIONS['ai-new'] = () => setQuery('asistan', {});
+ACTIONS['page-ai-logs'] = el => setQuery('asistan', { ...parseHash().params, page: el.dataset.page });
+
+FORMS['ai-chat'] = async form => {
+  const input = form.querySelector('[name=message]');
+  const message = input.value.trim();
+  const conversationId = val(form, 'conversationId') || null;
+  if (!message) return;
+  const data = await api('/ai/chat', { method: 'POST', body: { message, conversationId } });
+  input.value = '';
+  if (!conversationId) {
+    setQuery('asistan', { c: data.conversationId });
+    return;
+  }
+  const box = document.querySelector('#aiMsgs');
+  if (box) {
+    box.querySelector('.ai-intro')?.remove();
+    box.insertAdjacentHTML('beforeend', aiBubble('user', message) + aiBubble('assistant', data.reply));
+    box.scrollTop = box.scrollHeight;
+  }
+  const status = await api('/ai/status');
+  const remain = document.querySelector('#aiRemain');
+  if (remain) remain.textContent = `Bugün kalan soru: ${status.remaining} / ${status.limit}`;
+};
+
+async function pageAsistan(params) {
+  const status = await api('/ai/status');
+  const principal = state.me.role === 'principal';
+  const logsView = principal && params.view === 'logs';
+  const actions = principal
+    ? `<a class="btn ghost" href="#/asistan${logsView ? '' : '?view=logs'}">${logsView ? '← Sohbetlerim' : 'Sohbet kayıtları'}</a>`
+    : '';
+  const header = head('Okulum Asistanı', 'Site kullanımı, ders konuları ve öğretim fikirleri için yardımcı. Ödevlerin cevabını vermez, yönlendirir.', actions);
+
+  if (logsView) return aiLogsView(header, params);
+  if (!status.enabled) {
+    return { html: `${header}${panel('Asistan', '', empty('Asistan henüz etkin değil', 'Okul yöneticisi asistanı etkinleştirmek için yapay zekâ anahtarını tanımlamalı.'))}` };
+  }
+  if (!status.accepted) return { html: `${header}${aiConsentView(status.notice)}` };
+
+  const { conversations } = await api('/ai/conversations');
+  const activeId = params.c && conversations.some(c => c.id === params.c) ? params.c : null;
+  const detail = activeId ? await api(`/ai/conversations/${activeId}/messages`) : null;
+  const suggestions = AI_SUGGESTIONS[state.me.role] || AI_SUGGESTIONS.student;
+  const intro = `<div class="bubble ai ai-intro"><span class="who">Okulum Asistanı</span><p>${esc(AI_INTRO[state.me.role] || AI_INTRO.student)}</p></div>`;
+  const messages = detail ? detail.messages.map(m => aiBubble(m.role, m.content, m.createdAt)).join('') : intro;
+
+  return { html: `
+    ${header}
+    <div class="ai-banner" role="note">
+      <span>${icon('check')}<span>Bu sohbet kaydedilir ve 180 gün sonra silinir. Kişisel bilgi yazmayın.</span></span>
+      <button class="link" type="button" data-action="ai-notice">Bildirimi oku</button>
+    </div>
+    <section class="chat">
+      <div>
+        <div class="room-head"><div><strong>Sohbetlerim</strong><small class="muted">${conversations.length} sohbet</small></div>
+          <button class="btn ghost sm" type="button" data-action="ai-new">${icon('plus')}<span>Yeni</span></button></div>
+        <ul class="conv-list">${conversations.map(c => `
+          <li><a class="conv ${c.id === activeId ? 'active' : ''}" href="#/asistan?c=${esc(c.id)}">
+            <span class="avatar sm">AI</span>
+            <span class="conv-copy"><strong>${esc(c.title)}</strong><small>${c.messageCount} mesaj · ${esc(fmtDate(c.updatedAt))}</small></span>
+          </a></li>`).join('') || `<li class="empty-inline">Henüz sohbet yok</li>`}</ul>
+      </div>
+      <div class="room">
+        <div class="room-head">
+          <span class="avatar sm">AI</span>
+          <div><strong>Okulum Asistanı</strong><small class="muted" id="aiRemain">Bugün kalan soru: ${status.remaining} / ${status.limit}</small></div>
+        </div>
+        <div class="room-body" id="aiMsgs">${messages}</div>
+        ${activeId ? '' : `<div class="ai-chips">${suggestions.map(text => `<button class="ai-chip" type="button" data-action="ai-suggest" data-text="${esc(text)}">${esc(text)}</button>`).join('')}</div>`}
+        <form class="composer" data-form="ai-chat">
+          <input type="hidden" name="conversationId" value="${esc(activeId || '')}">
+          <input name="message" maxlength="2000" placeholder="Sorunuzu yazın…" autocomplete="off" required aria-label="Asistana soru">
+          <button class="btn primary" type="submit">${icon('send')}<span>Gönder</span></button>
+        </form>
+        <p class="ai-foot muted small">Asistan hata yapabilir. Önemli konularda öğretmeninize danışın.</p>
+      </div>
+    </section>` };
+}
+
+async function aiLogsView(header, params) {
+  const page = Math.max(1, Number(params.page) || 1);
+  const { conversations, total, size } = await api(`/ai/logs?page=${page}&size=25`);
+  const activeId = params.c && conversations.some(c => c.id === params.c) ? params.c : null;
+  const detail = activeId ? await api(`/ai/conversations/${activeId}/messages`) : null;
+  return { html: `
+    ${header}
+    <div class="ai-banner" role="note"><span>${icon('check')}<span>Sohbetler salt okunur gösterilir. Her görüntüleme denetim kaydına yazılır.</span></span></div>
+    <section class="chat">
+      <div>
+        <ul class="conv-list">${conversations.map(c => `
+          <li><a class="conv ${c.id === activeId ? 'active' : ''}" href="#/asistan?view=logs&c=${esc(c.id)}">
+            <span class="avatar sm ${tone(c.userRole)}">${esc(initials(c.userName))}</span>
+            <span class="conv-copy"><strong>${esc(c.userName)} · ${esc(ROLE[c.userRole] || '')}</strong>
+              <small>${esc(c.title)} · ${c.messageCount} mesaj</small></span>
+          </a></li>`).join('') || `<li class="empty-inline">Kayıt yok</li>`}</ul>
+        ${pager(total, page, size, 'page-ai-logs')}
+      </div>
+      <div class="room">
+        ${detail
+          ? `<div class="room-head"><div><strong>${esc(detail.conversation.title)}</strong><small class="muted">${esc(detail.conversation.userName)} · salt okunur</small></div></div>
+             <div class="room-body">${detail.messages.map(m => aiBubble(m.role, m.content, m.createdAt)).join('')}</div>`
+          : empty('Bir sohbet seçin', 'Soldaki listeden bir sohbet seçerek içeriğini görebilirsiniz.')}
+      </div>
+    </section>` };
+}
+
 // ---------- Yönlendirme tablosu ----------
 const PAGES = {
   overview: pageOverview, classes: pageClasses, assignments: pageAssignments, attendance: pageAttendance,
   messages: pageMessages, people: pagePeople, school: pageSchool, audit: pageAudit,
   yardim: async () => ({ html: helpHtml() }),
-  panolar: pagePanolar, pano: pageBoard,
+  panolar: pagePanolar, pano: pageBoard, asistan: pageAsistan,
 };
 export function renderView(page, params) {
   return PAGES[page](params);
