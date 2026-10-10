@@ -159,3 +159,41 @@ create index if not exists audit_log_created on audit_log(created_at desc);
 alter table seen_marks enable row level security;
 alter table conversation_reads enable row level security;
 alter table audit_log enable row level security;
+
+-- v8: panolar (sınıf ve okul panoları) ve pano notları
+create table if not exists boards (
+  id uuid primary key default gen_random_uuid(),
+  title text not null check (char_length(title) between 2 and 120),
+  description text not null default '' check (char_length(description) <= 500),
+  scope text not null check (scope in ('class', 'school')),
+  class_id uuid references classes(id) on delete cascade,
+  created_by uuid references users(id) on delete set null,
+  created_at timestamptz not null default now(),
+  check ((scope = 'class') = (class_id is not null))
+);
+create index if not exists boards_class on boards(class_id);
+
+create table if not exists board_notes (
+  id uuid primary key default gen_random_uuid(),
+  board_id uuid not null references boards(id) on delete cascade,
+  author_id uuid references users(id) on delete set null,
+  title text not null default '' check (char_length(title) <= 120),
+  body text not null default '' check (char_length(body) <= 2000),
+  link text check (link is null or char_length(link) <= 500),
+  color text not null default 'sun' check (color in ('sun', 'mint', 'coral', 'sky', 'lilac')),
+  file_path text,
+  file_name text,
+  file_mime text,
+  file_size integer,
+  created_at timestamptz not null default now(),
+  check (char_length(title) + char_length(body) + coalesce(char_length(link), 0) > 0 or file_path is not null)
+);
+create index if not exists board_notes_board on board_notes(board_id, created_at desc);
+
+alter table boards enable row level security;
+alter table board_notes enable row level security;
+
+-- v9: koruma: oturum sürümü (tüm cihazlardan çıkış) ve son giriş bilgisi
+alter table users add column if not exists session_version integer not null default 0;
+alter table users add column if not exists last_login_at timestamptz;
+alter table users add column if not exists last_login_ip text;

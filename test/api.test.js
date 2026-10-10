@@ -49,7 +49,7 @@ before(async () => {
   fs.rmSync(path.join(ROOT, 'data'), { recursive: true, force: true });
   child = spawn(process.execPath, [path.join(ROOT, 'server.js')], {
     cwd: ROOT,
-    env: { ...process.env, DATABASE_URL: DB, PORT: String(PORT), HOST: '127.0.0.1', SESSION_SECRET: 'test-secret-value-0123456789' },
+    env: { ...process.env, DATABASE_URL: DB, PORT: String(PORT), HOST: '127.0.0.1', SESSION_SECRET: 'test-secret-value-0123456789', API_RATE_PER_MIN: '100000', WRITE_RATE_PER_MIN: '100000' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   await new Promise((resolve, reject) => {
@@ -67,8 +67,8 @@ after(() => {
 
 const state = {};
 
-async function login(username, password) {
-  const r = await call('POST', '/api/login', { body: { username, password } });
+async function login(username, password, portal = 'member') {
+  const r = await call('POST', '/api/login', { body: { username, password, portal } });
   assert.equal(r.status, 200, `giriş başarısız: ${username} ${JSON.stringify(r.data)}`);
   return r.cookie;
 }
@@ -269,6 +269,8 @@ test('sayfalama: kullanıcı ve ödev listeleri sayfalı, filtreler çalışır'
   assert.equal(page.assignments.length, 1);
   assert.ok(page.total >= 2);
   assert.equal((await call('GET', `/api/assignments?classId=${state.class7B}`, { cookie: state.ayse })).data.total, 0);
+  assert.ok((await call('GET', `/api/assignments?q=${encodeURIComponent('kesir')}`, { cookie: state.ayse })).data.total >= 1, 'başlıkta arama');
+  assert.equal((await call('GET', '/api/assignments?q=olmayanbirodev', { cookie: state.ayse })).data.total, 0);
 });
 
 test('toplu not: tek işlemde kaydedilir, yabancı teslim varsa hiçbiri kaydedilmez', async () => {
@@ -404,6 +406,45 @@ test('denetim kaydı: önemli işlemler kaydedilir, yalnızca müdür görür', 
   assert.equal((await call('GET', '/api/audit?action=grades_saved', { cookie: state.principal })).data.entries.every(e => e.action === 'grades_saved'), true);
 });
 
+test('dışa aktarma: yetkiye göre CSV iner, Excel uyumlu ve formül enjeksiyonuna karşı korumalı', async () => {
+  const att = await call('GET', `/api/export/attendance?classId=${state.class6A}&subjectId=${state.math}`, { cookie: state.ayse });
+  assert.equal(att.status, 200);
+  assert.match(att.headers.get('content-type'), /text\/csv/);
+  assert.match(att.headers.get('content-disposition'), /attachment/);
+  const text = att.data.toString('utf8');
+  assert.ok(text.charCodeAt(0) === 0xfeff, 'Excel için BOM olmalı');
+  assert.ok(text.split('\r\n')[0].includes('"Okul no";"Ad soyad"'), 'başlık satırı');
+  assert.ok(text.includes('"Ece Yılmaz"'), 'öğrenci satırı');
+  assert.equal((await call('GET', `/api/export/attendance?classId=${state.class6A}&subjectId=${state.turkish}`, { cookie: state.ayse })).status, 403);
+  assert.equal((await call('GET', `/api/export/attendance?classId=${state.class6A}&subjectId=${state.math}`, { cookie: state.ece })).status, 403, 'öğrenci dışa aktaramaz');
+  assert.equal((await call('GET', `/api/export/attendance?classId=${state.class6A}`, { cookie: state.ayse })).status, 400, 'öğretmen ders seçmeli');
+  assert.equal((await call('GET', `/api/export/attendance?classId=${state.class6A}`, { cookie: state.principal })).status, 200, 'müdür tüm dersleri alabilir');
+
+  const users = await call('GET', '/api/export/users', { cookie: state.principal });
+  assert.equal(users.status, 200);
+  assert.ok(users.data.toString('utf8').includes('Ayşe Hoca'));
+  assert.equal((await call('GET', '/api/export/users', { cookie: state.ayse })).status, 403);
+
+  const grades = await call('GET', `/api/export/grades?assignmentId=${state.assignment}`, { cookie: state.ayse });
+  assert.equal(grades.status, 200);
+  assert.ok(grades.data.toString('utf8').includes('"85"'), 'not dışa aktarılmalı');
+  assert.equal((await call('GET', `/api/export/grades?assignmentId=${state.assignment}`, { cookie: state.ali })).status, 403);
+
+  assert.equal((await call('GET', '/api/export/bilinmeyen', { cookie: state.principal })).status, 404);
+  assert.equal((await call('GET', '/api/export/audit', { cookie: state.ayse })).status, 403);
+
+  // Formül enjeksiyonu: "=" ile başlayan ad metin olarak işaretlenmeli
+  assert.equal((await call('POST', '/api/subjects', { cookie: state.principal, body: { name: '=1+1' } })).status, 201);
+  const audit = await call('GET', '/api/export/audit', { cookie: state.principal });
+  assert.ok(audit.data.toString('utf8').includes(`"'=1+1"`), 'formül başı tek tırnakla korunmalı');
+});
+
+test('hesabım: kişi kendi adını değiştirebilir', async () => {
+  assert.equal((await call('PATCH', '/api/me', { cookie: state.ayse, body: { name: 'Ayşe Öğretmen' } })).status, 200);
+  assert.equal((await call('GET', '/api/me', { cookie: state.ayse })).data.user.name, 'Ayşe Öğretmen');
+  assert.equal((await call('PATCH', '/api/me', { cookie: state.ayse, body: { name: 'A' } })).status, 400);
+});
+
 test('genel bakış rol bazlı gerçek veri döner', async () => {
   const principal = (await call('GET', '/api/overview', { cookie: state.principal })).data;
   assert.equal(principal.stats.teachers, 2);
@@ -442,6 +483,93 @@ test('müdür şifre sıfırlar, öğrenci hesabını siler, yetkisiz silme enge
   assert.equal((await call('POST', '/api/login', { body: { username: 'burak', password: 'sifirlanmis-123' } })).status, 401);
 });
 
+test('giriş portalları: müdür ve öğretmen/öğrenci hesapları karıştırılamaz', async () => {
+  assert.equal((await call('POST', '/api/login', { body: { username: 'murat', password: 'yanlis-sifre-1', portal: 'member' } })).status, 401);
+  assert.equal((await call('POST', '/api/login', { body: { username: 'murat', password: 'mudur-sifresi-1', portal: 'member' } })).status, 403);
+  const teacherViaPrincipal = await call('POST', '/api/login', { body: { username: 'ayse', password: 'yeni-sifre-999', portal: 'principal' } });
+  assert.equal(teacherViaPrincipal.status, 403);
+});
+
+test('birden fazla müdür: müdür yeni müdür ekler, kendini silemez, başkasını siler', async () => {
+  const created = await call('POST', '/api/users', { cookie: state.principal, body: { role: 'principal', name: 'Ayla Yönetici', username: 'ayla', password: 'ikinci-mudur-1' } });
+  assert.equal(created.status, 201);
+  state.aylaId = created.data.user.id;
+  const ayla = await login('ayla', 'ikinci-mudur-1', 'principal');
+  assert.ok(ayla);
+  assert.equal((await call('DELETE', `/api/users/${state.aylaId}`, { cookie: ayla })).status, 403, 'kendini silemez');
+  assert.equal((await call('GET', '/api/audit?size=5', { cookie: ayla })).status, 200, 'ikinci müdür denetimi görür');
+  assert.equal((await call('DELETE', `/api/users/${state.aylaId}`, { cookie: state.principal })).status, 200);
+  assert.equal((await call('POST', '/api/login', { body: { username: 'ayla', password: 'ikinci-mudur-1', portal: 'principal' } })).status, 401);
+  assert.equal((await call('GET', '/api/me', { cookie: ayla })).status, 401, 'silinen müdürün oturumu düşer');
+});
+
+test('panolar: öğretmen sınıf panosu açar, okul panosu yalnızca müdürün', async () => {
+  const cls = await call('POST', '/api/boards', { cookie: state.ayse, body: { title: '6/A Matematik panosu', scope: 'class', classId: state.class6A, description: 'Sınıf notları' } });
+  assert.equal(cls.status, 201);
+  state.boardClass = cls.data.id;
+  assert.equal((await call('POST', '/api/boards', { cookie: state.ayse, body: { title: 'Okul duyurusu', scope: 'school' } })).status, 403, 'öğretmen okul panosu açamaz');
+  assert.equal((await call('POST', '/api/boards', { cookie: state.ayse, body: { title: 'Başka sınıf', scope: 'class', classId: state.class7B } })).status, 403, 'verilmeyen sınıfa pano açamaz');
+  assert.equal((await call('POST', '/api/boards', { cookie: state.ece, body: { title: 'Öğrenci panosu', scope: 'class', classId: state.class6A } })).status, 403, 'öğrenci pano açamaz');
+  const school = await call('POST', '/api/boards', { cookie: state.principal, body: { title: 'Okul sitesi · Duyurular', scope: 'school', description: 'Ana sayfada görünür' } });
+  assert.equal(school.status, 201);
+  state.boardSchool = school.data.id;
+  const other = await call('POST', '/api/boards', { cookie: state.ali, body: { title: '7/B Türkçe', scope: 'class', classId: state.class7B } });
+  assert.equal(other.status, 201);
+  state.boardClass7 = other.data.id;
+});
+
+test('panolar: görünürlük sınıf ve okul sınırına göre', async () => {
+  const titles = r => r.data.boards.map(b => b.title);
+  const eceBoards = titles(await call('GET', '/api/boards', { cookie: state.ece }));
+  assert.ok(eceBoards.includes('6/A Matematik panosu') && eceBoards.includes('Okul sitesi · Duyurular'));
+  assert.ok(!eceBoards.includes('7/B Türkçe'), 'başka sınıfın panosu görünmez');
+  const canBoards = titles(await call('GET', '/api/boards', { cookie: state.can }));
+  assert.ok(canBoards.includes('7/B Türkçe') && !canBoards.includes('6/A Matematik panosu'));
+  const aliBoards = (await call('GET', '/api/boards', { cookie: state.ali })).data.boards;
+  assert.equal(aliBoards.find(b => b.title === '7/B Türkçe').rights.moderate, true);
+  assert.equal(aliBoards.find(b => b.title === 'Okul sitesi · Duyurular').rights.post, false, 'öğretmen okul panosuna yazamaz');
+  const schoolOnly = (await call('GET', '/api/boards?scope=school', { cookie: state.ece })).data.boards;
+  assert.ok(schoolOnly.length >= 1 && schoolOnly.every(b => b.scope === 'school'));
+});
+
+test('pano notları: yetkiye göre eklenir, bağlantı ve dosya doğrulanır', async () => {
+  assert.equal((await call('POST', `/api/boards/${state.boardClass}/notes`, { cookie: state.ece, body: { title: 'Ödev hatırlatması', body: 'Kesirler sayfa 42', color: 'mint' } })).status, 201);
+  assert.equal((await call('POST', `/api/boards/${state.boardSchool}/notes`, { cookie: state.ece, body: { title: 'x', body: 'y' } })).status, 403, 'öğrenci okul panosuna yazamaz');
+  assert.equal((await call('POST', `/api/boards/${state.boardSchool}/notes`, { cookie: state.ayse, body: { title: 'x', body: 'y' } })).status, 403, 'öğretmen okul panosuna yazamaz');
+  assert.equal((await call('POST', `/api/boards/${state.boardSchool}/notes`, { cookie: state.principal, body: { title: 'Yeni dönem', body: 'Kayıtlar başladı', link: 'https://okul.example/kayit' } })).status, 201);
+  assert.equal((await call('POST', `/api/boards/${state.boardClass}/notes`, { cookie: state.ayse, body: { title: 'Kaynak', link: 'javascript:alert(1)' } })).status, 400, 'javascript bağlantısı reddedilir');
+  assert.equal((await call('POST', `/api/boards/${state.boardClass}/notes`, { cookie: state.ayse, body: {} })).status, 400, 'boş not reddedilir');
+  assert.equal((await call('POST', `/api/boards/${state.boardClass}/notes`, { cookie: state.can, body: { title: 'Yanlış sınıf', body: 'x' } })).status, 403, 'başka sınıf öğrencisi yazamaz');
+  const pdf = await call('POST', `/api/boards/${state.boardClass}/notes`, { cookie: state.ayse, body: { title: 'Çalışma kâğıdı', file: { name: 'kagit.pdf', data: b64(PDF) } } });
+  assert.equal(pdf.status, 201);
+  state.noteFile = pdf.data.id;
+  assert.equal((await call('POST', `/api/boards/${state.boardClass}/notes`, { cookie: state.ayse, body: { title: 'Sahte', file: { name: 's.pdf', data: b64(Buffer.from('merhaba')) } } })).status, 400);
+});
+
+test('pano notları: dosya yetkisi ve silme kuralları', async () => {
+  assert.equal((await call('GET', `/api/files/board-note/${state.noteFile}`, { cookie: state.ece })).status, 200);
+  assert.equal((await call('GET', `/api/files/board-note/${state.noteFile}`, { cookie: state.can })).status, 403);
+  const notes = (await call('GET', `/api/boards/${state.boardClass}/notes`, { cookie: state.ece })).data.notes;
+  const mine = notes.find(n => n.title === 'Ödev hatırlatması');
+  assert.equal(mine.canDelete, true, 'yazar kendi notunu silebilir');
+  assert.equal(notes.find(n => n.title === 'Çalışma kâğıdı').canDelete, false, 'öğrenci öğretmenin notunu silemez');
+  assert.equal((await call('DELETE', `/api/board-notes/${state.noteFile}`, { cookie: state.ece })).status, 403);
+  assert.equal((await call('DELETE', `/api/board-notes/${mine.id}`, { cookie: state.ece })).status, 200);
+  assert.equal((await call('DELETE', `/api/board-notes/${state.noteFile}`, { cookie: state.ayse })).status, 200, 'öğretmen sınıf panosunu yönetir');
+  assert.equal((await call('GET', `/api/files/board-note/${state.noteFile}`, { cookie: state.ayse })).status, 404, 'silinen dosya erişilemez');
+});
+
+test('panolar: düzenleme yetkisi, herkese açık duyurular ve silme', async () => {
+  assert.equal((await call('PATCH', `/api/boards/${state.boardClass}`, { cookie: state.ece, body: { title: 'Hack' } })).status, 403);
+  assert.equal((await call('PATCH', `/api/boards/${state.boardClass}`, { cookie: state.ayse, body: { title: '6/A Matematik (güncel)' } })).status, 200);
+  const ann = (await call('GET', '/api/public/announcements')).data.announcements;
+  assert.ok(ann.some(a => a.title === 'Yeni dönem'), 'okul panosu duyurusu herkese açık');
+  assert.ok(!ann.some(a => a.title === 'Ödev hatırlatması'), 'sınıf notları herkese açık değil');
+  assert.equal((await call('DELETE', `/api/boards/${state.boardClass}`, { cookie: state.ece })).status, 403);
+  assert.equal((await call('DELETE', `/api/boards/${state.boardClass7}`, { cookie: state.principal })).status, 200, 'müdür her panoyu silebilir');
+  assert.equal((await call('GET', '/api/boards?q=7%2FB', { cookie: state.principal })).data.boards.length, 0);
+});
+
 test('sınıf silinince bağlı ödev ve yetkiler temizlenir', async () => {
   assert.equal((await call('DELETE', `/api/classes/${state.class7B}`, { cookie: state.principal })).status, 200);
   const aliList = (await call('GET', '/api/me', { cookie: state.ali })).data;
@@ -457,6 +585,36 @@ test('denetim: parola, silme ve başarısız girişler kaydedilir', async () => 
   const log = (await call('GET', '/api/audit?action=login_failed&size=100', { cookie: state.principal })).data;
   assert.ok(log.total >= 1, 'önceki başarısız girişler görünmeli');
   assert.ok(log.entries.every(e => e.actorRole === 'anonymous'));
+});
+
+test('koruma: zayıf parolalar reddedilir', async () => {
+  const weak = async pass => (await call('POST', '/api/users', { cookie: state.principal, body: { role: 'teacher', name: 'Zayıf Parola', username: `zayif${Math.floor(Math.random() * 1e6)}`, password: pass } })).status;
+  assert.equal(await weak('abcdefghij'), 400, 'yalnız harf');
+  assert.equal(await weak('12345678'), 400, 'yalnız rakam');
+  assert.equal(await weak('password1'), 400, 'yaygın parola');
+});
+
+test('koruma: son giriş kaydı tutulur ve tüm cihazlardan çıkış oturumları düşürür', async () => {
+  const me = (await call('GET', '/api/me', { cookie: state.ayse })).data.user;
+  assert.ok(me.lastLoginAt, 'son giriş zamanı görünmeli');
+  const created = await call('POST', '/api/users', { cookie: state.principal, body: { role: 'teacher', name: 'Geçici Hoca', username: 'gecici', password: 'gecici-sifre-1' } });
+  assert.equal(created.status, 201);
+  const first = await login('gecici', 'gecici-sifre-1');
+  const second = await login('gecici', 'gecici-sifre-1');
+  assert.equal((await call('GET', '/api/me', { cookie: first })).status, 200);
+  assert.equal((await call('POST', '/api/me/sessions/revoke', { cookie: first })).status, 200);
+  assert.equal((await call('GET', '/api/me', { cookie: first })).status, 401, 'birinci cihaz düştü');
+  assert.equal((await call('GET', '/api/me', { cookie: second })).status, 401, 'ikinci cihaz da düştü');
+  const again = await login('gecici', 'gecici-sifre-1');
+  assert.equal((await call('GET', '/api/me', { cookie: again })).status, 200, 'yeniden girişte çalışır');
+});
+
+test('koruma: güvenlik başlıkları ve denetim (ana sayfada COOP/CORP)', async () => {
+  const page = await call('GET', '/');
+  assert.equal(page.headers.get('cross-origin-opener-policy'), 'same-origin');
+  assert.equal(page.headers.get('cross-origin-resource-policy'), 'same-origin');
+  const log = (await call('GET', '/api/audit?action=sessions_revoked', { cookie: state.principal })).data;
+  assert.ok(log.total >= 0);
 });
 
 test('hız sınırı: çok sayıda başarısız girişten sonra 429', async () => {

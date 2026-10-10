@@ -1,3 +1,4 @@
+import { helpHtml } from './help.js';
 import { state, api, $, $$, esc, ROLE, icon, fmtDate, todayIso, pct, initials, tone, readFile, toast, openModal, closeModal, confirmDialog, refreshMe, refresh, val, setBusy, setQuery, parseHash, paintWidths, refreshBadges } from './core.js';
 
 export const ACTIONS = {}, FORMS = {}, CHANGES = {}, INPUTS = {};
@@ -88,6 +89,24 @@ function gradeList(items) {
 }
 
 // ---------- Genel bakış ----------
+// Müdür için başlangıç listesi: hepsi tamamlanınca gizlenir.
+function setupChecklist(s) {
+  const steps = [
+    ['Sınıf tanımlandı', s.classes > 0, 'school'],
+    ['Ders tanımlandı', s.subjects > 0, 'school'],
+    ['Öğretmen hesabı açıldı', s.teachers > 0, 'people'],
+    ['Öğrenci hesabı açıldı', s.students > 0, 'people'],
+    ['İlk ödev veya yoklama girildi', s.assignments > 0 || s.attTotal > 0, 'people'],
+  ];
+  if (steps.every(([, done]) => done)) return '';
+  const doneCount = steps.filter(([, done]) => done).length;
+  return panel('Başlangıç listesi', `${doneCount} / ${steps.length} tamamlandı`, `<ul class="checklist">${steps.map(([label, done, page]) => `
+      <li class="${done ? 'done' : ''}">
+        <span class="check-mark" aria-hidden="true">${done ? '✓' : ''}</span>
+        <a href="#/${page}">${esc(label)}</a>
+      </li>`).join('')}</ul>`);
+}
+
 async function pageOverview() {
   const [data, alertData] = await Promise.all([api('/overview'), api('/alerts')]);
   const me = state.me;
@@ -105,6 +124,7 @@ async function pageOverview() {
         ${stat('Notlanacak', s.ungraded, 'Değerlendirme bekleyen teslim', 'file', s.ungraded ? 'attention' : '')}
         ${stat('Devam · 30 gün', rate === null ? '—' : `%${rate}`, rate === null ? 'Henüz yoklama yok' : `${s.attPresent} / ${s.attTotal} kayıt`, 'check')}
       </div>
+      ${setupChecklist(s)}
       <div class="two-col">
         ${panel('Son ödevler', `${data.recent.length} kayıt`, assignmentList(data.recent, 'staff'))}
         ${alertsPanel}
@@ -208,7 +228,8 @@ async function pageAssignments(params) {
   const role = state.me.role;
   const page = Math.max(1, Number(params.page) || 1);
   const classId = params.classId || '';
-  const query = new URLSearchParams({ page, size: 20, ...(classId ? { classId } : {}) });
+  const search = params.q || '';
+  const query = new URLSearchParams({ page, size: 20, ...(classId ? { classId } : {}), ...(search ? { q: search } : {}) });
   const { assignments, total, size } = await api(`/assignments?${query}`);
   assignmentIndex = new Map(assignments.map(a => [a.id, a]));
   if (role === 'student') {
@@ -247,11 +268,17 @@ async function pageAssignments(params) {
         <label class="inline-field"><span>Sınıf</span>
           <select data-change="filterAssignments"><option value="all">Tüm sınıflar</option>${classOptions.map(c => `<option value="${esc(c.id)}" ${c.id === classId ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select>
         </label>
+        <form class="search-form" data-form="assign-search" role="search">
+          <input type="search" name="q" value="${esc(search)}" placeholder="Ödev başlığında ara…" maxlength="80" aria-label="Ödev ara">
+          <button class="btn ghost sm" type="submit">Ara</button>
+        </form>
         <span class="muted">${total} ödev</span>
       </div>
       ${table}
     </section>` };
 }
+
+FORMS['assign-search'] = async form => setQuery('assignments', { ...parseHash().params, q: val(form, 'q').trim(), page: 1 });
 
 CHANGES.filterAssignments = el => setQuery('assignments', { classId: el.value === 'all' ? '' : el.value, page: 1 });
 ACTIONS['page-assign'] = el => setQuery('assignments', { ...parseHash().params, page: el.dataset.page });
@@ -372,6 +399,7 @@ ACTIONS['open-submissions'] = async el => {
   const info = assignment.kind === 'paper' ? '<p class="notice">Bu ödev kağıt üzerinde; dosya teslimi yoktur.</p>' : '';
   openModal(assignment.title, `
     <p class="muted mb">${esc(kindLabel(assignment.kind))} ödev${assignment.dueAt ? ` · Son teslim ${esc(fmtDate(assignment.dueAt))}` : ''}</p>
+    <p class="mb"><a class="btn ghost sm" href="/api/export/grades?assignmentId=${esc(assignment.id)}" download>${icon('download')}<span>Notları CSV olarak indir</span></a></p>
     ${info}${table}${missingList}`, { wide: true });
 };
 
@@ -397,7 +425,6 @@ ACTIONS['delete-assignment'] = async el => {
   refresh();
 };
 
-CHANGES.filterAssignments = el => $$('#assignRows tr').forEach(row => { row.hidden = el.value !== 'all' && row.dataset.class !== el.value; });
 
 // ---------- Yoklama ----------
 let att = null;
@@ -463,7 +490,10 @@ async function pageAttendance(params) {
             <label class="inline-field"><span>Tarih</span>
               <input type="date" value="${esc(date)}" max="${esc(todayIso())}" data-change="attDate"></label>
           </div>
-          ${readonly ? '' : '<button class="btn ghost sm" type="button" data-action="att-all">Hepsi geldi</button>'}
+          <div class="head-actions">
+            ${readonly ? '' : '<button class="btn ghost sm" type="button" data-action="att-all">Hepsi geldi</button>'}
+            <a class="btn ghost sm" href="/api/export/attendance?classId=${esc(classId)}&subjectId=${esc(subjectId)}" download>${icon('download')}<span>CSV indir</span></a>
+          </div>
         </div>
         <div class="att-summary" id="attSummary"></div>
         <div class="table-wrap"><table class="table">
@@ -634,11 +664,19 @@ ACTIONS['new-chat'] = async () => {
     .map(u => `<option value="${esc(u.id)}">${esc(u.name)} — ${esc(ROLE[u.role])}${u.className ? ` (${esc(u.className)})` : ''}</option>`).join('');
   if (!options) return toast('Mesaj gönderebileceğin kimse yok.', 'error');
   openModal('Yeni sohbet', `<form class="stack" data-form="new-chat">
-    <label class="field"><span>Kime yazmak istersin?</span><select name="userId" required>${options}</select></label>
+    <label class="field"><span>Kişi ara</span><input type="search" data-input="chatFilter" placeholder="İsim yazın…" aria-label="Kişi ara"></label>
+    <label class="field"><span>Kime yazmak istersin?</span><select name="userId" id="chatSelect" required size="6">${options}</select></label>
     <p class="muted small">Yalnızca yetkili olduğun kişilerle sohbet açabilirsin.</p>
     <p class="form-error" data-error role="alert"></p>
     <div class="form-actions"><button class="btn ghost" type="button" data-action="close-modal">Vazgeç</button><button class="btn primary" type="submit">Sohbeti aç</button></div>
   </form>`);
+};
+
+INPUTS.chatFilter = el => {
+  const term = el.value.trim().toLocaleLowerCase('tr-TR');
+  document.querySelectorAll('#chatSelect option').forEach(option => {
+    option.hidden = Boolean(term) && !option.textContent.toLocaleLowerCase('tr-TR').includes(term);
+  });
 };
 
 FORMS['new-chat'] = async form => {
@@ -680,12 +718,12 @@ function userForm(user = null) {
     <div class="grid-2">
       ${editing
         ? `<label class="field"><span>Rol</span><input value="${esc(ROLE[role])}" disabled></label>`
-        : `<label class="field"><span>Rol</span><select name="role" data-change="roleToggle"><option value="teacher">Öğretmen</option><option value="student">Öğrenci</option></select></label>`}
+        : `<label class="field"><span>Rol</span><select name="role" data-change="roleToggle"><option value="teacher">Öğretmen</option><option value="student">Öğrenci</option><option value="principal">Müdür (ek yönetici)</option></select></label>`}
       <label class="field"><span>Ad soyad</span><input name="name" required maxlength="80" value="${esc(user?.name || '')}"></label>
     </div>
     ${editing ? '' : `<div class="grid-2">
       <label class="field"><span>Kullanıcı adı</span><input name="username" required minlength="3" maxlength="32" autocomplete="off"></label>
-      <label class="field"><span>İlk şifre (en az 8)</span><input name="password" type="password" required minlength="8" maxlength="128" autocomplete="new-password"></label>
+      <label class="field"><span>İlk şifre</span><input name="password" type="password" required minlength="8" maxlength="128" autocomplete="new-password"><small>En az 8 karakter; harf ve rakam.</small></label>
     </div>`}
     <div class="grid-2" data-for="student" ${role === 'student' ? '' : 'hidden'}>
       <label class="field"><span>Okul numarası</span><input name="studentNo" maxlength="20" value="${esc(user?.studentNo || '')}"></label>
@@ -770,7 +808,7 @@ function personRow(u, principal) {
   const isSelf = u.id === state.me.id;
   const actions = [];
   if (!isSelf) actions.push(`<button class="btn ghost sm" type="button" data-action="chat-with" data-id="${esc(u.id)}">Mesaj</button>`);
-  if (principal && u.role !== 'principal') {
+  if (principal && !isSelf) {
     actions.push(`<button class="icon-btn sm" type="button" data-action="edit-user" data-id="${esc(u.id)}" aria-label="${esc(u.name)} düzenle">✎</button>`);
     actions.push(`<button class="btn ghost sm" type="button" data-action="reset-password" data-id="${esc(u.id)}">Şifre</button>`);
     actions.push(`<button class="icon-btn sm" type="button" data-action="delete-user" data-id="${esc(u.id)}" aria-label="${esc(u.name)} hesabını sil">${icon('trash')}</button>`);
@@ -812,7 +850,7 @@ ACTIONS['page-people'] = el => { people.page = Number(el.dataset.page); loadPeop
 
 async function pagePeople() {
   const principal = state.me.role === 'principal';
-  const actions = principal ? `<button class="btn primary" type="button" data-action="new-user">${icon('plus')}<span>Yeni hesap</span></button>` : '';
+  const actions = principal ? `<a class="btn ghost" href="/api/export/users" download>${icon('download')}<span>CSV indir</span></a><button class="btn primary" type="button" data-action="new-user">${icon('plus')}<span>Yeni hesap</span></button>` : '';
   const option = (value, label) => `<option value="${value}" ${people.role === value ? 'selected' : ''}>${label}</option>`;
   return {
     html: `${head('Kişiler', principal ? 'Okul hesaplarını yönet: ekle, düzenle, şifre sıfırla.' : 'Sınıfınla ilgili kişiler ve iletişim.', actions)}
@@ -899,9 +937,39 @@ ACTIONS['delete-subject'] = async el => {
 };
 
 // ---------- Şifre ----------
+ACTIONS.account = () => openModal('Hesabım', `<form class="stack" data-form="account">
+  <label class="field"><span>Ad soyad</span><input name="name" required minlength="2" maxlength="80" value="${esc(state.me.name)}"></label>
+  <p class="muted small">Kullanıcı adınız (${esc(state.me.username || '')}) değiştirilemez.</p>
+  <div class="security-box">
+    <p><strong>Son giriş:</strong> ${esc(state.me.lastLoginAt ? fmtDate(state.me.lastLoginAt) : 'Bilgi yok')}${state.me.lastLoginIp ? ` · IP ${esc(state.me.lastLoginIp)}` : ''}</p>
+    <p class="small muted">Tanımadığınız bir giriş görürseniz hemen şifrenizi değiştirin ve tüm cihazlardan çıkış yapın.</p>
+    <button class="btn ghost sm" type="button" data-action="revoke-sessions">Tüm cihazlardan çıkış yap</button>
+  </div>
+  <p class="form-error" data-error role="alert"></p>
+  <div class="form-actions">
+    <button class="btn ghost" type="button" data-action="password">Şifreyi değiştir</button>
+    <button class="btn primary" type="submit">Kaydet</button>
+  </div>
+</form>`);
+
+ACTIONS['revoke-sessions'] = async () => {
+  const yes = await confirmDialog('Tüm cihazlardan çıkış', 'Bu hesabın açık olduğu tüm cihazlardan çıkış yapılacak. Bu tarayıcıda da yeniden giriş yapmanız gerekecek.', 'Evet, çıkış yap');
+  if (!yes) return;
+  await api('/me/sessions/revoke', { method: 'POST', body: {} });
+  closeModal();
+  window.dispatchEvent(new Event('okulum:logged-out'));
+};
+
+FORMS.account = async form => {
+  await api('/me', { method: 'PATCH', body: { name: val(form, 'name').trim() } });
+  closeModal();
+  toast('Ad soyad güncellendi');
+  await refreshMe();
+};
+
 ACTIONS.password = () => openModal('Şifreni değiştir', `<form class="stack" data-form="password">
   <label class="field"><span>Mevcut şifre</span><input name="current" type="password" required autocomplete="current-password"></label>
-  <label class="field"><span>Yeni şifre (en az 8)</span><input name="next" type="password" required minlength="8" maxlength="128" autocomplete="new-password"></label>
+  <label class="field"><span>Yeni şifre</span><input name="next" type="password" required minlength="8" maxlength="128" autocomplete="new-password"><small>En az 8 karakter; harf ve rakam içermeli. Yaygın şifreler kabul edilmez.</small></label>
   <label class="field"><span>Yeni şifre (tekrar)</span><input name="repeat" type="password" required minlength="8" maxlength="128" autocomplete="new-password"></label>
   <p class="form-error" data-error role="alert"></p>
   <div class="form-actions"><button class="btn ghost" type="button" data-action="close-modal">Vazgeç</button><button class="btn primary" type="submit">Şifreyi güncelle</button></div>
@@ -916,12 +984,184 @@ FORMS.password = async form => {
 
 ACTIONS['close-modal'] = () => closeModal();
 
+// ---------- Panolar (sınıf ve okul panoları) ----------
+const NOTE_COLORS = [['sun', 'Sarı'], ['mint', 'Nane'], ['coral', 'Mercan'], ['sky', 'Gök'], ['lilac', 'Leylak']];
+const scopeLabel = scope => (scope === 'school' ? 'Okul panosu' : 'Sınıf panosu');
+let currentBoard = null;
+
+async function pagePanolar(params) {
+  const scope = params.scope || 'all';
+  const search = params.q || '';
+  const query = new URLSearchParams({ ...(scope !== 'all' ? { scope } : {}), ...(search ? { q: search } : {}) });
+  const { boards } = await api(`/boards?${query}`);
+  const role = state.me.role;
+  const canCreate = role === 'principal' || (role === 'teacher' && state.teaching.length > 0);
+  const cards = boards.map(b => `
+    <a class="board-card ${b.scope}" href="#/pano?id=${esc(b.id)}">
+      <div class="board-card-top">
+        ${badge(scopeLabel(b.scope), b.scope === 'school' ? 'brand' : 'ok')}
+        ${b.className ? `<span class="muted small">${esc(b.className)}</span>` : ''}
+      </div>
+      <h3>${esc(b.title)}</h3>
+      <p class="muted small">${esc(b.description || '')}</p>
+      <footer class="board-card-foot"><span>${b.noteCount} not</span><span>${esc(b.createdBy || '')}</span></footer>
+    </a>`).join('');
+  const filter = `<form class="search-form" data-form="board-search" role="search">
+      <select name="scope" aria-label="Pano türü">
+        ${[['all', 'Tüm panolar'], ['class', 'Sınıf panoları'], ['school', 'Okul panoları']]
+          .map(([value, label]) => `<option value="${value}" ${value === scope ? 'selected' : ''}>${label}</option>`).join('')}
+      </select>
+      <input type="search" name="q" value="${esc(search)}" placeholder="Pano adında ara…" maxlength="80" aria-label="Pano ara">
+      <button class="btn ghost sm" type="submit">Ara</button>
+    </form>`;
+  return { html: `
+    ${head('Panolar', 'Sınıf ve okul panoları. Notlar, bağlantılar ve dosyalar ekleyebilirsiniz.',
+      canCreate ? `<button class="btn primary" type="button" data-action="board-new">${icon('plus')}<span>Yeni pano</span></button>` : '')}
+    <section class="panel">
+      <div class="toolbar">${filter}<span class="muted">${boards.length} pano</span></div>
+      ${boards.length
+        ? `<div class="board-grid">${cards}</div>`
+        : empty('Pano yok', canCreate ? 'Sınıfınız için ilk panoyu açarak başlayın.' : 'Öğretmenler sınıf panosu açtığında, müdür okul panosu açtığında burada görünür.')}
+    </section>` };
+}
+
+FORMS['board-search'] = async form => setQuery('panolar', { scope: val(form, 'scope'), q: val(form, 'q').trim() });
+
+function boardForm(board = null) {
+  const role = state.me.role;
+  const editing = Boolean(board);
+  const classes = role === 'principal' ? state.classes : uniqueBy(state.teaching.map(t => ({ id: t.classId, name: t.className })), 'id');
+  return `<form class="stack" data-form="${editing ? 'board-edit' : 'board-create'}" ${editing ? `data-id="${esc(board.id)}"` : ''}>
+    <label class="field"><span>Pano adı</span><input name="title" required minlength="2" maxlength="120" value="${esc(board?.title || '')}"></label>
+    <label class="field"><span>Açıklama</span><textarea name="description" rows="2" maxlength="500">${esc(board?.description || '')}</textarea></label>
+    ${editing ? '' : `
+      <div class="grid-2">
+        <label class="field"><span>Pano türü</span>
+          <select name="scope" data-change="boardScope">
+            <option value="class">Sınıf panosu</option>
+            ${role === 'principal' ? '<option value="school">Okul panosu</option>' : ''}
+          </select></label>
+        <label class="field" data-for-scope="class"><span>Sınıf</span>
+          <select name="classId">${classes.map(c => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('')}</select></label>
+      </div>
+      <p class="muted small" data-for-scope="school" hidden>Okul panosunu yalnızca müdür açar. İçine yazdığı notlar ana sayfada okul duyurusu olarak görünür.</p>`}
+    <p class="form-error" data-error role="alert"></p>
+    <div class="form-actions"><button class="btn ghost" type="button" data-action="close-modal">Vazgeç</button>
+      <button class="btn primary" type="submit">${editing ? 'Kaydet' : 'Panoyu aç'}</button></div>
+  </form>`;
+}
+
+CHANGES.boardScope = el => {
+  const isClass = el.value === 'class';
+  $$('[data-for-scope=class]').forEach(node => { node.hidden = !isClass; });
+  $$('[data-for-scope=school]').forEach(node => { node.hidden = isClass; });
+};
+
+ACTIONS['board-new'] = () => openModal('Yeni pano', boardForm());
+ACTIONS['board-edit-open'] = () => currentBoard && openModal('Panoyu düzenle', boardForm(currentBoard));
+
+FORMS['board-create'] = async form => {
+  const scope = val(form, 'scope');
+  const body = { title: val(form, 'title').trim(), description: val(form, 'description').trim(), scope };
+  if (scope === 'class') body.classId = val(form, 'classId');
+  const { id } = await api('/boards', { method: 'POST', body });
+  closeModal();
+  toast('Pano açıldı');
+  setQuery('pano', { id });
+};
+
+FORMS['board-edit'] = async form => {
+  await api(`/boards/${form.dataset.id}`, { method: 'PATCH', body: { title: val(form, 'title').trim(), description: val(form, 'description').trim() } });
+  closeModal();
+  toast('Pano güncellendi');
+  refresh();
+};
+
+ACTIONS['board-delete'] = async el => {
+  const yes = await confirmDialog('Panoyu sil', 'Pano, içindeki tüm notlar ve yüklenen dosyalar silinecek. Bu işlem geri alınamaz.');
+  if (!yes) return;
+  await api(`/boards/${el.dataset.id}`, { method: 'DELETE' });
+  toast('Pano silindi');
+  setQuery('panolar', {});
+};
+
+async function pageBoard(params) {
+  if (!params.id) return { html: `${head('Pano')}${panel('Pano', '', empty('Pano seçilmedi', 'Panolar sayfasından bir pano seçin.'))}` };
+  const { board, notes } = await api(`/boards/${encodeURIComponent(params.id)}/notes`);
+  currentBoard = board;
+  const rights = board.rights;
+  const actions = [
+    rights.post ? `<button class="btn primary" type="button" data-action="note-new" data-id="${esc(board.id)}">${icon('plus')}<span>Not ekle</span></button>` : '',
+    rights.moderate ? `<button class="btn ghost" type="button" data-action="board-edit-open">Düzenle</button>
+      <button class="btn ghost" type="button" data-action="board-delete" data-id="${esc(board.id)}">${icon('trash')}<span>Panoyu sil</span></button>` : '',
+    '<a class="btn ghost" href="#/panolar">← Panolar</a>',
+  ].join('');
+  const cards = notes.map(n => `
+    <article class="pin pin-${esc(n.color)}">
+      ${n.title ? `<h3>${esc(n.title)}</h3>` : ''}
+      ${n.body ? `<p>${esc(n.body)}</p>` : ''}
+      ${n.link ? `<a class="note-link" href="${esc(n.link)}" target="_blank" rel="noopener noreferrer">${icon('send')}<span>${esc(n.link.replace(/^https?:\/\//, '').slice(0, 60))}</span></a>` : ''}
+      ${n.hasFile ? `<a class="note-link" href="/api/files/board-note/${esc(n.id)}" download>${icon('download')}<span>${esc(n.fileName)}</span></a>` : ''}
+      <footer class="note-foot">
+        <span>${esc(n.authorName || 'Silinmiş kullanıcı')} · ${esc(ROLE[n.authorRole] || '')} · ${esc(fmtDate(n.createdAt))}</span>
+        ${n.canDelete ? `<button class="icon-btn sm" type="button" data-action="note-delete" data-id="${esc(n.id)}" aria-label="Notu sil">${icon('trash')}</button>` : ''}
+      </footer>
+    </article>`).join('');
+  return { html: `
+    ${head(board.title, `${scopeLabel(board.scope)}${board.className ? ` · ${board.className}` : ''}${board.description ? ` — ${board.description}` : ''}`, actions)}
+    ${notes.length
+      ? `<div class="pin-grid">${cards}</div>`
+      : empty('Henüz not yok', rights.post ? 'İlk notu ekleyerek panoyu başlatın.' : 'Bu pano için henüz not eklenmedi.')}` };
+}
+
+function noteForm(boardId) {
+  return `<form class="stack" data-form="note-create" data-id="${esc(boardId)}">
+    <label class="field"><span>Başlık</span><input name="title" maxlength="120"></label>
+    <label class="field"><span>Metin</span><textarea name="body" rows="4" maxlength="2000"></textarea></label>
+    <div class="grid-2">
+      <label class="field"><span>Bağlantı (isteğe bağlı)</span><input name="link" type="url" placeholder="https://..." maxlength="500"></label>
+      <label class="field"><span>Renk</span>
+        <select name="color">${NOTE_COLORS.map(([value, label]) => `<option value="${value}">${label}</option>`).join('')}</select></label>
+    </div>
+    <label class="field"><span>Dosya (isteğe bağlı)</span>
+      <input name="file" type="file" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"><small>PDF, Word veya görsel · en fazla 5 MB</small></label>
+    <p class="form-error" data-error role="alert"></p>
+    <div class="form-actions"><button class="btn ghost" type="button" data-action="close-modal">Vazgeç</button>
+      <button class="btn primary" type="submit">Notu ekle</button></div>
+  </form>`;
+}
+
+ACTIONS['note-new'] = () => openModal('Not ekle', noteForm(currentBoard?.id));
+
+FORMS['note-create'] = async form => {
+  const title = val(form, 'title').trim();
+  const body = { title, body: val(form, 'body').trim(), link: val(form, 'link').trim(), color: val(form, 'color') };
+  const file = form.querySelector('[name=file]').files[0];
+  if (file) {
+    if (file.size > 5 * 1024 * 1024) throw new Error('Dosya 5 MB sınırını aşıyor.');
+    body.file = await readFile(file);
+  }
+  await api(`/boards/${form.dataset.id}/notes`, { method: 'POST', body });
+  closeModal();
+  toast('Not eklendi');
+  refresh();
+};
+
+ACTIONS['note-delete'] = async el => {
+  const yes = await confirmDialog('Notu sil', 'Bu not ve varsa eki kalıcı olarak silinecek.');
+  if (!yes) return;
+  await api(`/board-notes/${el.dataset.id}`, { method: 'DELETE' });
+  toast('Not silindi');
+  refresh();
+};
+
 // ---------- Denetim kaydı (müdür) ----------
 const AUDIT_LABELS = {
   login_failed: 'Başarısız giriş', setup: 'Okul kuruldu', school_updated: 'Okul bilgisi değişti',
   class_created: 'Sınıf eklendi', class_deleted: 'Sınıf silindi', subject_created: 'Ders eklendi', subject_deleted: 'Ders silindi',
   user_created: 'Hesap açıldı', user_updated: 'Hesap düzenlendi', user_deleted: 'Hesap silindi',
-  password_reset: 'Şifre sıfırlandı', password_changed: 'Kendi şifresini değiştirdi',
+  password_reset: 'Şifre sıfırlandı', password_changed: 'Kendi şifresini değiştirdi', profile_updated: 'Ad değiştirildi',
+  board_created: 'Pano açıldı', board_deleted: 'Pano silindi', board_note_deleted: 'Pano notu silindi',
   assignment_created: 'Ödev oluşturuldu', assignment_updated: 'Ödev düzenlendi', assignment_deleted: 'Ödev silindi',
   grades_saved: 'Not kaydedildi', attendance_saved: 'Yoklama kaydedildi',
 };
@@ -958,7 +1198,7 @@ async function pageAudit(params) {
       <td>${esc(e.target)}</td>
       <td><small class="muted">${esc(detailText(e.details))}</small></td>
     </tr>`).join('');
-  return { html: `${head('Denetim kaydı', 'Okuldaki önemli işlemler: kim, ne zaman, neyi değiştirdi. Parolalar hiçbir zaman kaydedilmez.')}
+  return { html: `${head('Denetim kaydı', 'Okuldaki önemli işlemler: kim, ne zaman, neyi değiştirdi. Parolalar hiçbir zaman kaydedilmez.', '<a class="btn ghost" href="/api/export/audit" download>' + icon('download') + '<span>CSV indir</span></a>')}
     <section class="panel">
       <div class="toolbar">
         <label class="inline-field"><span>İşlem</span>
@@ -980,6 +1220,8 @@ ACTIONS['page-audit'] = el => setQuery('audit', { ...parseHash().params, page: e
 const PAGES = {
   overview: pageOverview, classes: pageClasses, assignments: pageAssignments, attendance: pageAttendance,
   messages: pageMessages, people: pagePeople, school: pageSchool, audit: pageAudit,
+  yardim: async () => ({ html: helpHtml() }),
+  panolar: pagePanolar, pano: pageBoard,
 };
 export function renderView(page, params) {
   return PAGES[page](params);

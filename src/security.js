@@ -34,6 +34,7 @@ function makeToken(user) {
   const body = Buffer.from(JSON.stringify({
     id: user.id,
     v: fingerprint(user.password_hash), // parola değişince eski oturumlar geçersiz olur
+    s: user.session_version ?? 0,       // "tüm cihazlardan çıkış" bu sayıyı artırır
     e: Date.now() + SESSION_MS,
   })).toString('base64url');
   return `${body}.${sign(body)}`;
@@ -86,7 +87,24 @@ setInterval(() => {
   for (const [key, entry] of failures) if (entry.reset <= now) failures.delete(key);
 }, 10 * 60 * 1000).unref();
 
+// Basit sabit pencereli sınırlayıcı. Anahtar başına, pencere içinde en fazla `max` istek.
+function createLimiter({ max, windowMs }) {
+  const hits = new Map();
+  setInterval(() => {
+    const now = Date.now();
+    for (const [key, entry] of hits) if (entry.reset <= now) hits.delete(key);
+  }, 60 * 1000).unref();
+  return key => {
+    const now = Date.now();
+    let entry = hits.get(key);
+    if (!entry || entry.reset <= now) { entry = { count: 0, reset: now + windowMs }; hits.set(key, entry); }
+    entry.count += 1;
+    return entry.count > max;
+  };
+}
+
 module.exports = {
+  createLimiter,
   COOKIE, hashPassword, verifyPassword, burnTime, fingerprint,
   readToken, setSessionCookie, clearSessionCookie, readCookie,
   isLimited, recordFailure, clearFailures,

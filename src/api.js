@@ -26,9 +26,12 @@ const requireDate = value => {
   if (typeof value !== 'string' || !DATE.test(value) || Number.isNaN(Date.parse(value))) fail(400, 'Geçersiz tarih.');
   return value;
 };
+const COMMON_PASSWORDS = new Set(['password', 'password1', '12345678', '123456789', 'qwerty123', 'sifre1234', 'parola123', '11111111', 'mudur1234', 'ogretmen1', 'ogrenci1', 'okulum123']);
 const checkPassword = value => {
   const text = typeof value === 'string' ? value : '';
   if (text.length < 8 || text.length > 128) fail(400, 'Şifre 8-128 karakter olmalı.');
+  if (!/[A-Za-z]/.test(text) || !/\d/.test(text)) fail(400, 'Şifre en az bir harf ve bir rakam içermeli.');
+  if (COMMON_PASSWORDS.has(text.toLowerCase())) fail(400, 'Bu şifre çok yaygın. Daha zor bir şifre seçin.');
   return text;
 };
 const istanbulDate = (date = new Date()) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Istanbul' }).format(date);
@@ -143,8 +146,9 @@ function on(method, pattern, handler, options = {}) {
 async function currentUser(req) {
   const data = sec.readToken(sec.readCookie(req));
   if (!data || !isId(data.id)) return null;
-  const { rows: [row] } = await q('select id, username, name, role, student_no, password_hash from users where id = $1', [data.id]);
+  const { rows: [row] } = await q('select id, username, name, role, student_no, password_hash, session_version from users where id = $1', [data.id]);
   if (!row || sec.fingerprint(row.password_hash) !== data.v) return null;
+  if ((row.session_version ?? 0) !== (data.s ?? 0)) return null; // tüm cihazlardan çıkış yapıldı
   return row;
 }
 
@@ -182,7 +186,7 @@ on('POST', '/api/setup', async ({ body, res }) => {
       on conflict (id) do update set name = excluded.name, city = excluded.city, year = excluded.year, updated_at = now()`,
       [schoolName, schoolCity, schoolYear]);
     const { rows } = await client.query(`insert into users (username, password_hash, name, role) values ($1, $2, $3, 'principal')
-      returning id, username, name, role, student_no, password_hash`, [username, sec.hashPassword(pass), name]);
+      returning id, username, name, role, student_no, password_hash, session_version`, [username, sec.hashPassword(pass), name]);
     return rows[0];
   });
   await audit(user, 'setup', schoolName, { city: schoolCity, year: schoolYear });
@@ -195,7 +199,7 @@ on('POST', '/api/login', async ({ req, res, body }) => {
   const pass = typeof body.password === 'string' ? body.password : '';
   const ipKey = `ip:${clientIp(req)}`, userKey = `user:${username}`;
   if (sec.isLimited(ipKey) || sec.isLimited(userKey)) fail(429, 'Çok fazla deneme yaptın. 15 dakika sonra tekrar dene.');
-  const { rows: [user] } = await q('select id, username, name, role, student_no, password_hash from users where username = $1', [username]);
+  const { rows: [user] } = await q('select id, username, name, role, student_no, password_hash, session_version from users where username = $1', [username]);
   let valid = false;
   if (user) valid = sec.verifyPassword(pass, user.password_hash);
   else sec.burnTime(pass);
@@ -206,8 +210,17 @@ on('POST', '/api/login', async ({ req, res, body }) => {
     fail(401, 'Kullanıcı adı veya şifre hatalı.');
   }
   sec.clearFailures(userKey);
+  const portal = body.portal === 'principal' ? 'principal' : 'member';
+  if (portal === 'principal' && user.role !== 'principal') {
+    fail(403, 'Bu hesap öğretmen veya öğrenci hesabı. Lütfen "Öğretmen / Öğrenci girişi" sayfasını kullan.');
+  }
+  if (portal === 'member' && user.role === 'principal') {
+    fail(403, 'Bu hesap müdür hesabı. Lütfen "Müdür girişi" sayfasını kullan.');
+  }
+  await q('update users set last_login_at = now(), last_login_ip = $2 where id = $1', [user.id, clientIp(req)]);
+  if (user.role === 'principal') await audit({ id: user.id, name: user.name, role: 'principal' }, 'login_success', user.username, { ip: clientIp(req) });
   sec.setSessionCookie(res, user);
-  return ok({ user: publicUser(user) });
+  return ok({ user: publicUser(user), portal });
 }, { auth: false });
 
 on('POST', '/api/logout', async ({ res }) => {
@@ -217,6 +230,7 @@ on('POST', '/api/logout', async ({ res }) => {
 
 on('GET', '/api/me', async ({ user }) => {
   const school = (await q('select name, city, year from school where id = 1')).rows[0] || null;
+  const { rows: [login] } = await q('select last_login_at as "lastLoginAt", last_login_ip as "lastLoginIp" from users where id = $1', [user.id]);
   let classId = null, className = null, teaching = [], classes = [], subjects = [];
   if (user.role === 'student') {
     const { rows: [row] } = await q(`select c.id, c.name from enrollments e join classes c on c.id = e.class_id where e.student_id = $1`, [user.id]);
@@ -231,16 +245,16 @@ on('GET', '/api/me', async ({ user }) => {
     classes = (await q('select id, name from classes order by length(name), name')).rows;
     subjects = (await q('select id, name from subjects order by name')).rows;
   }
-  return ok({ user: { ...publicUser(user), classId, className }, school, teaching, classes, subjects });
+  return ok({ user: { ...publicUser(user), classId, className, lastLoginAt: login?.lastLoginAt ?? null, lastLoginIp: login?.lastLoginIp ?? null }, school, teaching, classes, subjects });
 });
 
 on('PUT', '/api/me/password', async ({ res, body, user }) => {
-  const { rows: [row] } = await q('select password_hash from users where id = $1', [user.id]);
+  const { rows: [row] } = await q('select password_hash, session_version from users where id = $1', [user.id]);
   if (!sec.verifyPassword(typeof body.current === 'string' ? body.current : '', row.password_hash)) fail(401, 'Mevcut şifre hatalı.');
   const hash = sec.hashPassword(checkPassword(body.next));
   await q('update users set password_hash = $2 where id = $1', [user.id, hash]);
   await audit(user, 'password_changed', user.name);
-  sec.setSessionCookie(res, { id: user.id, password_hash: hash }); // bu oturum açık kalır, diğerleri düşer
+  sec.setSessionCookie(res, { id: user.id, password_hash: hash, session_version: row.session_version }); // bu oturum açık kalır, diğerleri düşer
   return ok({ changed: true });
 });
 
@@ -344,7 +358,7 @@ on('GET', '/api/users', async ({ user, query }) => {
 
 on('POST', '/api/users', async ({ body, user }) => {
   const role = body.role;
-  if (!['teacher', 'student'].includes(role)) fail(400, 'Rol öğretmen veya öğrenci olmalı.');
+  if (!['teacher', 'student', 'principal'].includes(role)) fail(400, 'Rol müdür, öğretmen veya öğrenci olmalı.');
   const name = str(body.name, 80);
   if (name.length < 2) fail(400, 'Ad soyad en az 2 karakter olmalı.');
   const username = str(body.username, 32).toLowerCase();
@@ -369,7 +383,6 @@ on('PATCH', '/api/users/:id', async ({ params, body, user }) => {
   const id = requireId(params.id, 'kullanıcı');
   const { rows: [target] } = await q('select id, role, name, student_no from users where id = $1', [id]);
   if (!target) fail(404, 'Kullanıcı bulunamadı.');
-  if (target.role === 'principal') fail(403, 'Müdür hesabı bu ekrandan değiştirilemez.');
   const name = body.name !== undefined ? str(body.name, 80) : target.name;
   if (name.length < 2) fail(400, 'Ad soyad en az 2 karakter olmalı.');
   const studentNo = target.role === 'student'
@@ -393,8 +406,9 @@ on('PATCH', '/api/users/:id', async ({ params, body, user }) => {
 
 on('PUT', '/api/users/:id/password', async ({ params, body, user }) => {
   const id = requireId(params.id, 'kullanıcı');
+  if (id === user.id) fail(400, 'Kendi şifreni "Şifremi değiştir" bölümünden değiştir.');
   const pass = checkPassword(body.password);
-  const { rowCount } = await q(`update users set password_hash = $2 where id = $1 and role <> 'principal'`, [id, sec.hashPassword(pass)]);
+  const { rowCount } = await q(`update users set password_hash = $2 where id = $1`, [id, sec.hashPassword(pass)]);
   if (!rowCount) fail(404, 'Kullanıcı bulunamadı.');
   const { rows: [target] } = await q('select name from users where id = $1', [id]);
   await audit(user, 'password_reset', target?.name || id);
@@ -405,7 +419,7 @@ on('DELETE', '/api/users/:id', async ({ params, user }) => {
   const id = requireId(params.id, 'kullanıcı');
   const { rows: [target] } = await q('select role, name from users where id = $1', [id]);
   if (!target) fail(404, 'Kullanıcı bulunamadı.');
-  if (target.role === 'principal') fail(403, 'Müdür hesabı silinemez.');
+  if (id === user.id) fail(403, 'Kendi hesabını silemezsin.');
   const { rows: files } = await q('select file_path as p from submissions where student_id = $1', [id]);
   await q('delete from users where id = $1', [id]);
   await audit(user, 'user_deleted', target.name, { role: target.role });
@@ -420,6 +434,8 @@ async function assignmentPage(user, query) {
   const conditions = [`(${assignmentScope(user)})`];
   const classId = query.get('classId');
   if (classId) { params.push(requireId(classId, 'sınıf')); conditions.push(`a.class_id = $${params.length}`); }
+  const term = str(query.get('q'), 80).toLocaleLowerCase('tr-TR');
+  if (term) { params.push(`%${escapeLike(term)}%`); conditions.push(`lower(a.title) like $${params.length}`); }
   const where = conditions.join(' and ');
   const { rows: [{ n }] } = await q(`select count(*)::int as n from assignments a where ${where}`, params);
   params.push(size, offset);
@@ -959,6 +975,297 @@ on('GET', '/api/audit', async ({ query }) => {
     from audit_log where ${where} order by id desc limit $${params.length - 1} offset $${params.length}`, params);
   return ok({ entries: rows, total: n, page, size });
 }, { roles: PRINCIPAL });
+
+
+// ---------- CSV dışa aktarma ----------
+// Excel'in Türkçe açabilmesi için noktalı virgül ayırıcı ve BOM kullanılır.
+// Formül enjeksiyonunu önlemek için = + - @ ile başlayan hücreler metin olarak işaretlenir.
+const csvCell = value => {
+  const text = value === null || value === undefined ? '' : String(value);
+  const safe = /^[=+\-@\t\r]/.test(text) ? `'${text}` : text;
+  return `"${safe.replace(/"/g, '""')}"`;
+};
+const trDateTime = value => value ? new Intl.DateTimeFormat('tr-TR', { timeZone: 'Europe/Istanbul', dateStyle: 'short', timeStyle: 'short' }).format(new Date(value)) : '';
+const EXPORT_LIMIT = 20000;
+function csvOut(filename, headers, rows) {
+  const lines = [headers.map(csvCell).join(';'), ...rows.map(row => row.map(csvCell).join(';'))];
+  return { csv: { body: '\uFEFF' + lines.join('\r\n') + '\r\n', filename } };
+}
+const slug = value => String(value || 'genel').normalize('NFKD').replace(/[^\w.-]+/g, '-').replace(/-+/g, '-').slice(0, 60) || 'genel';
+
+on('GET', '/api/export/:dataset', async ({ params, query, user }) => {
+  const dataset = params.dataset;
+  const stamp = todayIso();
+
+  if (dataset === 'attendance') {
+    const classId = requireId(query.get('classId'), 'sınıf');
+    const subjectId = query.get('subjectId') ? requireId(query.get('subjectId'), 'ders') : null;
+    if (user.role === 'teacher') {
+      if (!subjectId) fail(400, 'Öğretmen için ders seçmek zorunlu.');
+      if (!(await canTeach(user, classId, subjectId))) fail(403, 'Bu sınıf ve ders için dışa aktarma yetkin yok.');
+    } else if (user.role !== 'principal') {
+      fail(403, 'Bu veriyi dışa aktarma yetkin yok.');
+    }
+    const params2 = [classId];
+    let subjectSql = '';
+    if (subjectId) { params2.push(subjectId); subjectSql = ` and a.subject_id = $${params2.length}`; }
+    params2.push(EXPORT_LIMIT);
+    const { rows } = await q(`select a.lesson_date as date, u.student_no as "studentNo", u.name, c.name as "className",
+        s.name as "subjectName", a.present
+      from attendance a join users u on u.id = a.student_id join classes c on c.id = a.class_id join subjects s on s.id = a.subject_id
+      where a.class_id = $1${subjectSql} order by a.lesson_date, s.name, u.name limit $${params2.length}`, params2);
+    const label = rows[0]?.className || 'sinif';
+    return csvOut(`yoklama-${slug(label)}-${subjectId ? 'ders' : 'tum-dersler'}-${stamp}.csv`,
+      ['Tarih', 'Okul no', 'Ad soyad', 'Sınıf', 'Ders', 'Durum'],
+      rows.map(r => [r.date, r.studentNo, r.name, r.className, r.subjectName, r.present ? 'Geldi' : 'Gelmedi']));
+  }
+
+  if (dataset === 'grades') {
+    const assignmentId = requireId(query.get('assignmentId'), 'ödev');
+    const { rows: [a] } = await q('select title, class_id, subject_id from assignments where id = $1', [assignmentId]);
+    if (!a) fail(404, 'Ödev bulunamadı.');
+    if (user.role === 'teacher') {
+      if (!(await canTeach(user, a.class_id, a.subject_id))) fail(403, 'Bu ödevin notlarını dışa aktarma yetkin yok.');
+    } else if (user.role !== 'principal') {
+      fail(403, 'Bu veriyi dışa aktarma yetkin yok.');
+    }
+    const { rows } = await q(`select u.name, u.student_no as "studentNo", x.submitted_at as "submittedAt", x.file_name as "fileName",
+        x.grade, x.feedback
+      from enrollments e join users u on u.id = e.student_id
+      left join submissions x on x.student_id = e.student_id and x.assignment_id = $1
+      where e.class_id = $2 order by u.name limit $3`, [assignmentId, a.class_id, EXPORT_LIMIT]);
+    return csvOut(`notlar-${slug(a.title)}-${stamp}.csv`,
+      ['Okul no', 'Ad soyad', 'Durum', 'Teslim tarihi', 'Dosya', 'Not', 'Geri bildirim'],
+      rows.map(r => [r.studentNo, r.name, r.submittedAt ? 'Teslim edildi' : 'Teslim yok', trDateTime(r.submittedAt), r.fileName, r.grade, r.feedback]));
+  }
+
+  if (dataset === 'users') {
+    if (user.role !== 'principal') fail(403, 'Kullanıcı listesini yalnızca müdür dışa aktarabilir.');
+    const { rows } = await q(`select u.name, u.role, u.username, u.student_no as "studentNo",
+        (select c.name from enrollments e join classes c on c.id = e.class_id where e.student_id = u.id) as "className",
+        (select string_agg(c.name || ' · ' || s.name, ', ' order by c.name, s.name) from teaching t
+          join classes c on c.id = t.class_id join subjects s on s.id = t.subject_id where t.teacher_id = u.id) as teaching,
+        u.created_at as "createdAt"
+      from users u order by case u.role when 'principal' then 0 when 'teacher' then 1 else 2 end, u.name limit $1`, [EXPORT_LIMIT]);
+    const roleName = { principal: 'Müdür', teacher: 'Öğretmen', student: 'Öğrenci' };
+    return csvOut(`kullanicilar-${stamp}.csv`,
+      ['Ad soyad', 'Rol', 'Kullanıcı adı', 'Okul no', 'Sınıf', 'Ders atamaları', 'Hesap açılış'],
+      rows.map(r => [r.name, roleName[r.role], r.username, r.studentNo, r.className, r.teaching, trDateTime(r.createdAt)]));
+  }
+
+  if (dataset === 'audit') {
+    if (user.role !== 'principal') fail(403, 'Denetim kaydını yalnızca müdür dışa aktarabilir.');
+    const { rows } = await q(`select created_at as "createdAt", actor_name as "actorName", actor_role as "actorRole",
+        action, target, details from audit_log order by id desc limit $1`, [EXPORT_LIMIT]);
+    return csvOut(`denetim-${stamp}.csv`, ['Zaman', 'Kişi', 'Rol', 'İşlem', 'Hedef', 'Ayrıntı'],
+      rows.map(r => [trDateTime(r.createdAt), r.actorName, r.actorRole, r.action, r.target, JSON.stringify(r.details)]));
+  }
+
+  fail(404, 'Bu veri türü dışa aktarılamaz.');
+});
+
+// Tüm cihazlardan çıkış: oturum sürümü artar, bütün çerezler geçersiz olur.
+on('POST', '/api/me/sessions/revoke', async ({ res, user }) => {
+  await q('update users set session_version = session_version + 1 where id = $1', [user.id]);
+  await audit(user, 'sessions_revoked', user.name);
+  sec.clearSessionCookie(res);
+  return ok({ revoked: true });
+});
+
+// Hesabım: kendi adını değiştirme
+on('PATCH', '/api/me', async ({ body, user }) => {
+  const name = str(body.name, 80);
+  if (name.length < 2) fail(400, 'Ad soyad en az 2 karakter olmalı.');
+  await q('update users set name = $2 where id = $1', [user.id, name]);
+  await audit(user, 'profile_updated', name);
+  return ok({ name });
+});
+
+// ---------- Panolar (sınıf ve okul panoları) ----------
+const NOTE_COLORS = ['sun', 'mint', 'coral', 'sky', 'lilac'];
+
+// Kullanıcının sınıf üyelikleri: öğrenci olarak kayıtlı sınıflar ve öğretmen olarak verdiği sınıflar.
+async function membership(user) {
+  const { rows: member } = await q(`select class_id from teaching where teacher_id = $1
+    union select class_id from enrollments where student_id = $1`, [user.id]);
+  const { rows: taught } = await q('select class_id from teaching where teacher_id = $1', [user.id]);
+  return { member: new Set(member.map(r => r.class_id)), taught: new Set(taught.map(r => r.class_id)) };
+}
+
+// Yetki kuralları: müdür her panoyu yönetir. Okul panosunu yalnızca müdür yazar, herkes okur.
+// Sınıf panosunu o sınıfın öğretmenleri ve öğrencileri görür ve not ekler; yönetim öğretmene aittir.
+function rightsFor(user, board, mine) {
+  if (user.role === 'principal') return { view: true, post: true, moderate: true };
+  if (board.scope === 'school') return { view: true, post: false, moderate: false };
+  const inClass = mine.member.has(board.classId);
+  return { view: inClass, post: inClass, moderate: mine.taught.has(board.classId) };
+}
+
+async function loadBoard(id) {
+  const { rows: [b] } = await q(`select b.id, b.title, b.description, b.scope, b.class_id as "classId",
+      c.name as "className", u.name as "createdBy", b.created_by as "createdById", b.created_at as "createdAt"
+    from boards b left join classes c on c.id = b.class_id left join users u on u.id = b.created_by where b.id = $1`, [id]);
+  if (!b) fail(404, 'Pano bulunamadı.');
+  return b;
+}
+
+function parseLink(value) {
+  const text = str(value, 500);
+  if (!text) return null;
+  let url;
+  try { url = new URL(text); } catch { fail(400, 'Bağlantı geçerli bir adres olmalı.'); }
+  if (!['http:', 'https:'].includes(url.protocol)) fail(400, 'Bağlantı http veya https ile başlamalı.');
+  return url.toString();
+}
+
+on('GET', '/api/boards', async ({ user, query }) => {
+  const mine = await membership(user);
+  const conditions = [];
+  const params = [user.id];
+  if (user.role === 'principal') {
+    conditions.push('$1::uuid is not null'); // müdür her panoyu görür; $1 yine de kullanılmalı
+  } else {
+    conditions.push(`(b.scope = 'school' or b.class_id in (select class_id from teaching where teacher_id = $1
+      union select class_id from enrollments where student_id = $1))`);
+  }
+  const scope = query.get('scope');
+  if (scope === 'school' || scope === 'class') { params.push(scope); conditions.push(`b.scope = $${params.length}`); }
+  const term = str(query.get('q'), 80).toLocaleLowerCase('tr-TR');
+  if (term) { params.push(`%${escapeLike(term)}%`); conditions.push(`lower(b.title) like $${params.length}`); }
+  const where = conditions.length ? conditions.join(' and ') : 'true';
+  const { rows } = await q(`select b.id, b.title, b.description, b.scope, b.class_id as "classId", c.name as "className",
+      u.name as "createdBy", b.created_at as "createdAt",
+      (select count(*)::int from board_notes n where n.board_id = b.id) as "noteCount",
+      (select max(n.created_at) from board_notes n where n.board_id = b.id) as "lastNoteAt"
+    from boards b left join classes c on c.id = b.class_id left join users u on u.id = b.created_by
+    where ${where} order by case b.scope when 'school' then 0 else 1 end, b.created_at desc limit 200`, params);
+  const boards = rows
+    .map(b => ({ ...b, rights: rightsFor(user, { scope: b.scope, classId: b.classId }, mine) }))
+    .filter(b => b.rights.view);
+  return ok({ boards });
+});
+
+on('POST', '/api/boards', async ({ body, user }) => {
+  const title = str(body.title, 120);
+  if (title.length < 2) fail(400, 'Pano başlığı en az 2 karakter olmalı.');
+  const description = str(body.description, 500);
+  let classId = null;
+  if (body.scope === 'school') {
+    if (user.role !== 'principal') fail(403, 'Okul panosunu yalnızca müdür açabilir.');
+  } else if (body.scope === 'class') {
+    classId = requireId(body.classId, 'sınıf');
+    if (user.role !== 'principal' && !(await teachesClass(user, classId))) {
+      fail(403, 'Yalnızca verdiğiniz sınıflar için pano açabilirsiniz.');
+    }
+  } else {
+    fail(400, 'Pano türü sınıf veya okul olmalı.');
+  }
+  const { rows: [row] } = await q(`insert into boards (title, description, scope, class_id, created_by)
+    values ($1, $2, $3, $4, $5) returning id`, [title, description, body.scope, classId, user.id]);
+  await audit(user, 'board_created', title, { scope: body.scope });
+  return created({ id: row.id });
+}, { roles: STAFF });
+
+on('PATCH', '/api/boards/:id', async ({ params, body, user }) => {
+  const id = requireId(params.id, 'pano');
+  const board = await loadBoard(id);
+  if (!rightsFor(user, { scope: board.scope, classId: board.classId }, await membership(user)).moderate) {
+    fail(403, 'Bu panoyu düzenleme yetkin yok.');
+  }
+  const title = body.title !== undefined ? str(body.title, 120) : board.title;
+  if (title.length < 2) fail(400, 'Pano başlığı en az 2 karakter olmalı.');
+  const description = body.description !== undefined ? str(body.description, 500) : board.description;
+  await q('update boards set title = $2, description = $3 where id = $1', [id, title, description]);
+  return ok({ updated: true });
+});
+
+on('DELETE', '/api/boards/:id', async ({ params, user }) => {
+  const id = requireId(params.id, 'pano');
+  const board = await loadBoard(id);
+  if (!rightsFor(user, { scope: board.scope, classId: board.classId }, await membership(user)).moderate) {
+    fail(403, 'Bu panoyu silme yetkin yok.');
+  }
+  const { rows: files } = await q('select file_path as p from board_notes where board_id = $1 and file_path is not null', [id]);
+  await q('delete from boards where id = $1', [id]);
+  await Promise.all(files.map(f => storage.remove(f.p)));
+  await audit(user, 'board_deleted', board.title, { scope: board.scope, notes: files.length });
+  return ok({ deleted: true });
+});
+
+on('GET', '/api/boards/:id/notes', async ({ params, user }) => {
+  const id = requireId(params.id, 'pano');
+  const board = await loadBoard(id);
+  const rights = rightsFor(user, { scope: board.scope, classId: board.classId }, await membership(user));
+  if (!rights.view) fail(403, 'Bu panoyu görme yetkin yok.');
+  const { rows } = await q(`select n.id, n.title, n.body, n.link, n.color, n.file_name as "fileName",
+      (n.file_path is not null) as "hasFile", n.created_at as "createdAt", n.author_id as "authorId",
+      u.name as "authorName", u.role as "authorRole"
+    from board_notes n left join users u on u.id = n.author_id
+    where n.board_id = $1 order by n.created_at desc limit 300`, [id]);
+  const notes = rows.map(n => ({ ...n, canDelete: rights.moderate || n.authorId === user.id }));
+  return ok({ board: { ...board, rights }, notes });
+});
+
+on('POST', '/api/boards/:id/notes', async ({ params, body, user }) => {
+  const id = requireId(params.id, 'pano');
+  const board = await loadBoard(id);
+  if (!rightsFor(user, { scope: board.scope, classId: board.classId }, await membership(user)).post) {
+    fail(403, 'Bu panoya not ekleme yetkin yok.');
+  }
+  const title = str(body.title, 120);
+  const text = String(body.body ?? '').trim();
+  if (text.length > 2000) fail(400, 'Not metni en fazla 2000 karakter olabilir.');
+  const link = parseLink(body.link);
+  const color = NOTE_COLORS.includes(body.color) ? body.color : 'sun';
+  const upload = body.file ? storage.parseUpload(body.file) : null;
+  if (!title && !text && !link && !upload) fail(400, 'Not boş olamaz: başlık, metin, bağlantı veya dosya ekleyin.');
+  let filePath = null;
+  if (upload) {
+    filePath = storage.newPath('boards', upload.ext, upload.name);
+    await storage.put(filePath, upload.buffer, upload.mime);
+  }
+  try {
+    const { rows: [row] } = await q(`insert into board_notes (board_id, author_id, title, body, link, color, file_path, file_name, file_mime, file_size)
+      values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) returning id`,
+      [id, user.id, title, text, link, color, filePath, upload?.name ?? null, upload?.mime ?? null, upload?.buffer.length ?? null]);
+    return created({ id: row.id });
+  } catch (error) {
+    if (filePath) await storage.remove(filePath);
+    throw error;
+  }
+});
+
+on('DELETE', '/api/board-notes/:id', async ({ params, user }) => {
+  const id = requireId(params.id, 'not');
+  const { rows: [n] } = await q('select id, board_id, author_id, file_path, title from board_notes where id = $1', [id]);
+  if (!n) fail(404, 'Not bulunamadı.');
+  const board = await loadBoard(n.board_id);
+  const rights = rightsFor(user, { scope: board.scope, classId: board.classId }, await membership(user));
+  const own = n.author_id === user.id;
+  if (!(own || rights.moderate)) fail(403, 'Bu notu silme yetkin yok.');
+  await q('delete from board_notes where id = $1', [id]);
+  if (n.file_path) await storage.remove(n.file_path);
+  if (!own) await audit(user, 'board_note_deleted', `${board.title}: ${n.title || 'başlıksız not'}`);
+  return ok({ deleted: true });
+});
+
+on('GET', '/api/files/board-note/:id', async ({ params, user }) => {
+  const id = requireId(params.id, 'not');
+  const { rows: [n] } = await q('select board_id, file_path, file_name, file_mime from board_notes where id = $1', [id]);
+  if (!n || !n.file_path) fail(404, 'Dosya bulunamadı.');
+  const board = await loadBoard(n.board_id);
+  if (!rightsFor(user, { scope: board.scope, classId: board.classId }, await membership(user)).view) fail(403, 'Bu dosyaya erişimin yok.');
+  return fileOf(n.file_path, n.file_mime, n.file_name);
+});
+
+// Ana sayfadaki okul duyuruları: yalnızca okul panolarındaki notlar, giriş gerektirmez.
+on('GET', '/api/public/announcements', async () => {
+  const { rows } = await q(`select n.title, n.body, n.link, n.color, n.created_at as "createdAt",
+      b.title as "boardTitle", (n.file_path is not null) as "hasFile"
+    from board_notes n join boards b on b.id = n.board_id
+    where b.scope = 'school' order by n.created_at desc limit 6`);
+  return ok({ announcements: rows });
+}, { auth: false });
 
 // ---------- Hata eşleme ----------
 function toHttpError(error) {

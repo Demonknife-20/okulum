@@ -1,11 +1,18 @@
-import { $, $$, esc, state, api, icon, ROLE, initials, tone, parseHash, toast, closeModal, val, setBusy, paintWidths, refreshBadges, markSeen } from './core.js';
+import { $, $$, esc, state, api, icon, ROLE, initials, tone, parseHash, toast, closeModal, setBusy, paintWidths, refreshBadges, markSeen } from './core.js';
 import { ACTIONS, FORMS, CHANGES, INPUTS, renderView, stopTimers } from './views.js';
+import { renderPublic } from './public.js';
 
 const NAV = {
-  principal: [['overview', 'Genel bakış', 'home'], ['people', 'Kişiler', 'users'], ['school', 'Okul', 'school'], ['messages', 'Mesajlar', 'chat'], ['audit', 'Denetim', 'file']],
-  teacher: [['overview', 'Genel bakış', 'home'], ['classes', 'Sınıflarım', 'grid'], ['assignments', 'Ödevler', 'file'], ['attendance', 'Yoklama', 'check'], ['messages', 'Mesajlar', 'chat'], ['people', 'Kişiler', 'users']],
-  student: [['overview', 'Genel bakış', 'home'], ['assignments', 'Ödevlerim', 'file'], ['attendance', 'Devamım', 'check'], ['messages', 'Mesajlar', 'chat']],
+  principal: [['overview', 'Genel bakış', 'home'], ['people', 'Kişiler', 'users'], ['school', 'Okul', 'school'], ['panolar', 'Panolar', 'board'], ['messages', 'Mesajlar', 'chat'], ['audit', 'Denetim', 'file'], ['yardim', 'Kullanım', 'help']],
+  teacher: [['overview', 'Genel bakış', 'home'], ['classes', 'Sınıflarım', 'grid'], ['assignments', 'Ödevler', 'file'], ['attendance', 'Yoklama', 'check'], ['panolar', 'Panolar', 'board'], ['messages', 'Mesajlar', 'chat'], ['people', 'Kişiler', 'users'], ['yardim', 'Kullanım', 'help']],
+  student: [['overview', 'Genel bakış', 'home'], ['assignments', 'Ödevlerim', 'file'], ['attendance', 'Devamım', 'check'], ['panolar', 'Panolar', 'board'], ['messages', 'Mesajlar', 'chat'], ['yardim', 'Kullanım', 'help']],
 };
+const BADGES = ['messages', 'assignments'];
+// Yükleme sırasında gösterilen iskelet ekran (metin yerine).
+const skeleton = () => `<div class="skeleton-page" aria-busy="true" aria-label="Yükleniyor">
+  <div class="sk sk-eyebrow"></div><div class="sk sk-title"></div><div class="sk sk-line"></div>
+  <div class="sk-grid"><div class="sk sk-card"></div><div class="sk sk-card"></div><div class="sk sk-card"></div><div class="sk sk-card"></div></div>
+  <div class="sk sk-panel"></div></div>`;
 
 // ---------- Tema ----------
 function applyTheme(theme) {
@@ -19,13 +26,23 @@ ACTIONS.theme = () => {
   try { localStorage.setItem('okulum-theme', next); } catch { /* depolama kapalı olabilir */ }
 };
 
-// ---------- Menü (mobil) ----------
+// ---------- Mobil menü ----------
 const openMenu = () => { $('#sidebar').classList.add('open'); $('#scrim').classList.add('show'); };
 const closeMenu = () => { $('#sidebar').classList.remove('open'); $('#scrim').classList.remove('show'); };
 ACTIONS['open-menu'] = openMenu;
 ACTIONS['close-menu'] = closeMenu;
+ACTIONS['close-modal'] = () => closeModal();
 
-// ---------- Kabuk ----------
+// ---------- Kabuk: giriş yapmamış ve giriş yapmış görünümler ----------
+function showPublic() {
+  $('#app').hidden = true;
+  $('#public').hidden = false;
+}
+function showApp() {
+  $('#public').hidden = true;
+  $('#app').hidden = false;
+}
+
 function renderChrome() {
   const me = state.me;
   $('#schoolChip').innerHTML = `<span class="school-mark">${esc(initials(state.school?.name || 'Okul'))}</span>
@@ -36,7 +53,7 @@ function renderChrome() {
   $('#meRole').textContent = me.className ? `${ROLE[me.role]} · ${me.className}` : ROLE[me.role];
   $('#nav').innerHTML = NAV[me.role].map(([page, label, ic]) =>
     `<a class="nav-item" href="#/${page}" data-page="${page}">${icon(ic)}<span>${esc(label)}</span>${
-      ['messages', 'assignments'].includes(page) ? `<span class="nav-badge" data-badge="${page}" hidden></span>` : ''}</a>`).join('');
+      BADGES.includes(page) ? `<span class="nav-badge" data-badge="${page}" hidden></span>` : ''}</a>`).join('');
 }
 
 function highlight(page) {
@@ -47,21 +64,45 @@ function highlight(page) {
   });
 }
 
-// ---------- Yönlendirme ----------
+// Ana sayfa, giriş, kurulum ve kılavuz (giriş yapmamışken)
+function currentPublicPage() {
+  return location.hash.replace(/^#\/?/, '').split('?')[0] || 'ana';
+}
+let publicSeq = 0;
+async function routePublic() {
+  stopTimers();
+  showPublic();
+  const seq = ++publicSeq; // hızlı geçişlerde eski yanıt yenisinin üzerine yazmasın
+  const page = currentPublicPage();
+  const view = $('#publicView');
+  view.innerHTML = skeleton();
+  try {
+    const { html } = await renderPublic(page === 'ana' ? '' : page);
+    if (seq !== publicSeq) return;
+    view.innerHTML = html;
+    document.querySelectorAll('[data-public]').forEach(a => a.classList.toggle('current', a.dataset.public === page));
+    paintWidths(view);
+    window.scrollTo({ top: 0 });
+  } catch (error) {
+    if (seq !== publicSeq) return;
+    view.innerHTML = `<div class="empty"><h3>Sayfa yüklenemedi</h3><p>${esc(error.message)}</p></div>`;
+  }
+}
+
+// ---------- Uygulama yönlendirmesi (giriş yapmış) ----------
 let routeSeq = 0;
-async function route() {
-  if (!state.me) return;
+async function routeApp() {
   const { page, params } = parseHash();
-  const allowed = NAV[state.me.role];
-  const entry = allowed.find(([key]) => key === page);
-  if (!entry) { history.replaceState(null, '', '#/overview'); return route(); }
+  const entry = NAV[state.me.role].find(([key]) => key === page) || (page === 'pano' ? ['pano', 'Pano'] : null);
+  if (!entry) { history.replaceState(null, '', '#/overview'); return routeApp(); }
 
   const seq = ++routeSeq;
   stopTimers();
-  highlight(page);
+  showApp();
+  highlight(page === 'pano' ? 'panolar' : page);
   $('#crumb').textContent = `${state.school?.name || 'Okulum'} / ${entry[1]}`;
   const view = $('#view');
-  view.innerHTML = '<div class="loading" role="status">Yükleniyor…</div>';
+  view.innerHTML = skeleton();
   try {
     const { html, after } = await renderView(page, params);
     if (seq !== routeSeq) return;
@@ -78,64 +119,56 @@ async function route() {
   window.scrollTo({ top: 0 });
 }
 
-// ---------- Oturum ----------
-async function showAuthForms() {
-  stopTimers();
-  state.me = null;
-  $('#app').hidden = true;
-  $('#auth').hidden = false;
-  const { setupRequired } = await api('/setup').catch(() => ({ setupRequired: false }));
-  $('#loginForm').hidden = setupRequired;
-  $('#setupForm').hidden = !setupRequired;
+function route() {
+  if (state.me) routeApp();
+  else routePublic();
 }
 
+// ---------- Oturum ----------
 async function enterApp() {
   const data = await api('/me');
   Object.assign(state, { me: data.user, school: data.school, teaching: data.teaching, classes: data.classes, subjects: data.subjects });
-  $('#auth').hidden = true;
-  $('#app').hidden = false;
-  if (!location.hash.startsWith('#/')) history.replaceState(null, '', '#/overview');
   renderChrome();
-  await route();
+  if (!location.hash.startsWith('#/') || location.hash === '#/' || ['#/mudur-girisi', '#/giris', '#/kurulum'].includes(location.hash)) {
+    history.replaceState(null, '', '#/overview');
+  }
+  await routeApp();
+  refreshBadges();
 }
 
-// Rozetler sayfa değişmeden de güncel kalsın diye periyodik yenileme.
-setInterval(() => { if (state.me) refreshBadges(); }, 20000);
-
-FORMS.login = async form => {
-  await api('/login', { method: 'POST', body: { username: val(form, 'username'), password: val(form, 'password') } });
-  await enterApp();
-};
-FORMS.setup = async form => {
-  await api('/setup', {
-    method: 'POST',
-    body: {
-      schoolName: val(form, 'schoolName'), schoolCity: val(form, 'schoolCity'), schoolYear: val(form, 'schoolYear'),
-      name: val(form, 'name'), username: val(form, 'username'), password: val(form, 'password'),
-    },
-  });
-  await enterApp();
-};
-
-ACTIONS.logout = async () => {
+async function logout() {
   await fetch('/api/logout', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: '{}' });
   closeModal();
-  history.replaceState(null, '', location.pathname);
-  await showAuthForms();
-};
+  state.me = null;
+  history.replaceState(null, '', '#/');
+  routePublic();
+}
+ACTIONS.logout = () => logout();
 
-window.addEventListener('okulum:logged-out', () => { toast('Oturumun sona erdi. Tekrar giriş yap.', 'error'); showAuthForms(); });
+window.addEventListener('okulum:login', async () => {
+  try {
+    await enterApp();
+    toast(`Hoş geldiniz, ${state.me.name}`);
+  } catch (error) {
+    toast(error.message, 'error');
+  }
+});
+window.addEventListener('okulum:logged-out', () => {
+  toast('Oturumun sona erdi. Tekrar giriş yap.', 'error');
+  state.me = null;
+  history.replaceState(null, '', '#/');
+  routePublic();
+});
+window.addEventListener('okulum:refresh', () => { if (state.me) { renderChrome(); route(); } });
 
-// ---------- Genel olay yönlendirme (delegation) ----------
+// ---------- Genel olay yönlendirmesi ----------
 document.addEventListener('click', event => {
   const el = event.target.closest('[data-action]');
   if (!el) return;
   const handler = ACTIONS[el.dataset.action];
   if (!handler) return;
   event.preventDefault();
-  Promise.resolve()
-    .then(() => handler(el, event))
-    .catch(error => toast(error.message, 'error'));
+  Promise.resolve().then(() => handler(el, event)).catch(error => toast(error.message, 'error'));
 });
 
 document.addEventListener('submit', event => {
@@ -175,7 +208,7 @@ document.addEventListener('keydown', event => {
 
 $('#modal').addEventListener('click', event => { if (event.target.id === 'modal') closeModal(); });
 window.addEventListener('hashchange', route);
-window.addEventListener('okulum:refresh', () => { if (state.me) { renderChrome(); route(); } });
+setInterval(() => { if (state.me) refreshBadges(); }, 20000);
 
 // ---------- Başlatma ----------
 const saved = (() => { try { return localStorage.getItem('okulum-theme'); } catch { return null; } })();
@@ -185,7 +218,9 @@ applyTheme(saved || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark'
   try {
     await enterApp();
   } catch {
-    await showAuthForms();
+    state.me = null;
+    if (!location.hash || location.hash === '#/overview') history.replaceState(null, '', '#/');
+    routePublic();
   } finally {
     $('#boot').hidden = true;
   }

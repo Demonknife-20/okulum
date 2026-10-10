@@ -7,7 +7,7 @@ Veritabanı **Supabase (PostgreSQL)**, dosyalar **Supabase Storage**, yayın **R
 
 | Rol | Yapabildikleri |
 |---|---|
-| **Müdür** | Okul bilgisi, sınıf ve ders tanımı, öğretmen/öğrenci hesabı açma, düzenleme, şifre sıfırlama, silme, öğretmenlere sınıf-ders ataması |
+| **Müdür** | Birden fazla müdür ekleyebilir (kendi hesabı hariç her müdür hesabını yönetebilir). Okul bilgisi, sınıf ve ders tanımı, öğretmen/öğrenci hesabı açma, düzenleme, şifre sıfırlama, silme, öğretmenlere sınıf-ders ataması |
 | **Öğretmen** | Yalnızca kendi sınıf ve derslerinde ödev oluşturma ve düzenleme (dosyalı), teslimleri görme, **tüm notları tek seferde girme**, yoklama alma, sınıf devamını izleme, devamsızlık uyarılarını görme |
 | **Öğrenci** | Ödevlerini görme, dosya teslim etme (yeniden gönderebilme), not ve geri bildirimi görme, kendi devamını izleme |
 | **Müdür** (ek) | Denetim kaydı: kim, ne zaman, neyi değiştirdi; başarısız girişler (parolalar kaydedilmez) |
@@ -56,6 +56,8 @@ Bu klasörü özel (private) bir depoya yükle. `.gitignore` `.env` ve `data/` k
 | `SUPABASE_URL` | üretimde evet | Dosyalar için Supabase proje adresi |
 | `SUPABASE_SERVICE_ROLE_KEY` | üretimde evet | Storage ve sunucu erişimi (gizli tut) |
 | `SESSION_SECRET` | üretimde evet | Oturum imzası, en az 32 karakter. Değişirse herkes yeniden giriş yapar |
+| `API_RATE_PER_MIN` | hayır | IP başına dakikada en fazla istek (varsayılan 900) |
+| `WRITE_RATE_PER_MIN` | hayır | IP başına dakikada en fazla yazma isteği (varsayılan 240) |
 | `NODE_ENV` | önerilir | `production` olduğunda çerez `Secure` olur ve eksik ayarlarda başlamaz |
 | `TRUST_PROXY` | Render'da `1` | Giriş hız sınırının gerçek istemci IP'sini kullanması için |
 | `SUPABASE_BUCKET` | hayır | Varsayılan `okulum-files` |
@@ -79,7 +81,7 @@ TEST_DATABASE_URL=postgresql://.../okulum_test npm test
 ```
 
 `TEST_DATABASE_URL` adı `test` içermelidir; testler veritabanını **sıfırlar**. Asla gerçek veritabanıyla çalıştırma.
-Testler 26 senaryoyu kapsar: kurulum, yetki kuralları, dosya doğrulama, teslim kuralları, yoklama, mesaj
+Testler 30 senaryoyu kapsar: kurulum, yetki kuralları, dosya doğrulama, teslim kuralları, yoklama, mesaj
 izolasyonu, parola değişimi, silme, hız sınırı, sayfalama, toplu not, devamsızlık uyarıları, bildirimler ve denetim kaydı.
 
 ### Bildirimler
@@ -92,6 +94,48 @@ izolasyonu, parola değişimi, silme, hız sınırı, sayfalama, toplu not, deva
 Müdür "Denetim" sayfasından okul bilgisi, sınıf/ders, hesap, parola, ödev, not ve yoklama işlemlerini görür.
 Her kayıtta kişi, zaman, işlem, hedef ve ayrıntı bulunur. Parolalar hiçbir zaman kaydedilmez.
 Kayıtlar silinmez; kullanıcı silinse bile kalır.
+
+## Giriş ve kullanım
+
+- Ana sayfa (`/`): sistemin tanıtımı, "Müdür girişi" ve "Öğretmen / Öğrenci girişi" düğmeleri.
+- `/#/mudur-girisi`: yalnızca müdür hesapları. Öğretmen/öğrenci hesabıyla girilmeye çalışılırsa sistem doğru sayfayı gösterir.
+- `/#/giris`: öğretmen ve öğrenci hesapları. Müdür hesabıyla girilmeye çalışılırsa aynı şekilde yönlendirir.
+- `/#/kurulum`: okul yalnızca bir kez kurulur. Kurulduktan sonra bu sayfa okulun kurulu olduğunu söyler.
+- `/#/yardim`: rol bazlı kullanım kılavuzu. Giriş yapmadan da açılır.
+
+Kullanıcı listelerinde isim ve okul numarasıyla arama, ödev listesinde başlığa göre arama ve yeni sohbet penceresinde kişi arama vardır.
+
+## Dışa aktarma (CSV)
+
+Dosyalar Excel'de Türkçe karakterlerle ve noktalı virgülle açılır. Hücreler, Excel formülü olarak çalışmasın diye korunur.
+
+| Kim | Ne indirebilir |
+|---|---|
+| Müdür | Kullanıcı listesi (Kişiler), denetim kaydı (Denetim), herhangi bir sınıfın yoklaması, herhangi bir ödevin notları |
+| Öğretmen | Kendi verdiği sınıf-ders yoklaması, kendi ödevlerinin notları |
+| Öğrenci | Dışa aktarma yok |
+
+Düzenli yedek için bu dosyaları periyodik olarak indirmeniz önerilir (Supabase ücretsiz planında otomatik yedek yoktur).
+
+## Başlangıç listesi ve hesap
+
+- Müdür genel bakışında, okul kurulumunun hangi adımlarının tamamlandığını gösteren bir liste bulunur. Hepsi tamamlanınca gizlenir.
+- Herkes sol alttaki **Hesabım** düğmesiyle kendi adını değiştirebilir ve şifresini değiştirebilir. Kullanıcı adı değiştirilemez.
+
+## Panolar (Padlet benzeri)
+
+- **Sınıf panosu:** Öğretmen, verdiği sınıf için pano açar. O sınıfın öğrencileri ve öğretmenleri görür ve not ekler. Panoyu düzenleme ve silme yetkisi öğretmendedir.
+- **Okul panosu:** Yalnızca müdür açar ve yazar. Okul panosu notları ana sayfada "Okuldan duyurular" olarak herkese açık yayınlanır.
+- Notlar başlık, metin, güvenli bağlantı (yalnızca http/https), renk ve dosya (PDF, Word, JPG, PNG; 5 MB) içerebilir.
+- Dosyalar yalnızca panoyu görebilen kişilere indirilir.
+
+## Koruma özellikleri
+
+- **Tüm cihazlardan çıkış:** Hesabım → "Tüm cihazlardan çıkış yap". Açık olan bütün oturumlar anında geçersiz olur. Parola değişince de aynısı olur.
+- **Son giriş bilgisi:** Hesabım'da son girişin zamanı ve IP adresi görünür. Müdür girişleri denetim kaydına yazılır.
+- **Hız sınırı:** Her IP için dakikada belirli sayıda istek. Yazma istekleri ayrıca sınırlıdır. Aşıldığında 429 döner.
+- **Parola kuralı:** En az 8 karakter, hem harf hem rakam, çok yaygın parolalar reddedilir.
+- **Başlıklar:** Üretimde HSTS, ayrıca COOP ve CORP başlıkları.
 
 ## Güvenlik özeti
 

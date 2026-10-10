@@ -4,11 +4,21 @@ const path = require('node:path');
 const { migrate, q, pool } = require('./src/db');
 const storage = require('./src/storage');
 const { handleApi, toHttpError, HttpError } = require('./src/api');
+const { createLimiter } = require('./src/security');
 
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || (process.env.RENDER ? '0.0.0.0' : '127.0.0.1');
 const PUBLIC = path.join(__dirname, 'public');
 const BODY_LIMIT = 8 * 1024 * 1024;
+const API_LIMIT = createLimiter({ max: Number(process.env.API_RATE_PER_MIN || 900), windowMs: 60 * 1000 });
+const WRITE_LIMIT = createLimiter({ max: Number(process.env.WRITE_RATE_PER_MIN || 240), windowMs: 60 * 1000 });
+const clientKey = req => {
+  if (process.env.TRUST_PROXY) {
+    const forwarded = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
+    if (forwarded) return forwarded;
+  }
+  return req.socket.remoteAddress || 'unknown';
+};
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
   '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.webmanifest': 'application/manifest+json',
@@ -18,6 +28,8 @@ const SECURITY = {
   'X-Frame-Options': 'DENY',
   'Referrer-Policy': 'same-origin',
   'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+  'Cross-Origin-Opener-Policy': 'same-origin',
+  'Cross-Origin-Resource-Policy': 'same-origin',
   'Content-Security-Policy': [
     "default-src 'self'", "script-src 'self'", "style-src 'self' https://fonts.googleapis.com",
     "font-src 'self' https://fonts.gstatic.com", "img-src 'self' data:", "connect-src 'self'",
@@ -76,6 +88,7 @@ function serveStatic(res, pathname) {
 
 const server = http.createServer(async (req, res) => {
   for (const [key, value] of Object.entries(SECURITY)) res.setHeader(key, value);
+  if (process.env.NODE_ENV === 'production') res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
   const url = new URL(req.url, 'http://localhost');
 
   if (url.pathname === '/healthz') {
@@ -93,6 +106,10 @@ const server = http.createServer(async (req, res) => {
   }
 
   try {
+    const key = clientKey(req);
+    if (API_LIMIT(key) || (!['GET', 'HEAD'].includes(req.method) && WRITE_LIMIT(key))) {
+      throw new HttpError(429, 'Çok fazla istek gönderildi. Lütfen biraz bekleyin.');
+    }
     if (!['GET', 'HEAD'].includes(req.method)) {
       if (!sameOrigin(req)) throw new HttpError(403, 'İstek kaynağı doğrulanamadı.');
       if (req.method !== 'DELETE' && !/application\/json/i.test(req.headers['content-type'] || '')) {
@@ -101,6 +118,15 @@ const server = http.createServer(async (req, res) => {
     }
     const body = ['POST', 'PUT', 'PATCH'].includes(req.method) ? await readBody(req) : {};
     const result = await handleApi({ req, res, url, body });
+    if (result.csv) {
+      const { body, filename } = result.csv;
+      res.writeHead(200, {
+        'Content-Type': 'text/csv; charset=utf-8',
+        'Content-Disposition': `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`,
+        'Cache-Control': 'private, no-store',
+      });
+      return res.end(body);
+    }
     if (result.file) {
       const { buffer, mime, name } = result.file;
       res.writeHead(200, {
