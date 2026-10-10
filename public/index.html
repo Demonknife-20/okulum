@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#f3f5f1">
+  <title>Okulum</title>
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <div class="boot" id="boot" role="status">Okulum yükleniyor…</div>
+
+  <section class="auth" id="auth" hidden>
+    <div class="auth-hero">
+      <div class="brand brand-light"><span class="brand-mark">o</span><span>okulum</span></div>
+      <div class="auth-hero-copy">
+        <p class="kicker">Okul yönetimi, sade ve güvenli</p>
+        <h1>Dersler, ödevler, yoklama ve mesajlar tek yerde.</h1>
+        <p>Herkes yalnızca kendi sınıfını ve dersini görür. Mesajlar yalnızca taraflar arasında kalır.</p>
+      </div>
+      <p class="auth-hero-foot">Okulum</p>
+    </div>
+    <div class="auth-side">
+      <div class="auth-card">
+        <form class="stack" id="loginForm" data-form="login" hidden>
+          <h2>Giriş yap</h2>
+          <p class="muted">Okul hesabınla devam et.</p>
+          <label class="field"><span>Kullanıcı adı</span><input name="username" autocomplete="username" required maxlength="40"></label>
+          <label class="field"><span>Şifre</span><input name="password" type="password" autocomplete="current-password" required maxlength="128"></label>
+          <p class="form-error" data-error role="alert"></p>
+          <button class="btn primary block" type="submit">Giriş yap</button>
+          <p class="muted small">Hesabın yoksa okul müdüründen bilgi iste.</p>
+        </form>
+        <form class="stack" id="setupForm" data-form="setup" hidden>
+          <h2>Okulunu oluştur</h2>
+          <p class="muted">Bu okul için ilk ve tek müdür hesabını burada açarsın. Diğer hesapları sonra sen eklersin.</p>
+          <div class="grid-2">
+            <label class="field"><span>Okul adı</span><input name="schoolName" required maxlength="120"></label>
+            <label class="field"><span>Şehir</span><input name="schoolCity" required maxlength="80"></label>
+          </div>
+          <label class="field"><span>Eğitim yılı</span><input name="schoolYear" placeholder="2026–2027" maxlength="20"></label>
+          <hr>
+          <label class="field"><span>Müdür adı soyadı</span><input name="name" required maxlength="80"></label>
+          <div class="grid-2">
+            <label class="field"><span>Kullanıcı adı</span><input name="username" required minlength="3" maxlength="32" autocomplete="username"></label>
+            <label class="field"><span>Şifre (en az 8)</span><input name="password" type="password" required minlength="8" maxlength="128" autocomplete="new-password"></label>
+          </div>
+          <p class="form-error" data-error role="alert"></p>
+          <button class="btn primary block" type="submit">Okulumu oluştur</button>
+        </form>
+      </div>
+    </div>
+  </section>
+
+  <div class="app" id="app" hidden>
+    <aside class="sidebar" id="sidebar" aria-label="Ana menü">
+      <div class="brand"><span class="brand-mark">o</span><span class="brand-name">okulum</span></div>
+      <div class="school-chip" id="schoolChip"></div>
+      <nav class="nav" id="nav" aria-label="Sayfalar"></nav>
+      <div class="sidebar-foot">
+        <div class="me"><span class="avatar" id="meAvatar"></span><div class="me-copy"><strong id="meName"></strong><small id="meRole"></small></div></div>
+        <div class="me-actions">
+          <button class="btn ghost sm" type="button" data-action="password">Şifre</button>
+          <button class="btn ghost sm" type="button" data-action="logout">Çıkış</button>
+        </div>
+      </div>
+    </aside>
+    <div class="scrim" id="scrim" data-action="close-menu"></div>
+    <main class="main">
+      <header class="topbar">
+        <button class="icon-btn menu-btn" type="button" data-action="open-menu" aria-label="Menüyü aç" aria-controls="sidebar">☰</button>
+        <p class="crumb" id="crumb"></p>
+        <div class="top-actions">
+          <button class="icon-btn" id="themeBtn" type="button" data-action="theme" aria-label="Temayı değiştir"></button>
+        </div>
+      </header>
+      <section class="content" id="view"></section>
+    </main>
+  </div>
+
+  <div class="modal-backdrop" id="modal" hidden>
+    <div class="modal" id="modalBox" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+      <div class="modal-head"><h2 id="modalTitle"></h2><button class="icon-btn" type="button" data-action="close-modal" aria-label="Kapat">×</button></div>
+      <div id="modalBody"></div>
+    </div>
+  </div>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+</body>
+</html>
