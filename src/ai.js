@@ -18,7 +18,7 @@ const NOTICE = {
 };
 
 const BASE = (process.env.GEMINI_BASE_URL || 'https://generativelanguage.googleapis.com').replace(/\/$/, '');
-const MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash-lite';
+const MODEL = process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite';
 const DAILY_LIMIT = Number(process.env.AI_DAILY_LIMIT || 30);
 const GLOBAL_DAILY = Number(process.env.AI_GLOBAL_DAILY || 400);
 const RETENTION_DAYS = Number(process.env.AI_RETENTION_DAYS || 180);
@@ -93,6 +93,60 @@ async function askGemini({ role, history, message }) {
   return text;
 }
 
+// Yanıtı parça parça alır: her parça geldiğinde onDelta çağrılır, tam metin döner.
+async function streamGemini({ role, history, message, onDelta, signal }) {
+  const body = {
+    systemInstruction: { parts: [{ text: systemPrompt(role) }] },
+    contents: [
+      ...history.map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] })),
+      { role: 'user', parts: [{ text: message }] },
+    ],
+    generationConfig: { temperature: 0.5, maxOutputTokens: 900 },
+  };
+  const timeout = AbortSignal.timeout(60000);
+  let res;
+  try {
+    res = await fetch(`${BASE}/v1beta/models/${MODEL}:streamGenerateContent?alt=sse`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': process.env.GEMINI_API_KEY },
+      body: JSON.stringify(body),
+      signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+    });
+  } catch (error) {
+    // Yalnızca hata türü günlüğe yazılır; kullanıcı metni ve anahtar asla yazılmaz.
+    console.error('Gemini ağ hatası:', error?.name, error?.cause?.code || '');
+    throw new AiError(502, 'Asistana şu an ulaşılamıyor. Biraz sonra tekrar deneyin.');
+  }
+  if (res.status === 429) throw new AiError(429, 'Asistan şu an çok yoğun. Lütfen biraz sonra deneyin.');
+  if (!res.ok || !res.body) {
+    console.error('Gemini akış hatası:', res.status);
+    throw new AiError(502, 'Asistan şu an yanıt veremiyor. Lütfen daha sonra tekrar deneyin.');
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let full = '';
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    let index = buffer.indexOf('\n');
+    while (index >= 0) {
+      const line = buffer.slice(0, index).trim();
+      buffer = buffer.slice(index + 1);
+      index = buffer.indexOf('\n');
+      if (!line.startsWith('data:')) continue;
+      let data;
+      try { data = JSON.parse(line.slice(5)); } catch { continue; }
+      const piece = (data.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('');
+      if (piece) { full += piece; onDelta(piece); }
+    }
+  }
+  const text = full.trim();
+  if (!text) throw new AiError(502, 'Bu soruya yanıt üretilemedi. Sorunuzu farklı bir biçimde yazmayı deneyin.');
+  return text;
+}
+
 // Eski sohbetleri ve kullanım kayıtlarını siler. Açılışta ve her gün çalışır.
 async function purgeExpired() {
   await q('delete from ai_conversations where updated_at < now() - ($1::int * interval \'1 day\')', [RETENTION_DAYS]);
@@ -103,4 +157,4 @@ function startRetention() {
   setInterval(() => purgeExpired().catch(error => console.error('Saklama temizliği hatası:', error.message)), 24 * 60 * 60 * 1000).unref();
 }
 
-module.exports = { NOTICE, NOTICE_VERSION, DAILY_LIMIT, GLOBAL_DAILY, enabled, askGemini, AiError, systemPrompt, startRetention, isInjection, INJECTION_REPLY };
+module.exports = { NOTICE, NOTICE_VERSION, DAILY_LIMIT, GLOBAL_DAILY, enabled, askGemini, streamGemini, AiError, systemPrompt, startRetention, isInjection, INJECTION_REPLY };

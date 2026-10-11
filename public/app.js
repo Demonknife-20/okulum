@@ -1,12 +1,13 @@
-import { $, $$, esc, state, api, icon, ROLE, initials, tone, parseHash, toast, closeModal, setBusy, paintWidths, refreshBadges, markSeen } from './core.js';
+import { $, $$, esc, state, api, icon, ROLE, initials, tone, parseHash, toast, closeModal, setBusy, paintWidths, refreshBadges, markSeen, notFoundHtml } from './core.js';
 import { ACTIONS, FORMS, CHANGES, INPUTS, renderView, stopTimers } from './views.js';
 import { renderPublic } from './public.js';
+import { initNotifications } from './push.js';
 
 const NAV = {
-  principal: [['overview', 'Genel bakış', 'home'], ['people', 'Kişiler', 'users'], ['school', 'Okul', 'school'], ['panolar', 'Panolar', 'board'], ['asistan', 'Asistan', 'spark'], ['messages', 'Mesajlar', 'chat'], ['audit', 'Denetim', 'file'], ['yardim', 'Kullanım', 'help']],
-  teacher: [['overview', 'Genel bakış', 'home'], ['classes', 'Sınıflarım', 'grid'], ['assignments', 'Ödevler', 'file'], ['sinavlar', 'Sınavlar', 'quiz'], ['attendance', 'Yoklama', 'check'], ['notlar', 'Notlar', 'chart'], ['panolar', 'Panolar', 'board'], ['asistan', 'Asistan', 'spark'], ['messages', 'Mesajlar', 'chat'], ['people', 'Kişiler', 'users'], ['yardim', 'Kullanım', 'help']],
-  parent: [['overview', 'Genel bakış', 'home'], ['cocuklar', 'Çocuklarım', 'user'], ['messages', 'Mesajlar', 'chat'], ['asistan', 'Asistan', 'spark'], ['yardim', 'Kullanım', 'help']],
-  student: [['overview', 'Genel bakış', 'home'], ['assignments', 'Ödevlerim', 'file'], ['sinavlar', 'Sınavlarım', 'quiz'], ['notlar', 'Notlarım', 'chart'], ['attendance', 'Devamım', 'check'], ['panolar', 'Panolar', 'board'], ['asistan', 'Asistan', 'spark'], ['messages', 'Mesajlar', 'chat'], ['yardim', 'Kullanım', 'help']],
+  principal: [['overview', 'Genel bakış', 'home'], ['people', 'Kişiler', 'users'], ['school', 'Okul', 'school'], ['panolar', 'Panolar', 'board'], ['asistan', 'Asistan', 'spark'], ['messages', 'Mesajlar', 'chat'], ['audit', 'Denetim', 'file'], ['program', 'Ders programı', 'clock'], ['takvim', 'Takvim', 'calendar'], ['yardim', 'Kullanım', 'help']],
+  teacher: [['overview', 'Genel bakış', 'home'], ['classes', 'Sınıflarım', 'grid'], ['assignments', 'Ödevler', 'file'], ['sinavlar', 'Sınavlar', 'quiz'], ['canli', 'Canlı yarışma', 'bolt'], ['attendance', 'Yoklama', 'check'], ['notlar', 'Notlar', 'chart'], ['davranis', 'Davranış', 'star'], ['panolar', 'Panolar', 'board'], ['asistan', 'Asistan', 'spark'], ['messages', 'Mesajlar', 'chat'], ['people', 'Kişiler', 'users'], ['program', 'Ders programı', 'clock'], ['takvim', 'Takvim', 'calendar'], ['yardim', 'Kullanım', 'help']],
+  parent: [['overview', 'Genel bakış', 'home'], ['cocuklar', 'Çocuklarım', 'user'], ['messages', 'Mesajlar', 'chat'], ['asistan', 'Asistan', 'spark'], ['program', 'Ders programı', 'clock'], ['takvim', 'Takvim', 'calendar'], ['yardim', 'Kullanım', 'help']],
+  student: [['overview', 'Genel bakış', 'home'], ['assignments', 'Ödevlerim', 'file'], ['sinavlar', 'Sınavlarım', 'quiz'], ['canli', 'Canlı yarışma', 'bolt'], ['notlar', 'Notlarım', 'chart'], ['puanlarim', 'Puanlarım', 'star'], ['attendance', 'Devamım', 'check'], ['panolar', 'Panolar', 'board'], ['asistan', 'Asistan', 'spark'], ['messages', 'Mesajlar', 'chat'], ['program', 'Ders programı', 'clock'], ['takvim', 'Takvim', 'calendar'], ['yardim', 'Kullanım', 'help']],
 };
 const BADGES = ['messages', 'assignments'];
 // Yükleme sırasında gösterilen iskelet ekran (metin yerine).
@@ -91,12 +92,16 @@ function currentPublicPage() {
   return location.hash.replace(/^#\/?/, '').split('?')[0] || 'ana';
 }
 let publicSeq = 0;
+// Sayfa geçiş göstergesi (üstte ince ilerleme çubuğu)
+const setRouteProgress = on => document.querySelector('#routeProgress')?.classList.toggle('on', on);
+
 async function routePublic() {
   stopTimers();
   showPublic();
   const seq = ++publicSeq; // hızlı geçişlerde eski yanıt yenisinin üzerine yazmasın
   const page = currentPublicPage();
   const view = $('#publicView');
+  setRouteProgress(true);
   view.innerHTML = skeleton();
   try {
     const { html } = await renderPublic(page === 'ana' ? '' : page);
@@ -108,6 +113,8 @@ async function routePublic() {
   } catch (error) {
     if (seq !== publicSeq) return;
     view.innerHTML = `<div class="empty"><h3>Sayfa yüklenemedi</h3><p>${esc(error.message)}</p></div>`;
+  } finally {
+    if (seq === publicSeq) setRouteProgress(false);
   }
 }
 
@@ -115,15 +122,23 @@ async function routePublic() {
 let routeSeq = 0;
 async function routeApp() {
   const { page, params } = parseHash();
-  const entry = NAV[state.me.role].find(([key]) => key === page) || (page === 'pano' ? ['pano', 'Pano'] : page === 'sinav' ? ['sinavlar', 'Sınav'] : null);
-  if (!entry) { history.replaceState(null, '', '#/overview'); return routeApp(); }
+  const entry = NAV[state.me.role].find(([key]) => key === page) || (page === 'pano' ? ['pano', 'Pano'] : page === 'sinav' ? ['sinavlar', 'Sınav'] : page === 'karne' ? ['karne', 'Karne'] : null);
+  const view = $('#view');
+  if (!entry) {
+    showApp();
+    highlight('');
+    $('#crumb').textContent = `${state.school?.name || 'Okulum'} / Sayfa bulunamadı`;
+    view.innerHTML = notFoundHtml(true);
+    setRouteProgress(false);
+    return;
+  }
 
   const seq = ++routeSeq;
   stopTimers();
   showApp();
   highlight(page === 'pano' ? 'panolar' : page === 'sinav' ? 'sinavlar' : page);
   $('#crumb').textContent = `${state.school?.name || 'Okulum'} / ${entry[1]}`;
-  const view = $('#view');
+  setRouteProgress(true);
   view.innerHTML = skeleton();
   try {
     const { html, after } = await renderView(page, params);
@@ -137,6 +152,8 @@ async function routeApp() {
   } catch (error) {
     if (seq !== routeSeq) return;
     view.innerHTML = `<div class="empty"><h3>Sayfa yüklenemedi</h3><p>${esc(error.message)}</p></div>`;
+  } finally {
+    if (seq === routeSeq) setRouteProgress(false);
   }
   closeMenu();
   window.scrollTo({ top: 0 });
@@ -157,6 +174,7 @@ async function enterApp() {
   }
   await routeApp();
   refreshBadges();
+  initNotifications();
 }
 
 async function logout() {
@@ -245,6 +263,9 @@ applyTheme(saved || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark'
     if (!location.hash || location.hash === '#/overview') history.replaceState(null, '', '#/');
     routePublic();
   } finally {
-    $('#boot').hidden = true;
+    // Açılış ekranı yumuşakça kapanır
+    const splash = $('#boot');
+    splash.classList.add('done');
+    setTimeout(() => { splash.hidden = true; }, 700);
   }
 })();

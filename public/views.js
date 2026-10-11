@@ -1,3 +1,5 @@
+import { renderMarkdown } from './markdown.js';
+import { enablePush, disablePush, isSubscribed } from './push.js';
 import { helpHtml } from './help.js';
 import { state, api, $, $$, esc, ROLE, icon, fmtDate, todayIso, pct, initials, tone, readFile, toast, openModal, closeModal, confirmDialog, refreshMe, refresh, val, setBusy, setQuery, parseHash, paintWidths, refreshBadges } from './core.js';
 
@@ -1049,6 +1051,7 @@ ACTIONS.account = () => openModal('Hesabım', `<form class="stack" data-form="ac
   <div class="security-box">
     <p><strong>Son giriş:</strong> ${esc(state.me.lastLoginAt ? fmtDate(state.me.lastLoginAt) : 'Bilgi yok')}${state.me.lastLoginIp ? ` · IP ${esc(state.me.lastLoginIp)}` : ''}</p>
     <p class="small muted">Tanımadığınız bir giriş görürseniz hemen şifrenizi değiştirin ve tüm cihazlardan çıkış yapın.</p>
+    <button class="btn ghost sm" type="button" data-action="notify-settings">Bildirim ayarları</button>
     <button class="btn ghost sm" type="button" data-action="revoke-sessions">Tüm cihazlardan çıkış yap</button>
   </div>
   <p class="form-error" data-error role="alert"></p>
@@ -1399,11 +1402,9 @@ const AI_INTRO = {
   principal: 'Merhaba! Ben Okulum Asistanı. Duyuru ve okul panosu metinleri, site kullanımı ve yönetim süreçleri için yardımcı olabilirim. Kişisel bilgi yazmayın.',
 };
 
-const aiBubble = (role, text, time) => `<div class="bubble ${role === 'user' ? 'mine' : 'ai'}">
-  ${role === 'user' ? '' : '<span class="who">Okulum Asistanı</span>'}
-  <p>${esc(text)}</p>
-  ${time ? `<time>${esc(fmtDate(time))}</time>` : ''}
-</div>`;
+const aiBubble = (role, text, time) => role === 'user'
+  ? `<div class="bubble mine"><p>${esc(text)}</p>${time ? `<time>${esc(fmtDate(time))}</time>` : ''}</div>`
+  : `<div class="bubble ai"><span class="who">Okulum Asistanı</span><div class="md">${renderMarkdown(text)}</div>${time ? `<time>${esc(fmtDate(time))}</time>` : ''}</div>`;
 
 const aiConsentView = notice => `
   <section class="panel ai-gate">
@@ -1449,23 +1450,72 @@ ACTIONS['ai-suggest'] = el => {
 ACTIONS['ai-new'] = () => setQuery('asistan', {});
 ACTIONS['page-ai-logs'] = el => setQuery('asistan', { ...parseHash().params, page: el.dataset.page });
 
+// Mesajı akış (SSE) ile gönderir: yanıt parça parça gelir ve balonda Markdown olarak biçimlenir.
 FORMS['ai-chat'] = async form => {
   const input = form.querySelector('[name=message]');
   const message = input.value.trim();
   const conversationId = val(form, 'conversationId') || null;
   if (!message) return;
-  const data = await api('/ai/chat', { method: 'POST', body: { message, conversationId } });
   input.value = '';
-  if (!conversationId) {
-    setQuery('asistan', { c: data.conversationId });
-    return;
-  }
   const box = document.querySelector('#aiMsgs');
+  let userBubble = null;
+  let pending = null;
   if (box) {
     box.querySelector('.ai-intro')?.remove();
-    box.insertAdjacentHTML('beforeend', aiBubble('user', message) + aiBubble('assistant', data.reply));
+    box.insertAdjacentHTML('beforeend', aiBubble('user', message));
+    userBubble = box.lastElementChild;
+    box.insertAdjacentHTML('beforeend', '<div class="bubble ai is-typing"><span class="who">Okulum Asistanı</span><div class="md"><span class="typing" aria-label="Yazıyor"><i></i><i></i><i></i></span></div></div>');
+    pending = box.lastElementChild;
     box.scrollTop = box.scrollHeight;
   }
+  let reply = '';
+  let done = null;
+  try {
+    const res = await fetch('/api/ai/chat/stream', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message, conversationId }),
+    });
+    if (!res.ok || !res.body) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || 'Asistan şu an yanıt veremiyor.');
+    }
+    const md = pending?.querySelector('.md');
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    for (;;) {
+      const { value, done: finished } = await reader.read();
+      if (finished) break;
+      buffer += decoder.decode(value, { stream: true });
+      let cut = buffer.indexOf('\n\n');
+      while (cut >= 0) {
+        const block = buffer.slice(0, cut);
+        buffer = buffer.slice(cut + 2);
+        cut = buffer.indexOf('\n\n');
+        const event = (block.match(/^event: (.+)$/m) || [])[1];
+        const dataLine = block.match(/^data: (.+)$/m);
+        const data = dataLine ? JSON.parse(dataLine[1]) : {};
+        if (event === 'delta') {
+          reply += data.text;
+          if (md) { md.innerHTML = renderMarkdown(reply); box.scrollTop = box.scrollHeight; }
+        } else if (event === 'error') {
+          throw new Error(data.message);
+        } else if (event === 'done') {
+          done = data;
+        }
+      }
+    }
+    if (!done) throw new Error('Yanıt tamamlanamadı. Lütfen tekrar deneyin.');
+  } catch (error) {
+    pending?.remove();
+    userBubble?.remove();
+    input.value = message;
+    throw error;
+  }
+  if (!conversationId) { setQuery('asistan', { c: done.conversationId }); return; }
+  pending?.classList.remove('is-typing');
   const status = await api('/ai/status');
   const remain = document.querySelector('#aiRemain');
   if (remain) remain.textContent = `Bugün kalan soru: ${status.remaining} / ${status.limit}`;
@@ -1593,6 +1643,8 @@ async function pageCocuklar(params) {
   if (!children.length) return { html: `${head('Çocuklarım')}${panel('Çocuklarım', '', empty('Bağlı öğrenci yok', 'Okul müdürünüz çocuğunuzu hesabınıza bağladığında burada görünür.'))}` };
   const childId = children.some(c => c.id === params.id) ? params.id : children[0].id;
   const data = await api(`/parent/children/${childId}`);
+  const behavior = await api(`/behavior/student/${childId}`);
+  const sharedNotes = (await api(`/student-notes?studentId=${childId}`)).notes;
   const switcher = children.length > 1
     ? `<select data-change="childSwitch" aria-label="Çocuk seç">${children.map(c => `<option value="${esc(c.id)}" ${c.id === childId ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select>` : '';
   const grades = data.grades.subjects.map(sub => ({ label: sub.subjectName, value: sub.average }));
@@ -1608,7 +1660,7 @@ async function pageCocuklar(params) {
     <td>${z.submittedAt ? badge('Tamamlandı', 'ok') : isPast(z.closesAt) ? badge('Girilmedi', 'danger') : badge('Açık', 'warn')}</td></tr>`).join('');
   return { html: `
     ${head(data.child.name, `${data.child.className || 'Sınıfsız'} · ${data.child.studentNo || ''}`,
-      `${switcher}<a class="btn ghost" href="#/messages">${icon('chat')}<span>Öğretmene yaz</span></a>`)}
+      `${switcher}<a class="btn ghost" href="#/messages">${icon('chat')}<span>Öğretmene yaz</span></a><a class="btn ghost" href="#/karne?id=${esc(childId)}">Karne</a>`)}
     <div class="stats">
       ${stat('Devam · 30 gün', data.attendance.recent.length ? `%${pct(data.attendance.subjects.reduce((x, y) => x + y.present, 0), data.attendance.subjects.reduce((x, y) => x + y.total, 0)) ?? 0}` : '—', 'Tüm derslerde', 'check')}
       ${stat('Genel ortalama', data.grades.subjects.length ? `${Math.round(data.grades.subjects.reduce((x, y) => x + y.average, 0) / data.grades.subjects.length)}` : '—', 'Notlardan hesaplanır', 'chart')}
@@ -1618,6 +1670,10 @@ async function pageCocuklar(params) {
       ${panel('Derslere göre not', '', `<div class="pad">${barRows(grades, { emptyText: 'Henüz not yok' })}</div>`)}
       ${panel('Derslere göre devam', '', `<div class="pad">${barRows(attendance, { emptyText: 'Henüz yoklama yok' })}</div>`)}
     </div>
+    ${panel('Davranış ve gözlemler', `${behavior.total > 0 ? '+' : ''}${behavior.total} puan`, `<div class="pad stack">
+      <div class="badge-row">${behavior.badges.map(b => `<span class="badge-pill">${esc(b)}</span>`).join('') || '<span class="muted small">Henüz rozet yok</span>'}</div>
+      ${sharedNotes.length ? `<ul class="report-notes">${sharedNotes.map(n => `<li><small class="muted">${esc(fmtDate(n.createdAt))} · ${esc(n.teacherName || '')}</small><p>${esc(n.body)}</p></li>`).join('')}</ul>` : '<p class="muted small">Veliyle paylaşılan gözlem notu yok.</p>'}
+    </div>`)}
     ${panel('Ödevler', `${data.assignments.length} ödev`, data.assignments.length
       ? `<div class="table-wrap"><table class="table"><thead><tr><th>Ödev</th><th>Son teslim</th><th>Durum</th><th>Öğretmen notu</th></tr></thead><tbody>${assignmentRows}</tbody></table></div>`
       : empty('Ödev yok', 'Çocuğunuzun sınıfına ödev verildiğinde burada görünür.'))}
@@ -1654,7 +1710,7 @@ async function pageSinavlar() {
     <td>${z.published ? badge(QUIZ_STATE[z.state] || z.state, z.state === 'açık' ? 'ok' : 'warn') : badge('Taslak')}</td>
     <td>${z.submittedCount}</td>
     <td class="row-actions">
-      <a class="btn ghost sm" href="#/sinav?id=${esc(z.id)}">Sonuçlar</a>
+      <a class="btn ghost sm" href="#/sinav?id=${esc(z.id)}">Sonuçlar</a>${canCreate && z.published ? `<button class="btn ghost sm" type="button" data-action="live-create" data-id="${esc(z.id)}">Canlı başlat</button>` : ''}
       ${canCreate ? `<button class="btn ghost sm" type="button" data-action="quiz-toggle" data-id="${esc(z.id)}" data-published="${z.published}">${z.published ? 'Gizle' : 'Yayınla'}</button>
         <button class="icon-btn sm" type="button" data-action="quiz-delete" data-id="${esc(z.id)}" aria-label="Sınavı sil">${icon('trash')}</button>` : ''}
     </td></tr>`).join('');
@@ -1671,11 +1727,16 @@ function quizQuestionBlock() {
     <div class="quiz-q-head"><strong class="qno">Soru</strong>
       <button class="icon-btn sm" type="button" data-action="quiz-remove-q" aria-label="Soruyu kaldır">${icon('close')}</button></div>
     <label class="field"><span>Soru metni</span><textarea name="qtext" rows="2" maxlength="1000" required></textarea></label>
+    <label class="field"><span>Görsel (isteğe bağlı)</span><input name="qimage" type="file" accept="image/png,image/jpeg">
+      <small>JPG veya PNG, en fazla 5 MB. Canlı yarışmada görsel öğretmen ekranında gösterilir.</small></label>
     <div class="quiz-opts">${[0, 1, 2, 3].map(i => `<label class="quiz-opt">
       <input type="radio" name="correct-${uid}" value="${i}" ${i === 0 ? 'checked' : ''} aria-label="Doğru cevap ${i + 1}">
       <input name="opt" maxlength="300" placeholder="${i < 2 ? 'Seçenek' : 'İsteğe bağlı seçenek'} ${i + 1}">
     </label>`).join('')}</div>
-    <label class="field narrow"><span>Puan</span><select name="points">${[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(v => `<option value="${v}">${v}</option>`).join('')}</select></label>
+    <div class="grid-2">
+      <label class="field"><span>Puan</span><select name="points">${[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(v => `<option value="${v}">${v}</option>`).join('')}</select></label>
+      <label class="field"><span>Süre (canlı yarışma)</span><select name="time">${[5, 10, 15, 20, 30, 45, 60, 90, 120].map(v => `<option value="${v}" ${v === 20 ? 'selected' : ''}>${v} sn</option>`).join('')}</select></label>
+    </div>
   </div>`;
 }
 
@@ -1725,7 +1786,7 @@ ACTIONS['quiz-remove-q'] = el => {
 
 FORMS['quiz-create'] = async form => {
   const [classId, subjectId] = val(form, 'pair').split('|');
-  const questions = [...form.querySelectorAll('.quiz-q')].map((block, index) => {
+  const questions = await Promise.all([...form.querySelectorAll('.quiz-q')].map(async (block, index) => {
     const text = block.querySelector('[name=qtext]').value.trim();
     const rows = [...block.querySelectorAll('.quiz-opt')];
     const checked = rows.findIndex(row => row.querySelector('input[type=radio]').checked);
@@ -1734,9 +1795,17 @@ FORMS['quiz-create'] = async form => {
     if (!options[checked]) throw new Error(`${index + 1}. sorunun doğru cevabı boş bırakılmış. Doğru seçeneği işaretleyin.`);
     const filtered = options.filter(Boolean);
     if (filtered.length < 2) throw new Error(`${index + 1}. soruda en az iki seçenek yazın.`);
-    const correctIndex = filtered.indexOf(options[checked]);
-    return { text, options: filtered, correctIndex, points: Number(block.querySelector('[name=points]').value) || 1 };
-  });
+    const file = block.querySelector('[name=qimage]').files[0];
+    if (file && file.size > 5 * 1024 * 1024) throw new Error(`${index + 1}. sorunun görseli 5 MB sınırını aşıyor.`);
+    return {
+      text,
+      options: filtered,
+      correctIndex: filtered.indexOf(options[checked]),
+      points: Number(block.querySelector('[name=points]').value) || 1,
+      timeLimit: Number(block.querySelector('[name=time]').value) || 20,
+      image: file ? await readFile(file) : null,
+    };
+  }));
   const published = form.querySelector('[name=published]').checked;
   await api('/quizzes', { method: 'POST', body: {
     title: val(form, 'title').trim(), classId, subjectId, questions, published,
@@ -1827,7 +1896,7 @@ function takeHtml(data, attempt) {
   const questions = data.questions.map((qq, i) => {
     const selected = qq.selected;
     return `<fieldset class="quiz-question">
-      <legend><span class="qnum">${i + 1}</span> ${esc(qq.text)} <small class="muted">(${qq.points} puan)</small></legend>
+      <legend><span class="qnum">${i + 1}</span> ${esc(qq.text)} <small class="muted">(${qq.points} puan)</small></legend>${qq.hasImage ? `<img class="quiz-image" src="/api/files/quiz-question/${esc(qq.id)}" alt="">` : ''}
       <div class="quiz-options">${qq.options.map((option, j) => `<label class="quiz-option ${selected === j ? 'on' : ''}">
         <input type="radio" name="q-${esc(qq.id)}" value="${j}" data-question="${esc(qq.id)}" ${selected === j ? 'checked' : ''}>
         <span>${esc(option)}</span></label>`).join('')}</div>
@@ -1926,6 +1995,474 @@ async function pageNotlar(params) {
 }
 CHANGES.gradeClass = el => setQuery('notlar', { classId: el.value });
 
+// ---------- Davranış, Puanlarım, Ders programı, Takvim, Karne (v16) ----------
+const POSITIVE_REASONS = ['Derse katılım', 'Yardımseverlik', 'Üstün çaba', 'Ödev hazırlığı', 'Takım çalışması'];
+const NEGATIVE_REASONS = ['Dikkat dağınıklığı', 'Ödev eksik', 'Derse geç kalma', 'Kurallara uymama'];
+const KIND_LABEL = { sinav: 'Sınav', tatil: 'Tatil', etkinlik: 'Etkinlik', toplanti: 'Toplantı', odev: 'Ödev' };
+const DAY_NAMES = ['Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma'];
+const isoDay = d => d.toISOString().slice(0, 10);
+function calendarCells(year, month) {
+  const first = new Date(Date.UTC(year, month, 1));
+  const offset = (first.getUTCDay() + 6) % 7;
+  return Array.from({ length: 42 }, (_, i) => new Date(Date.UTC(year, month, 1 - offset + i)));
+}
+const teacherClasses = () => uniqueBy(state.teaching.map(t => ({ id: t.classId, name: t.className })), 'id');
+
+CHANGES.classPick = el => setQuery(el.dataset.page, { classId: el.value });
+
+async function pageDavranis(params) {
+  const classes = state.me.role === 'teacher' ? teacherClasses() : state.classes;
+  if (!classes.length) return { html: `${head('Davranış', 'Öğrencilere puan verin ve gözlem notu ekleyin.')}${panel('Davranış', '', empty('Sınıf yok', 'Sınıf atandığında burada görünür.'))}` };
+  const classId = classes.some(c => c.id === params.classId) ? params.classId : classes[0].id;
+  const { students, recent } = await api(`/behavior/class?classId=${classId}`);
+  const select = `<select data-change="classPick" data-page="davranis" aria-label="Sınıf seç">${classes.map(c => `<option value="${esc(c.id)}" ${c.id === classId ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select>`;
+  const cards = students.map(st => `
+    <article class="behave-card">
+      <div class="behave-top">
+        <span class="avatar sm ${tone('student')}">${esc(initials(st.name))}</span>
+        <div class="behave-name"><strong>${esc(st.name)}</strong><small class="muted">${esc(st.studentNo || '')}</small></div>
+        <span class="behave-total ${st.total < 0 ? 'neg' : ''}">${st.total > 0 ? '+' : ''}${st.total}</span>
+      </div>
+      <div class="badge-row">${st.badges.map(b => `<span class="badge-pill">${esc(b)}</span>`).join('') || '<span class="muted small">Henüz rozet yok</span>'}</div>
+      <div class="behave-actions">
+        <button class="btn ghost sm" type="button" data-action="behavior-open" data-student="${esc(st.id)}" data-name="${esc(st.name)}" data-class="${esc(classId)}" data-sign="1">+ Puan</button>
+        <button class="btn ghost sm" type="button" data-action="behavior-open" data-student="${esc(st.id)}" data-name="${esc(st.name)}" data-class="${esc(classId)}" data-sign="-1">− Puan</button>
+        <button class="btn ghost sm" type="button" data-action="note-open" data-student="${esc(st.id)}" data-name="${esc(st.name)}">Gözlem</button>
+        <a class="btn ghost sm" href="#/karne?id=${esc(st.id)}">Karne</a>
+      </div>
+    </article>`).join('');
+  const feed = recent.map(r => `<li class="feed-row">
+      <span class="feed-points ${r.points < 0 ? 'neg' : ''}">${r.points > 0 ? '+' : ''}${r.points}</span>
+      <div><strong>${esc(r.studentName)}</strong><small class="muted">${esc(r.reason || 'Gerekçe yok')} · ${esc(r.teacherName || '')} · ${esc(fmtDate(r.createdAt))}</small></div>
+      ${r.canDelete ? `<button class="icon-btn sm" type="button" data-action="behavior-del" data-id="${esc(r.id)}" aria-label="Kaydı sil">${icon('trash')}</button>` : ''}
+    </li>`).join('');
+  return { html: `${head('Davranış', 'Puan verin, rozetleri takip edin, gözlem notlarını gerekirse veliyle paylaşın.', select)}
+    <div class="behave-grid">${cards || empty('Öğrenci yok', 'Bu sınıfa öğrenci atandığında burada görünür.')}</div>
+    ${panel('Son hareketler', `${recent.length} kayıt`, recent.length ? `<ul class="feed-list">${feed}</ul>` : empty('Henüz kayıt yok', 'Puan verdiğinizde burada görünür.'))}` };
+}
+
+ACTIONS['behavior-open'] = el => {
+  const sign = Number(el.dataset.sign);
+  const reasons = sign > 0 ? POSITIVE_REASONS : NEGATIVE_REASONS;
+  openModal(`${el.dataset.name} · ${sign > 0 ? 'Puan ver' : 'Puan düş'}`, `<form class="stack" data-form="behavior-give" data-student="${esc(el.dataset.student)}" data-class="${esc(el.dataset.class)}">
+    <label class="field"><span>Puan</span><select name="points">${[1, 2, 3, 4, 5].map(v => `<option value="${sign * v}">${sign > 0 ? '+' : ''}${sign * v}</option>`).join('')}</select></label>
+    <div class="reason-chips">${reasons.map(r => `<button type="button" class="ai-chip" data-action="reason-pick" data-text="${esc(r)}">${esc(r)}</button>`).join('')}</div>
+    <label class="field"><span>Gerekçe</span><input name="reason" maxlength="120" placeholder="Örn. Derse aktif katılım"></label>
+    <p class="form-error" data-error role="alert"></p>
+    <div class="form-actions"><button class="btn ghost" type="button" data-action="close-modal">Vazgeç</button><button class="btn primary" type="submit">Kaydet</button></div>
+  </form>`);
+};
+ACTIONS['reason-pick'] = el => { const input = document.querySelector('form[data-form=behavior-give] [name=reason]'); if (input) input.value = el.dataset.text; };
+FORMS['behavior-give'] = async form => {
+  await api('/behavior', { method: 'POST', body: { studentId: form.dataset.student, classId: form.dataset.class, points: Number(val(form, 'points')), reason: val(form, 'reason').trim() } });
+  closeModal();
+  toast('Puan kaydedildi');
+  refresh();
+};
+ACTIONS['behavior-del'] = async el => {
+  const yes = await confirmDialog('Puan kaydını sil', 'Bu puan kaydı silinecek ve öğrencinin toplamı yeniden hesaplanacak.');
+  if (!yes) return;
+  await api(`/behavior/${el.dataset.id}`, { method: 'DELETE' });
+  toast('Kayıt silindi');
+  refresh();
+};
+
+ACTIONS['note-open'] = el => openModal(`${el.dataset.name} · Gözlem notu`, `<form class="stack" data-form="student-note" data-student="${esc(el.dataset.student)}">
+    <label class="field"><span>Not</span><textarea name="body" rows="4" maxlength="1000" required placeholder="Gözleminizi kısa ve nesnel yazın."></textarea></label>
+    <label class="switch switch-line"><input type="checkbox" name="shared"><span class="switch-ui" aria-hidden="true"></span>
+      <span><strong>Veliyle paylaş</strong><small>İşaretlerseniz çocuğun velisi bu notu görür.</small></span></label>
+    <p class="form-error" data-error role="alert"></p>
+    <div class="form-actions"><button class="btn ghost" type="button" data-action="close-modal">Vazgeç</button><button class="btn primary" type="submit">Notu kaydet</button></div>
+  </form>`);
+FORMS['student-note'] = async form => {
+  await api('/student-notes', { method: 'POST', body: { studentId: form.dataset.student, body: val(form, 'body').trim(), sharedWithParent: form.querySelector('[name=shared]').checked } });
+  closeModal();
+  toast('Gözlem notu kaydedildi');
+  refresh();
+};
+
+async function pagePuanlarim() {
+  const data = await api(`/behavior/student/${state.me.id}`);
+  const events = data.events.map(e => `<li class="feed-row">
+      <span class="feed-points ${e.points < 0 ? 'neg' : ''}">${e.points > 0 ? '+' : ''}${e.points}</span>
+      <div><strong>${esc(e.reason || 'Gerekçe yok')}</strong><small class="muted">${esc(e.className)} · ${esc(e.teacherName || '')} · ${esc(fmtDate(e.createdAt))}</small></div>
+    </li>`).join('');
+  return { html: `${head('Puanlarım', 'Davranış puanlarınız ve kazandığınız rozetler.', `<a class="btn ghost" href="#/karne?id=${esc(state.me.id)}">Karnemi görüntüle</a>`)}
+    <div class="stats">
+      ${stat('Toplam puan', `${data.total > 0 ? '+' : ''}${data.total}`, 'Tüm derslerde', 'star')}
+      ${stat('Olumlu', data.positive, 'Aldığınız artı puan sayısı', 'check')}
+      ${stat('Rozet', data.badges.length, 'Kazandığınız rozet', 'spark')}
+    </div>
+    ${panel('Rozetlerim', '', `<div class="pad badge-row">${data.badges.map(b => `<span class="badge-pill big">${esc(b)}</span>`).join('') || '<span class="muted">Henüz rozet yok. Derste aktif olarak ilk rozetini kazan!</span>'}</div>`)}
+    ${panel('Son puanlar', `${data.events.length} kayıt`, data.events.length ? `<ul class="feed-list">${events}</ul>` : empty('Henüz puan yok', 'Öğretmeniniz puan verdiğinde burada görünür.'))}` };
+}
+
+async function pageProgram(params) {
+  const role = state.me.role;
+  const classes = role === 'teacher' ? teacherClasses() : role === 'principal' ? state.classes : [];
+  const classId = params.classId || '';
+  const { slots } = await api(`/timetable${classId ? `?classId=${encodeURIComponent(classId)}` : ''}`);
+  const columns = DAY_NAMES.map((day, i) => {
+    const list = slots.filter(s => s.weekday === i + 1);
+    return `<section class="day-col"><h3>${day}</h3>${list.length ? list.map(s => `
+      <article class="slot-card">
+        <header><span class="slot-time">${esc(s.startsAt)} – ${esc(s.endsAt)}</span>
+          ${s.canDelete ? `<button class="icon-btn sm" type="button" data-action="slot-del" data-id="${esc(s.id)}" aria-label="Dersi sil">${icon('trash')}</button>` : ''}</header>
+        <strong>${esc(s.subjectName)}</strong>
+        <small class="muted">${esc(s.className)}${s.room ? ` · ${esc(s.room)}` : ''}</small>
+        <small class="muted">${esc(s.teacherName)}</small>
+      </article>`).join('') : '<p class="muted small day-empty">Ders yok</p>'}</section>`;
+  }).join('');
+  const select = classes.length
+    ? `<select data-change="classPick" data-page="program" aria-label="Sınıf seç"><option value="">Tümü</option>${classes.map(c => `<option value="${esc(c.id)}" ${c.id === classId ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select>` : '';
+  const addButton = role === 'teacher' || role === 'principal'
+    ? `<button class="btn primary" type="button" data-action="slot-new">${icon('plus')}<span>Ders ekle</span></button>` : '';
+  return { html: `${head('Ders programı', 'Haftalık program. Öğretmen ve sınıf çakışmaları otomatik engellenir.', addButton + select)}
+    <div class="week-grid">${columns}</div>` };
+}
+
+ACTIONS['slot-new'] = () => {
+  const teacher = state.me.role === 'teacher';
+  openModal('Ders ekle', `<form class="stack" data-form="slot-create">
+    ${teacher
+      ? `<label class="field"><span>Sınıf ve ders</span><select name="pair">${state.teaching.map(t => `<option value="${esc(t.classId)}|${esc(t.subjectId)}">${esc(t.className)} · ${esc(t.subjectName)}</option>`).join('')}</select></label>`
+      : `<div class="grid-2"><label class="field"><span>Sınıf</span><select name="classId">${state.classes.map(c => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('')}</select></label>
+         <label class="field"><span>Ders</span><select name="subjectId">${state.subjects.map(sj => `<option value="${esc(sj.id)}">${esc(sj.name)}</option>`).join('')}</select></label></div>`}
+    <div class="grid-2">
+      <label class="field"><span>Gün</span><select name="weekday">${DAY_NAMES.map((d, i) => `<option value="${i + 1}">${d}</option>`).join('')}</select></label>
+      <label class="field"><span>Derslik</span><input name="room" maxlength="40" placeholder="Örn. Lab 2"></label>
+    </div>
+    <div class="grid-2">
+      <label class="field"><span>Başlangıç</span><input name="startsAt" type="time" required value="08:30"></label>
+      <label class="field"><span>Bitiş</span><input name="endsAt" type="time" required value="09:10"></label>
+    </div>
+    <p class="form-error" data-error role="alert"></p>
+    <div class="form-actions"><button class="btn ghost" type="button" data-action="close-modal">Vazgeç</button><button class="btn primary" type="submit">Dersi ekle</button></div>
+  </form>`);
+};
+FORMS['slot-create'] = async form => {
+  const body = { weekday: Number(val(form, 'weekday')), room: val(form, 'room').trim(), startsAt: val(form, 'startsAt'), endsAt: val(form, 'endsAt') };
+  if (form.querySelector('[name=pair]')) {
+    const [classId, subjectId] = val(form, 'pair').split('|');
+    body.classId = classId;
+    body.subjectId = subjectId;
+  } else {
+    body.classId = val(form, 'classId');
+    body.subjectId = val(form, 'subjectId');
+  }
+  await api('/timetable', { method: 'POST', body });
+  closeModal();
+  toast('Ders programa eklendi');
+  refresh();
+};
+ACTIONS['slot-del'] = async el => {
+  const yes = await confirmDialog('Dersi sil', 'Bu ders programdan kaldırılacak.');
+  if (!yes) return;
+  await api(`/timetable/${el.dataset.id}`, { method: 'DELETE' });
+  toast('Ders silindi');
+  refresh();
+};
+
+async function pageTakvim(params) {
+  const now = new Date();
+  const year = Number(params.y) || now.getUTCFullYear();
+  const month = (Number(params.m) || now.getUTCMonth() + 1) - 1;
+  const cells = calendarCells(year, month);
+  const { items } = await api(`/calendar?from=${isoDay(cells[0])}&to=${isoDay(cells[41])}`);
+  const byDate = {};
+  items.forEach(item => { (byDate[item.date] = byDate[item.date] || []).push(item); });
+  const selected = params.d || isoDay(now);
+  const monthLabel = new Date(Date.UTC(year, month, 1)).toLocaleDateString('tr-TR', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+  const prev = month === 0 ? [year - 1, 12] : [year, month];
+  const next = month === 11 ? [year + 1, 1] : [year, month + 2];
+  const grid = cells.map(d => {
+    const key = isoDay(d);
+    const list = byDate[key] || [];
+    return `<button class="cal-cell ${d.getUTCMonth() === month ? '' : 'out'} ${key === isoDay(now) ? 'today' : ''} ${key === selected ? 'sel' : ''}" type="button" data-action="cal-day" data-day="${key}" data-y="${year}" data-m="${month + 1}">
+      <span class="cal-num">${d.getUTCDate()}</span>
+      <span class="cal-dots">${list.slice(0, 3).map(i => `<i class="dot k-${esc(i.kind)}"></i>`).join('')}${list.length > 3 ? `<small>+${list.length - 3}</small>` : ''}</span>
+    </button>`;
+  }).join('');
+  const dayItems = byDate[selected] || [];
+  const agenda = dayItems.map(i => `<li class="cal-item k-${esc(i.kind)}">
+      <span class="cal-kind">${esc(KIND_LABEL[i.kind] || i.kind)}</span>
+      <div><strong>${esc(i.title)}</strong><small class="muted">${esc(i.className || 'Okul geneli')}${i.description ? ` · ${esc(i.description)}` : ''}</small></div>
+      ${i.origin === 'etkinlik' && i.canDelete ? `<button class="icon-btn sm" type="button" data-action="event-del" data-id="${esc(i.id)}" aria-label="Etkinliği sil">${icon('trash')}</button>` : ''}
+    </li>`).join('');
+  const canAdd = state.me.role === 'teacher' || state.me.role === 'principal';
+  const dayTitle = new Date(`${selected}T00:00:00Z`).toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', weekday: 'long', timeZone: 'UTC' });
+  return { html: `${head('Takvim', 'Sınavlar, tatiller, toplantılar, etkinlikler ve ödev teslimleri tek takvimde.',
+      canAdd ? `<button class="btn primary" type="button" data-action="event-new" data-day="${esc(selected)}">${icon('plus')}<span>Etkinlik ekle</span></button>` : '')}
+    <div class="cal-layout">
+      <section class="panel">
+        <div class="cal-head">
+          <button class="icon-btn" type="button" data-action="cal-nav" data-y="${prev[0]}" data-m="${prev[1]}" aria-label="Önceki ay">‹</button>
+          <strong class="cal-title">${esc(monthLabel)}</strong>
+          <button class="icon-btn" type="button" data-action="cal-nav" data-y="${next[0]}" data-m="${next[1]}" aria-label="Sonraki ay">›</button>
+        </div>
+        <div class="cal-weekdays">${['Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cts', 'Paz'].map(d => `<span>${d}</span>`).join('')}</div>
+        <div class="cal-grid">${grid}</div>
+      </section>
+      <section class="panel">
+        <div class="panel-head"><div><h2>${esc(dayTitle)}</h2><small class="muted">${dayItems.length} kayıt</small></div></div>
+        ${dayItems.length ? `<ul class="cal-list">${agenda}</ul>` : empty('Bu gün boş', 'Bu güne etkinlik eklemek için "Etkinlik ekle" düğmesini kullanın.')}
+      </section>
+    </div>` };
+}
+
+ACTIONS['cal-nav'] = el => setQuery('takvim', { y: el.dataset.y, m: el.dataset.m });
+ACTIONS['cal-day'] = el => setQuery('takvim', { y: el.dataset.y, m: el.dataset.m, d: el.dataset.day });
+ACTIONS['event-new'] = el => {
+  const day = el.dataset.day || isoDay(new Date());
+  const classes = state.me.role === 'teacher' ? teacherClasses() : state.classes;
+  openModal('Etkinlik ekle', `<form class="stack" data-form="event-create">
+    <label class="field"><span>Başlık</span><input name="title" required minlength="2" maxlength="140" placeholder="Örn. 6/A kısa sınav"></label>
+    <div class="grid-2">
+      <label class="field"><span>Tür</span><select name="kind">${Object.entries(KIND_LABEL).filter(([k]) => k !== 'odev').map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select></label>
+      <label class="field"><span>Tarih</span><input name="date" type="date" required value="${esc(day)}"></label>
+    </div>
+    <label class="field"><span>Sınıf</span><select name="classId">${state.me.role === 'principal' ? '<option value="">Okul geneli</option>' : ''}${classes.map(c => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('')}</select></label>
+    <label class="field"><span>Açıklama</span><input name="description" maxlength="500" placeholder="İsteğe bağlı"></label>
+    <p class="form-error" data-error role="alert"></p>
+    <div class="form-actions"><button class="btn ghost" type="button" data-action="close-modal">Vazgeç</button><button class="btn primary" type="submit">Kaydet</button></div>
+  </form>`);
+};
+FORMS['event-create'] = async form => {
+  const classId = val(form, 'classId');
+  await api('/calendar', { method: 'POST', body: { title: val(form, 'title').trim(), kind: val(form, 'kind'), date: val(form, 'date'), classId: classId || null, description: val(form, 'description').trim() } });
+  closeModal();
+  toast('Etkinlik eklendi');
+  refresh();
+};
+ACTIONS['event-del'] = async el => {
+  const yes = await confirmDialog('Etkinliği sil', 'Bu etkinlik takvimden kaldırılacak.');
+  if (!yes) return;
+  await api(`/calendar/${el.dataset.id}`, { method: 'DELETE' });
+  toast('Etkinlik silindi');
+  refresh();
+};
+
+async function pageKarne(params) {
+  const id = params.id || state.me.id;
+  const data = await api(`/reports/student/${encodeURIComponent(id)}`);
+  const grades = data.grades.subjects.map(s => `<tr><td>${esc(s.subjectName)}</td><td>${s.count}</td><td><strong>${s.average}</strong></td></tr>`).join('');
+  const attendance = data.attendance.subjects.map(s => `<tr><td>${esc(s.subjectName)}</td><td>${s.total}</td><td>${s.present}</td><td>${pct(s.present, s.total) === null ? '—' : `%${pct(s.present, s.total)}`}</td></tr>`).join('');
+  const notes = data.notes.map(n => `<li><small class="muted">${esc(fmtDate(n.createdAt))} · ${esc(n.teacherName || '')}</small><p>${esc(n.body)}</p></li>`).join('');
+  return { html: `<div class="no-print print-bar"><a class="btn ghost" href="javascript:history.back()">← Geri</a><button class="btn primary" type="button" data-action="print">${icon('file')}<span>Yazdır / PDF olarak kaydet</span></button></div>
+    <article class="report-sheet">
+      <header class="report-head">
+        <div><p class="eyebrow">Öğrenci karnesi</p><h1>${esc(data.student.name)}</h1><p class="muted">${esc(data.student.className || 'Sınıfsız')} · Okul no: ${esc(data.student.studentNo || '—')}</p></div>
+        <div class="report-date">Oluşturulma: ${esc(fmtDate(data.generatedAt))}</div>
+      </header>
+      <section><h2>Derslere göre başarı</h2>${grades ? `<table class="table report-table"><thead><tr><th>Ders</th><th>Not sayısı</th><th>Ortalama</th></tr></thead><tbody>${grades}</tbody></table>` : '<p class="muted">Henüz not yok.</p>'}</section>
+      <section><h2>Devam</h2>${attendance ? `<table class="table report-table"><thead><tr><th>Ders</th><th>Toplam ders</th><th>Geldi</th><th>Devam</th></tr></thead><tbody>${attendance}</tbody></table>` : '<p class="muted">Henüz yoklama yok.</p>'}</section>
+      <section><h2>Davranış</h2><p>Toplam puan: <strong>${data.behavior.total}</strong> · Olumlu: ${data.behavior.positive} · Olumsuz: ${data.behavior.negative}</p>
+        <p>Rozetler: ${data.behavior.badges.length ? data.behavior.badges.map(b => esc(b)).join(', ') : 'Henüz rozet yok'}</p></section>
+      <section><h2>Öğretmen notları</h2>${notes ? `<ul class="report-notes">${notes}</ul>` : '<p class="muted">Veliyle paylaşılmış not yok.</p>'}</section>
+    </article>` };
+}
+ACTIONS['print'] = () => window.print();
+
+// ---------- Canlı yarışma (Kahoot tarzı) (v17) ----------
+const LIVE_SHAPES = [['▲', 'live-red'], ['◆', 'live-blue'], ['●', 'live-yellow'], ['■', 'live-green']];
+let liveCtx = null;
+let liveOffset = 0; // sunucu saati - istemci saati (sayaçların doğru akması için)
+
+function tickLiveTimers() {
+  document.querySelectorAll('[data-ends]').forEach(el => {
+    const left = Math.max(0, Math.ceil((new Date(el.dataset.ends).getTime() - (Date.now() + liveOffset)) / 1000));
+    const label = el.querySelector('span');
+    if (label) label.textContent = String(left);
+    el.classList.toggle('late', left <= 5);
+  });
+}
+
+// Durumu düzenli çeker; yalnızca değişince yeniden çizer (telefonda titremeyi önler).
+function startLive(id, render) {
+  const ctx = { id, render, last: null, tick: null };
+  liveCtx = ctx;
+  ctx.tick = async () => {
+    try {
+      const s = await api(`/live/${id}/state`);
+      if (liveCtx !== ctx) return;
+      liveOffset = new Date(s.serverNow).getTime() - Date.now();
+      const key = JSON.stringify(s);
+      if (key !== ctx.last) {
+        ctx.last = key;
+        const root = document.querySelector('#liveRoot');
+        if (root) root.innerHTML = render(s);
+      }
+      tickLiveTimers();
+    } catch (error) {
+      if (liveCtx !== ctx) return;
+      const root = document.querySelector('#liveRoot');
+      if (root) root.innerHTML = `<div class="empty"><h3>Yarışmaya bağlanılamadı</h3><p>${esc(error.message)}</p></div>`;
+    }
+  };
+  ctx.tick();
+  every(ctx.tick, 1500);
+  every(tickLiveTimers, 250);
+}
+
+async function pageCanli(params) {
+  if (state.me.role === 'student') return params.id ? livePlayerPage(params.id) : liveJoinPage();
+  if (!params.id) {
+    return { html: `${head('Canlı yarışma', 'Bir sınavın yanında "Canlı başlat" düğmesine basarak yarışmayı açın.', '<a class="btn ghost" href="#/sinavlar">Sınavlara git</a>')}${panel('Canlı yarışma', '', empty('Yarışma seçilmedi', 'Yarışmayı sınavlar sayfasından başlatabilirsiniz.'))}` };
+  }
+  return {
+    html: `${head('Canlı yarışma', 'Bu ekranı projeksiyonda gösterin. Öğrenciler telefonlarından şıklara dokunur.', '<a class="btn ghost" href="#/sinavlar">← Sınavlar</a>')}<div id="liveRoot" class="live-root"><div class="loading">Yükleniyor…</div></div>`,
+    after: () => startLive(params.id, hostHtml),
+  };
+}
+
+function hostHtml(s) {
+  const boardPanel = `<aside class="live-board"><h3>Liderlik</h3>${s.leaderboard.length
+    ? `<ol>${s.leaderboard.map((p, i) => `<li><span class="lb-rank">${i + 1}</span><strong>${esc(p.name)}</strong><span>${p.score}</span></li>`).join('')}</ol>`
+    : '<p class="muted small">Henüz puan yok</p>'}</aside>`;
+  if (s.status === 'lobby') {
+    return `<section class="live-stage">
+      <p class="eyebrow">${esc(s.className)} · ${esc(s.subjectName)}</p>
+      <h2 class="live-title">${esc(s.quizTitle)}</h2>
+      <div class="live-pin"><span>YARIŞMA PIN</span><strong>${esc(s.pin)}</strong></div>
+      <p class="muted">Öğrenciler telefonlarından <b>Canlı yarışma</b> sayfasına gidip bu PIN'i girer.</p>
+      <div class="live-players">${(s.players || []).map(p => `<span class="live-chip">${esc(p.name)}</span>`).join('') || '<span class="muted">Henüz kimse katılmadı</span>'}</div>
+      <div class="live-foot">
+        <button class="btn primary lg" type="button" data-action="live-start" data-id="${esc(s.id)}">Yarışmayı başlat (${s.playersCount} katılımcı)</button>
+        <button class="btn ghost" type="button" data-action="live-end" data-id="${esc(s.id)}">İptal et</button>
+      </div>
+    </section>`;
+  }
+  if (s.status === 'finished') {
+    return `<section class="live-stage">
+      <p class="eyebrow">Yarışma bitti</p>
+      <h2 class="live-title">${esc(s.quizTitle)}</h2>
+      <div class="podium">${s.leaderboard.slice(0, 3).map((p, i) => `<div class="podium-step p${i + 1}"><b>${i + 1}</b><strong>${esc(p.name)}</strong><span>${p.score} puan</span></div>`).join('')}</div>
+      <p class="muted">Katılımcıların doğru cevap puanları sınav sonucu olarak kaydedildi.</p>
+      <div class="live-foot"><a class="btn primary" href="#/sinavlar">Sınavlara dön</a></div>
+    </section>${boardPanel}`;
+  }
+  const question = s.question;
+  const reveal = s.status === 'reveal';
+  const options = question.options.map((text, i) => {
+    const [shape, cls] = LIVE_SHAPES[i];
+    const correct = reveal && question.correctIndex === i;
+    return `<div class="live-option ${cls} ${correct ? 'correct' : ''} ${reveal && !correct ? 'dim' : ''}">
+      <span class="live-shape">${shape}</span><span class="live-text">${esc(text)}</span>${reveal ? `<b class="live-count">${s.breakdown[i]}</b>` : ''}</div>`;
+  }).join('');
+  const timer = s.status === 'question'
+    ? `<div class="live-timer" data-ends="${esc(s.endsAt)}"><span>--</span></div>`
+    : '<div class="live-timer"><span>✓</span></div>';
+  const action = reveal
+    ? `<button class="btn primary lg" type="button" data-action="live-next" data-id="${esc(s.id)}">${s.index + 1 < s.total ? 'Sonraki soru' : 'Yarışmayı bitir'}</button>`
+    : `<button class="btn primary lg" type="button" data-action="live-reveal" data-id="${esc(s.id)}">Cevabı göster</button>`;
+  return `<section class="live-stage">
+      <header class="live-head"><span class="live-counter">Soru ${s.index + 1} / ${s.total} · ${question.points} puan</span>${timer}<span class="live-answers">${s.answered} / ${s.playersCount} yanıt</span></header>
+      <h2 class="live-question">${esc(question.text)}</h2>
+      ${question.imageUrl ? `<img class="live-image" src="${esc(question.imageUrl)}" alt="Soru görseli">` : ''}
+      <div class="live-options">${options}</div>
+      <footer class="live-foot">${action}<button class="btn ghost" type="button" data-action="live-end" data-id="${esc(s.id)}">Yarışmayı sonlandır</button></footer>
+    </section>${boardPanel}`;
+}
+
+function liveJoinPage() {
+  return { html: `${head('Canlı yarışma', 'Öğretmeninizin ekranındaki 6 haneli PIN kodunu girin.')}
+    <section class="panel join-panel"><div class="pad join-box">
+      <span class="kicker">PIN ile katıl</span>
+      <form class="join-form" data-form="live-join">
+        <input name="pin" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" placeholder="000000" required autocomplete="off" aria-label="Yarışma PIN kodu">
+        <button class="btn primary lg" type="submit">Katıl</button>
+      </form>
+      <p class="form-error" data-error role="alert"></p>
+    </div></section>` };
+}
+
+function livePlayerPage(id) {
+  return { html: '<div id="liveRoot" class="live-root play-root"><div class="loading">Bağlanılıyor…</div></div>', after: () => startLive(id, playerHtml) };
+}
+
+// Telefon ekranı: yalnızca şıklar. Soru metni ve görsel öğretmenin ekranındadır.
+function playerHtml(s) {
+  if (s.status === 'lobby') {
+    return `<section class="play-screen"><p class="play-hi">Merhaba ${esc(firstName(state.me.name))}!</p>
+      <h2>Öğretmen yarışmayı başlatınca soru gelecek</h2><div class="play-wait"><i></i><i></i><i></i></div>
+      <p class="muted">${esc(s.quizTitle)}</p></section>`;
+  }
+  if (s.status === 'question') {
+    if (s.answered) return '<section class="play-screen"><div class="play-check">✓</div><h2>Cevabın gönderildi</h2><p class="muted">Sonucu öğretmen gösterdiğinde öğreneceksin.</p></section>';
+    return `<section class="play-screen play-options">
+      <div class="play-timer" data-ends="${esc(s.endsAt)}"><span>--</span></div>
+      <div class="play-grid">${s.options.map((text, i) => {
+        const [shape, cls] = LIVE_SHAPES[i];
+        return `<button class="play-tile ${cls}" type="button" data-action="live-answer" data-id="${esc(s.id)}" data-index="${i}"><span class="live-shape">${shape}</span><span>${esc(text)}</span></button>`;
+      }).join('')}</div></section>`;
+  }
+  if (s.status === 'reveal') {
+    const headline = !s.answered ? 'Süre doldu' : s.myCorrect ? 'Doğru!' : 'Yanlış';
+    const mark = !s.answered ? '–' : s.myCorrect ? '✓' : '✕';
+    return `<section class="play-screen"><div class="play-result ${s.myCorrect ? 'ok' : 'bad'}">${mark}</div><h2>${headline}</h2>
+      ${s.myCorrect ? `<p class="play-points">+${s.myPoints} puan</p>` : ''}
+      <p class="muted">Doğru cevap: <b>${esc(s.options[s.correctIndex])}</b></p>
+      <p>Toplam <b>${s.score}</b> puan · ${s.rank}. sırada</p></section>`;
+  }
+  return `<section class="play-screen"><p class="play-hi">Yarışma bitti!</p><h2>${s.rank}. oldun</h2><p>Toplam <b>${s.score}</b> puan</p></section>`;
+}
+
+const liveAct = name => async el => {
+  await api(`/live/${el.dataset.id}/${name}`, { method: 'POST', body: {} });
+  if (liveCtx) liveCtx.last = null;
+  await liveCtx?.tick();
+};
+ACTIONS['live-create'] = async el => {
+  const { id, pin } = await api('/live', { method: 'POST', body: { quizId: el.dataset.id } });
+  toast(`Yarışma açıldı · PIN ${pin}`);
+  setQuery('canli', { id });
+};
+ACTIONS['live-start'] = liveAct('start');
+ACTIONS['live-reveal'] = liveAct('reveal');
+ACTIONS['live-next'] = liveAct('next');
+ACTIONS['live-end'] = async el => {
+  const yes = await confirmDialog('Yarışmayı sonlandır', 'Yarışma şimdi bitirilecek ve katılımcıların sonuçları sınav notlarına yazılacak.');
+  if (yes) await liveAct('end')(el);
+};
+ACTIONS['live-answer'] = async el => {
+  el.disabled = true;
+  await api(`/live/${el.dataset.id}/answer`, { method: 'POST', body: { selected: Number(el.dataset.index) } });
+  if (liveCtx) liveCtx.last = null;
+  await liveCtx?.tick();
+};
+FORMS['live-join'] = async form => {
+  const { id } = await api('/live/join', { method: 'POST', body: { pin: val(form, 'pin').trim() } });
+  toast('Yarışmaya katıldın');
+  setQuery('canli', { id });
+};
+
+// ---------- Bildirim ayarları (v17) ----------
+ACTIONS['notify-settings'] = async () => {
+  const subscribed = await isSubscribed();
+  const permission = typeof Notification === 'undefined' ? 'unsupported' : Notification.permission;
+  const label = { granted: 'verildi', denied: 'engellendi', default: 'henüz sorulmadı', unsupported: 'desteklenmiyor' }[permission];
+  openModal('Bildirim ayarları', `<div class="stack">
+    <p class="muted small">Tarayıcı izni: <strong>${esc(label)}</strong></p>
+    <label class="switch switch-line"><input type="checkbox" data-change="notifyToggle" ${subscribed ? 'checked' : ''}><span class="switch-ui" aria-hidden="true"></span>
+      <span><strong>Bildirimleri aç</strong><small>Canlı yarışma, yeni sınav ve puan bildirimleri.</small></span></label>
+    <div class="form-actions"><button class="btn ghost" type="button" data-action="notify-test">Test bildirimi gönder</button><button class="btn primary" type="button" data-action="close-modal">Tamam</button></div>
+  </div>`);
+};
+CHANGES.notifyToggle = async el => {
+  try {
+    if (el.checked) await enablePush();
+    else await disablePush();
+    toast(el.checked ? 'Bildirimler açıldı' : 'Bildirimler kapatıldı');
+  } catch (error) {
+    el.checked = !el.checked;
+    toast(error.message, 'error');
+  }
+};
+ACTIONS['notify-test'] = async () => {
+  await api('/push/test', { method: 'POST', body: {} });
+  toast('Test bildirimi gönderildi');
+};
+
 // ---------- Yönlendirme tablosu ----------
 const PAGES = {
   overview: pageOverview, classes: pageClasses, assignments: pageAssignments, attendance: pageAttendance,
@@ -1933,6 +2470,7 @@ const PAGES = {
   yardim: async () => ({ html: helpHtml() }),
   panolar: pagePanolar, pano: pageBoard, asistan: pageAsistan,
   cocuklar: pageCocuklar, sinavlar: pageSinavlar, sinav: pageSinav, notlar: pageNotlar,
+  davranis: pageDavranis, puanlarim: pagePuanlarim, program: pageProgram, takvim: pageTakvim, karne: pageKarne, canli: pageCanli,
 };
 export function renderView(page, params) {
   if (page === 'overview' && state.me.role === 'parent') return pageParentOverview();

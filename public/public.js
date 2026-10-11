@@ -1,5 +1,5 @@
 // Giriş yapmamış ziyaretçinin gördüğü sayfalar: ana sayfa, iki ayrı giriş, kurulum ve kılavuz.
-import { api, val, esc, fmtDate } from './core.js';
+import { api, val, esc, fmtDate, notFoundHtml } from './core.js';
 import { FORMS } from './views.js';
 import { helpHtml } from './help.js';
 
@@ -123,7 +123,9 @@ const setupView = async () => {
     </section>` };
 };
 
+const KNOWN_PUBLIC = new Set(['', 'mudur-girisi', 'giris', 'kurulum', 'yardim']);
 export async function renderPublic(page) {
+  if (!KNOWN_PUBLIC.has(page)) return { html: notFoundHtml(false) };
   if (page === 'mudur-girisi') return loginView('principal');
   if (page === 'giris') return loginView('member');
   if (page === 'kurulum') return setupView();

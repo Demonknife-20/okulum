@@ -29,7 +29,15 @@
   <script type="module" src="/app.js"></script>
 </head>
 <body>
-  <div class="boot" id="boot" role="status">Okulum yükleniyor…</div>
+  <div class="splash" id="boot" role="status" aria-live="polite">
+    <div class="splash-inner">
+      <div class="splash-mark" aria-hidden="true"><span>o</span></div>
+      <p class="splash-name">okulum</p>
+      <div class="splash-bar" aria-hidden="true"><b></b></div>
+      <p class="splash-note">Okulunuz hazırlanıyor…</p>
+    </div>
+  </div>
+  <div class="route-progress" id="routeProgress" aria-hidden="true"></div>
 
   <div class="public" id="public" hidden>
     <header class="public-top">

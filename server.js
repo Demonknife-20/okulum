@@ -13,8 +13,8 @@ const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || (process.env.RENDER ? '0.0.0.0' : '127.0.0.1');
 const PUBLIC = fs.existsSync(path.join(__dirname, 'dist', 'index.html')) ? path.join(__dirname, 'dist') : path.join(__dirname, 'public');
 const BODY_LIMIT = 8 * 1024 * 1024;
-const API_LIMIT = createLimiter({ max: Number(process.env.API_RATE_PER_MIN || 900), windowMs: 60 * 1000 });
-const WRITE_LIMIT = createLimiter({ max: Number(process.env.WRITE_RATE_PER_MIN || 240), windowMs: 60 * 1000 });
+const API_LIMIT = createLimiter({ max: Number(process.env.API_RATE_PER_MIN || 3000), windowMs: 60 * 1000 });
+const WRITE_LIMIT = createLimiter({ max: Number(process.env.WRITE_RATE_PER_MIN || 600), windowMs: 60 * 1000 });
 // ---- Kopyalama (HTTrack, wget, WebCopier vb.) koruması ----
 const STATIC_LIMIT = createLimiter({ max: Number(process.env.STATIC_RATE_PER_MIN || 600), windowMs: 60 * 1000 });
 const BOT_UA = /httrack|webcopier|teleport|offline\s?explorer|sitesucker|webzip|webreaper|grab-site|getleft|website\s?quester|wget|scrapy|sitesnagger/i;
@@ -99,12 +99,17 @@ function readBody(req) {
   });
 }
 
-function serveStatic(res, pathname) {
+function sendNotFound(res, base) {
+  res.writeHead(404, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
+  res.end(seo.notFoundPage(base));
+}
+
+function serveStatic(res, pathname, base) {
   const requested = pathname === '/' ? '/index.html' : pathname;
   const file = path.normalize(path.join(PUBLIC, requested));
-  if (!file.startsWith(PUBLIC + path.sep)) return send(res, 404, { error: 'Bulunamadı.' });
+  if (!file.startsWith(PUBLIC + path.sep)) return sendNotFound(res, base);
   fs.stat(file, (error, stat) => {
-    if (error || !stat.isFile()) return send(res, 404, { error: 'Bulunamadı.' });
+    if (error || !stat.isFile()) return sendNotFound(res, base);
     const hashed = /\.[A-Za-z0-9]{8,}\.(js|css)$/.test(file);
     res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream', 'Cache-Control': hashed ? 'public, max-age=31536000, immutable' : 'no-cache' });
     fs.createReadStream(file).pipe(res);
@@ -119,8 +124,16 @@ const server = http.createServer(async (req, res) => {
   const key0 = clientKey(req);
   if (url.pathname === '/healthz') {
     try {
+      const started = Date.now();
       await q('select 1');
-      return send(res, 200, { ok: true, storage: storage.useSupabase ? 'supabase' : 'local' });
+      return send(res, 200, {
+        ok: true,
+        version: require('./package.json').version,
+        db: 'ok',
+        dbMs: Date.now() - started,
+        storage: storage.useSupabase ? 'supabase' : 'local',
+        uptimeSec: Math.round(process.uptime()),
+      });
     } catch {
       return send(res, 503, { ok: false, error: 'Veritabanına ulaşılamıyor.' });
     }
@@ -157,7 +170,7 @@ const server = http.createServer(async (req, res) => {
   if (!url.pathname.startsWith('/api/')) {
     if (!['GET', 'HEAD'].includes(req.method)) return send(res, 405, { error: 'Bu işlem desteklenmiyor.' });
     if (STATIC_LIMIT(key0)) return send(res, 429, { error: 'Çok fazla istek. Lütfen biraz bekleyin.' });
-    return serveStatic(res, url.pathname);
+    return serveStatic(res, url.pathname, base);
   }
   res.setHeader('X-Robots-Tag', 'noindex, nofollow');
 
@@ -174,6 +187,7 @@ const server = http.createServer(async (req, res) => {
     }
     const body = ['POST', 'PUT', 'PATCH'].includes(req.method) ? await readBody(req) : {};
     const result = await handleApi({ req, res, url, body });
+    if (result && result.streamed) return; // akış yanıtı zaten gönderildi
     if (result.csv) {
       const { body, filename } = result.csv;
       res.writeHead(200, {
@@ -208,6 +222,7 @@ async function start() {
   }
   await migrate();
   await storage.ensureBucket();
+  await require('./src/push').init();
   require('./src/ai').startRetention();
   server.listen(PORT, HOST, () => {
     console.log(`Okulum hazır: http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT} · depolama: ${storage.useSupabase ? 'Supabase' : 'yerel (geliştirme)'}`);

@@ -3,6 +3,7 @@ const { q, tx } = require('./db');
 const sec = require('./security');
 const storage = require('./storage');
 const ai = require('./ai');
+const push = require('./push');
 
 // ---------- Yardımcılar ----------
 class HttpError extends Error {
@@ -1384,50 +1385,99 @@ on('POST', '/api/ai/consent', async ({ body, user }) => {
   return ok({ accepted: true });
 });
 
-on('POST', '/api/ai/chat', async ({ body, user }) => {
+// Sohbet isteğini doğrular, kotayı kontrol eder ve konuşmayı çözümler. Yapay zekâya henüz gitmez.
+async function aiPrepare(user, body) {
   if (!ai.enabled()) fail(503, 'Asistan henüz etkin değil. Okul yöneticinizle konuşun.');
   const { rowCount: accepted } = await q('select 1 from ai_consents where user_id = $1 and version = $2', [user.id, ai.NOTICE_VERSION]);
   if (!accepted) fail(403, 'Asistanı kullanmadan önce kullanım bildirimini kabul etmelisiniz.');
   const text = String(body.message ?? '').trim();
   if (!text) fail(400, 'Mesaj boş olamaz.');
   if (text.length > 2000) fail(400, 'Mesaj en fazla 2000 karakter olabilir.');
-
   const { rows: [usage] } = await q('select used from ai_usage where user_id = $1 and day = current_date', [user.id]);
   if ((usage?.used ?? 0) >= ai.DAILY_LIMIT) fail(429, `Bugünkü ${ai.DAILY_LIMIT} soru hakkınızı kullandınız. Yarın tekrar deneyin.`);
   const { rows: [all] } = await q('select coalesce(sum(used), 0)::int as n from ai_usage where day = current_date');
   if (all.n >= ai.GLOBAL_DAILY) fail(429, 'Asistan bugün çok yoğun. Lütfen yarın tekrar deneyin.');
-
-  let conversationId = body.conversationId ? requireId(body.conversationId, 'sohbet') : null;
+  const conversationId = body.conversationId ? requireId(body.conversationId, 'sohbet') : null;
   let history = [];
   if (conversationId) {
     const { rowCount } = await q('select 1 from ai_conversations where id = $1 and user_id = $2', [conversationId, user.id]);
     if (!rowCount) fail(404, 'Sohbet bulunamadı.');
     history = (await q('select role, content from ai_messages where conversation_id = $1 order by id desc limit 12', [conversationId])).rows.reverse();
   }
-
   const safe = sec.redact(text);
-  let reply;
-  if (ai.isInjection(text)) {
-    reply = ai.INJECTION_REPLY; // kural dışı istek: yapay zekâya gönderilmez, kota harcanmaz
-  } else {
-    await q(`insert into ai_usage (user_id, day, used) values ($1, current_date, 1)
-      on conflict (user_id, day) do update set used = ai_usage.used + 1`, [user.id]);
+  return { text, safe, conversationId, history, injection: ai.isInjection(text), redacted: safe !== text };
+}
+
+// Kullanım sayacını artırır (yapay zekâya gitmeden önce; kota korunur).
+async function aiSpend(userId) {
+  await q(`insert into ai_usage (user_id, day, used) values ($1, current_date, 1)
+    on conflict (user_id, day) do update set used = ai_usage.used + 1`, [userId]);
+}
+
+// Başarılı yanıtı kaydeder. Yeni konuşmaysa önce konuşmayı oluşturur ve kimliğini döner.
+async function aiSave(user, conversationId, safe, reply) {
+  let id = conversationId;
+  await tx(async client => {
+    if (!id) {
+      const { rows: [row] } = await client.query('insert into ai_conversations (user_id, title) values ($1, $2) returning id', [user.id, safe.slice(0, 60)]);
+      id = row.id;
+    }
+    await client.query(`insert into ai_messages (conversation_id, role, content) values ($1, 'user', $2), ($1, 'assistant', $3)`, [id, safe, reply]);
+    await client.query('update ai_conversations set updated_at = now() where id = $1', [id]);
+  });
+  return id;
+}
+
+on('POST', '/api/ai/chat', async ({ body, user }) => {
+  const p = await aiPrepare(user, body);
+  let reply = ai.INJECTION_REPLY;
+  if (!p.injection) {
+    await aiSpend(user.id);
     try {
-      reply = await ai.askGemini({ role: user.role, history, message: safe });
+      reply = await ai.askGemini({ role: user.role, history: p.history, message: p.safe });
     } catch (error) {
       if (error instanceof ai.AiError) fail(error.status, error.message);
       throw error;
     }
   }
-  await tx(async client => {
-    if (!conversationId) {
-      const { rows: [row] } = await client.query('insert into ai_conversations (user_id, title) values ($1, $2) returning id', [user.id, safe.slice(0, 60)]);
-      conversationId = row.id;
-    }
-    await client.query(`insert into ai_messages (conversation_id, role, content) values ($1, 'user', $2), ($1, 'assistant', $3)`, [conversationId, safe, reply]);
-    await client.query('update ai_conversations set updated_at = now() where id = $1', [conversationId]);
+  const conversationId = await aiSave(user, p.conversationId, p.safe, reply);
+  return ok({ conversationId, reply, redacted: p.redacted });
+});
+
+// Akış (SSE): yanıt parça parça gelir. Olaylar: delta (metin parçası), done (kayıt kimliği), error (hata).
+// Doğrulama hataları normal JSON olarak döner; akış yalnızca yanıt başladıktan sonra açılır.
+on('POST', '/api/ai/chat/stream', async ({ body, user, res }) => {
+  const p = await aiPrepare(user, body);
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
   });
-  return ok({ conversationId, reply, redacted: safe !== text });
+  const emit = (event, data) => { if (!res.writableEnded) res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`); };
+  const controller = new AbortController();
+  res.on('close', () => { if (!res.writableEnded) controller.abort(); }); // istemci ayrılınca yukarı akışı da kes
+  try {
+    let reply = ai.INJECTION_REPLY;
+    if (p.injection) {
+      emit('delta', { text: reply });
+    } else {
+      await aiSpend(user.id);
+      reply = await ai.streamGemini({ role: user.role, history: p.history, message: p.safe, signal: controller.signal, onDelta: text => emit('delta', { text }) });
+    }
+    const conversationId = await aiSave(user, p.conversationId, p.safe, reply);
+    emit('done', { conversationId, redacted: p.redacted });
+  } catch (error) {
+    const isAi = error instanceof ai.AiError;
+    if (!isAi) console.error('Asistan akışı hatası:', error.name);
+    emit('error', {
+      status: isAi ? error.status : 502,
+      message: isAi ? error.message : 'Asistan şu an yanıt veremiyor. Lütfen daha sonra tekrar deneyin.',
+    });
+  } finally {
+    res.end();
+  }
+  return { streamed: true };
 });
 
 on('GET', '/api/ai/conversations', async ({ user }) => {
@@ -1749,7 +1799,9 @@ function parseQuizQuestions(list) {
     if (correctIndex < 0 || correctIndex >= options.length) fail(400, `${index + 1}. sorunun doğru cevabı seçilmemiş.`);
     const points = Number.isInteger(item?.points) ? item.points : 1;
     if (points < 1 || points > 10) fail(400, `${index + 1}. sorunun puanı 1-10 arasında olmalı.`);
-    return { text, options, correctIndex, points, position: index + 1 };
+    const timeLimit = Number.isInteger(item?.timeLimit) ? item.timeLimit : 20;
+    if (timeLimit < 5 || timeLimit > 120) fail(400, `${index + 1}. sorunun süresi 5-120 saniye arasında olmalı.`);
+    return { text, options, correctIndex, points, timeLimit, image: item?.image || null, position: index + 1 };
   });
 }
 
@@ -1799,17 +1851,38 @@ on('POST', '/api/quizzes', async ({ body, user }) => {
   const timeLimit = Number.isInteger(body.timeLimitMinutes) ? body.timeLimitMinutes : 20;
   if (timeLimit < 1 || timeLimit > 240) fail(400, 'Süre 1-240 dakika arasında olmalı.');
   const questions = parseQuizQuestions(body.questions);
-  const quizId = await tx(async client => {
-    const { rows: [row] } = await client.query(`insert into quizzes (title, class_id, subject_id, created_by, opens_at, closes_at, time_limit_minutes, published)
-      values ($1, $2, $3, $4, $5, $6, $7, $8) returning id`, [title, classId, subjectId, user.id, opensAt.toISOString(), closesAt.toISOString(), timeLimit, body.published === true]);
+  const imagePaths = [];
+  try {
     for (const question of questions) {
-      await client.query(`insert into quiz_questions (quiz_id, position, text, options, correct_index, points) values ($1, $2, $3, $4, $5, $6)`,
-        [row.id, question.position, question.text, JSON.stringify(question.options), question.correctIndex, question.points]);
+      if (!question.image) continue;
+      const upload = storage.parseUpload(question.image);
+      if (!['image/png', 'image/jpeg'].includes(upload.mime)) fail(400, `${question.position}. sorunun görseli PNG veya JPG olmalı.`);
+      question.imagePath = storage.newPath('quiz', upload.ext, upload.name);
+      question.imageMime = upload.mime;
+      question.imageName = upload.name;
+      await storage.put(question.imagePath, upload.buffer, upload.mime);
+      imagePaths.push(question.imagePath);
     }
-    return row.id;
-  });
-  await audit(user, 'quiz_created', title, { questions: questions.length, published: body.published === true });
-  return created({ id: quizId });
+    const quizId = await tx(async client => {
+      const { rows: [row] } = await client.query(`insert into quizzes (title, class_id, subject_id, created_by, opens_at, closes_at, time_limit_minutes, published)
+        values ($1, $2, $3, $4, $5, $6, $7, $8) returning id`, [title, classId, subjectId, user.id, opensAt.toISOString(), closesAt.toISOString(), timeLimit, body.published === true]);
+      for (const question of questions) {
+        await client.query(`insert into quiz_questions (quiz_id, position, text, options, correct_index, points, time_limit, image_path, image_mime, image_name)
+          values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`, [row.id, question.position, question.text, JSON.stringify(question.options), question.correctIndex,
+          question.points, question.timeLimit, question.imagePath || null, question.imageMime || null, question.imageName || null]);
+      }
+      return row.id;
+    });
+    await audit(user, 'quiz_created', title, { questions: questions.length, published: body.published === true });
+    if (body.published === true) {
+      const { rows: students } = await q('select student_id from enrollments where class_id = $1', [classId]);
+      push.notify(students.map(s => s.student_id), { title: 'Yeni sınav yayınlandı', body: title, url: '/#/sinavlar', tag: `quiz-${quizId}` }).catch(() => {});
+    }
+    return created({ id: quizId });
+  } catch (error) {
+    for (const path of imagePaths) await storage.remove(path).catch(() => {});
+    throw error;
+  }
 }, { roles: STAFF });
 
 on('GET', '/api/quizzes', async ({ user }) => {
@@ -1833,7 +1906,8 @@ on('GET', '/api/quizzes/:id', async ({ params, user }) => {
   const access = await quizAccess(user, quiz);
   if (!access) fail(403, 'Bu sınavı görme yetkin yok.');
   if (access === 'student') await settleExpired(user.id, id);
-  const { rows: questions } = await q('select id, position, text, options, correct_index as "correctIndex", points from quiz_questions where quiz_id = $1 order by position', [id]);
+  const { rows: questions } = await q(`select id, position, text, options, correct_index as "correctIndex", points, time_limit as "timeLimit",
+    (image_path is not null) as "hasImage" from quiz_questions where quiz_id = $1 order by position`, [id]);
   const detail = { id: quiz.id, title: quiz.title, classId: quiz.class_id, subjectId: quiz.subject_id, opensAt: quiz.opens_at, closesAt: quiz.closes_at, timeLimitMinutes: quiz.time_limit_minutes, published: quiz.published };
   if (access === 'full') return ok({ quiz: detail, questions });
   // Öğrenci: doğru cevaplar yalnızca kendi teslimi bittikten sonra görünür
@@ -1842,7 +1916,7 @@ on('GET', '/api/quizzes/:id', async ({ params, user }) => {
   const answers = attempt ? (await q('select question_id, selected from quiz_answers where attempt_id = $1', [attempt.id])).rows : [];
   return ok({
     quiz: detail,
-    questions: questions.map(qq => ({ id: qq.id, position: qq.position, text: qq.text, options: qq.options, points: qq.points,
+    questions: questions.map(qq => ({ id: qq.id, position: qq.position, text: qq.text, options: qq.options, points: qq.points, timeLimit: qq.timeLimit, hasImage: qq.hasImage,
       ...(finished ? { correctIndex: qq.correctIndex, selected: answers.find(a => a.question_id === qq.id)?.selected ?? null } : {}) })),
     attempt: attempt ? { id: attempt.id, deadline: attempt.deadline, submittedAt: attempt.submitted_at, score: attempt.score, maxScore: attempt.max_score } : null,
   });
@@ -1862,6 +1936,10 @@ on('PATCH', '/api/quizzes/:id', async ({ params, body, user }) => {
   }
   if (!sets.length) fail(400, 'Güncellenecek alan yok.');
   await q(`update quizzes set ${sets.join(', ')} where id = $1`, values);
+  if (body.published === true && !quiz.published) {
+    const { rows: students } = await q('select student_id from enrollments where class_id = $1', [quiz.class_id]);
+    push.notify(students.map(s => s.student_id), { title: 'Yeni sınav yayınlandı', body: quiz.title, url: '/#/sinavlar', tag: `quiz-${id}` }).catch(() => {});
+  }
   return ok({ updated: true });
 }, { roles: STAFF });
 
@@ -1948,6 +2026,500 @@ on('GET', '/api/quizzes/:id/results', async ({ params, user }) => {
     stats: { classSize: n, submitted: percents.length, average: percents.length ? Math.round(percents.reduce((x, y) => x + y, 0) / percents.length) : null, distribution: bins },
   });
 }, { auth: true });
+
+// ---------- Davranış, gözlem notları, ders programı, takvim, karne (v16) ----------
+const BADGE_RULES = [[1, 'İlk adım'], [10, 'Yıldız'], [25, 'Usta'], [50, 'Efsane']];
+const badgesFor = total => BADGE_RULES.filter(([min]) => total >= min).map(([, name]) => name);
+const isoDateParam = value => (/^\d{4}-\d{2}-\d{2}$/.test(String(value ?? '')) && !Number.isNaN(Date.parse(value)) ? value : null);
+const clockParam = value => {
+  const match = /^(\d{2}):(\d{2})$/.exec(String(value ?? ''));
+  if (!match || Number(match[1]) > 23 || Number(match[2]) > 59) fail(400, 'Saat SS:DD biçiminde olmalı.');
+  return `${match[1]}:${match[2]}`;
+};
+const EVENT_KINDS = ['sinav', 'tatil', 'etkinlik', 'toplanti'];
+
+// Kullanıcının görebileceği sınıflar. Müdür için null (hepsi).
+async function visibleClassIds(user) {
+  if (user.role === 'principal') return null;
+  const { rows } = await q(`select class_id from teaching where teacher_id = $1
+    union select class_id from enrollments where student_id = $1
+    union select e.class_id from enrollments e join parent_links pl on pl.student_id = e.student_id where pl.parent_id = $1`, [user.id]);
+  return rows.map(r => r.class_id);
+}
+
+// Bir öğrencinin bilgilerini kimin görebileceği: müdür, öğrencinin kendisi, bağlı veli, öğrencinin öğretmeni.
+async function requireStudentView(user, studentId) {
+  if (user.role === 'principal' || user.id === studentId) return;
+  const sql = user.role === 'parent'
+    ? 'select 1 from parent_links where parent_id = $1 and student_id = $2'
+    : user.role === 'teacher'
+      ? 'select 1 from enrollments e join teaching t on t.class_id = e.class_id where t.teacher_id = $1 and e.student_id = $2 limit 1'
+      : null;
+  if (!sql) fail(403, 'Bu öğrenciyi görme yetkin yok.');
+  const { rowCount } = await q(sql, [user.id, studentId]);
+  if (!rowCount) fail(403, 'Bu öğrenciyi görme yetkin yok.');
+}
+
+async function behaviorFor(studentId) {
+  const { rows: [t] } = await q(`select coalesce(sum(points), 0)::int as total,
+      count(*) filter (where points > 0)::int as positive, count(*) filter (where points < 0)::int as negative
+    from behavior_points where student_id = $1`, [studentId]);
+  const { rows: events } = await q(`select b.id, b.points, b.reason, b.created_at as "createdAt", c.name as "className",
+      u.name as "teacherName", b.teacher_id as "teacherId"
+    from behavior_points b join classes c on c.id = b.class_id left join users u on u.id = b.teacher_id
+    where b.student_id = $1 order by b.created_at desc limit 60`, [studentId]);
+  return { total: t.total, positive: t.positive, negative: t.negative, badges: badgesFor(t.total), events };
+}
+
+// Davranış puanı: öğretmen (kendi sınıfı) ya da müdür verir
+on('POST', '/api/behavior', async ({ body, user }) => {
+  const studentId = requireId(body.studentId, 'öğrenci');
+  const classId = requireId(body.classId, 'sınıf');
+  if (user.role !== 'principal' && !(await teachesClass(user, classId))) fail(403, 'Bu sınıfa puan verme yetkin yok.');
+  const points = Number.isInteger(body.points) ? body.points : 0;
+  if (points === 0 || Math.abs(points) > 10) fail(400, 'Puan -10 ile 10 arasında ve sıfırdan farklı olmalı.');
+  if (!(await enrolledIn(studentId, classId))) fail(400, 'Öğrenci bu sınıfta kayıtlı değil.');
+  const reason = str(body.reason, 120);
+  const { rows: [row] } = await q(`insert into behavior_points (student_id, class_id, teacher_id, points, reason)
+    values ($1, $2, $3, $4, $5) returning id`, [studentId, classId, user.id, points, reason]);
+  push.notify([studentId], { title: 'Yeni puan', body: `${points > 0 ? '+' : ''}${points} puan: ${reason || 'Öğretmeniniz puan verdi'}`, url: '/#/puanlarim', tag: `behavior-${row.id}` }).catch(() => {});
+  return created({ id: row.id });
+}, { roles: STAFF });
+
+// Sınıf özeti: öğrenci toplamları, rozetler ve son hareketler
+on('GET', '/api/behavior/class', async ({ query, user }) => {
+  const classId = requireId(query.get('classId'), 'sınıf');
+  if (user.role !== 'principal' && !(await teachesClass(user, classId))) fail(403, 'Bu sınıfın davranış kayıtlarını görme yetkin yok.');
+  const { rows: students } = await q(`select u.id, u.name, u.student_no as "studentNo",
+      coalesce((select sum(b.points) from behavior_points b where b.student_id = u.id and b.class_id = $1), 0)::int as total
+    from enrollments e join users u on u.id = e.student_id where e.class_id = $1 order by u.name`, [classId]);
+  const { rows: recent } = await q(`select b.id, b.points, b.reason, b.created_at as "createdAt", b.student_id as "studentId",
+      u.name as "studentName", t.name as "teacherName", b.teacher_id as "teacherId"
+    from behavior_points b join users u on u.id = b.student_id left join users t on t.id = b.teacher_id
+    where b.class_id = $1 order by b.created_at desc limit 40`, [classId]);
+  return ok({
+    students: students.map(s => ({ ...s, badges: badgesFor(s.total) })),
+    recent: recent.map(r => ({ ...r, canDelete: user.role === 'principal' || r.teacherId === user.id })),
+  });
+}, { roles: STAFF });
+
+on('GET', '/api/behavior/student/:id', async ({ params, user }) => {
+  const studentId = requireId(params.id, 'öğrenci');
+  await requireStudentView(user, studentId);
+  return ok(await behaviorFor(studentId));
+});
+
+on('DELETE', '/api/behavior/:id', async ({ params, user }) => {
+  const id = requireId(params.id, 'puan');
+  const { rows: [row] } = await q('select teacher_id from behavior_points where id = $1', [id]);
+  if (!row) fail(404, 'Puan kaydı bulunamadı.');
+  if (user.role !== 'principal' && row.teacher_id !== user.id) fail(403, 'Bu kaydı silme yetkin yok.');
+  await q('delete from behavior_points where id = $1', [id]);
+  return ok({ deleted: true });
+}, { roles: STAFF });
+
+// Gözlem notları: öğretmen ve müdür yazar. Veli yalnızca paylaşılanları görür.
+on('POST', '/api/student-notes', async ({ body, user }) => {
+  const studentId = requireId(body.studentId, 'öğrenci');
+  await requireStudentView(user, studentId);
+  const text = str(body.body, 1000);
+  if (!text) fail(400, 'Not boş olamaz.');
+  const { rows: [row] } = await q(`insert into student_notes (student_id, teacher_id, body, shared_with_parent)
+    values ($1, $2, $3, $4) returning id`, [studentId, user.id, text, body.sharedWithParent === true]);
+  return created({ id: row.id });
+}, { roles: STAFF });
+
+on('GET', '/api/student-notes', async ({ query, user }) => {
+  const studentId = requireId(query.get('studentId'), 'öğrenci');
+  if (user.role === 'student') fail(403, 'Gözlem notlarını görme yetkin yok.');
+  await requireStudentView(user, studentId);
+  const sharedOnly = user.role === 'parent' ? 'and n.shared_with_parent' : '';
+  const { rows } = await q(`select n.id, n.body, n.shared_with_parent as "shared", n.created_at as "createdAt",
+      n.teacher_id as "teacherId", u.name as "teacherName"
+    from student_notes n left join users u on u.id = n.teacher_id
+    where n.student_id = $1 ${sharedOnly} order by n.created_at desc limit 100`, [studentId]);
+  return ok({ notes: rows.map(n => ({ ...n, canDelete: user.role === 'principal' || n.teacherId === user.id })) });
+});
+
+on('DELETE', '/api/student-notes/:id', async ({ params, user }) => {
+  const id = requireId(params.id, 'not');
+  const { rows: [row] } = await q('select teacher_id from student_notes where id = $1', [id]);
+  if (!row) fail(404, 'Not bulunamadı.');
+  if (user.role !== 'principal' && row.teacher_id !== user.id) fail(403, 'Bu notu silme yetkin yok.');
+  await q('delete from student_notes where id = $1', [id]);
+  return ok({ deleted: true });
+}, { roles: STAFF });
+
+// Ders programı: öğretmen kendi dersleri, öğrenci ve veli sınıfının programı, müdür hepsi
+on('GET', '/api/timetable', async ({ query, user }) => {
+  const params = [];
+  const conditions = [];
+  const classId = query.get('classId') ? requireId(query.get('classId'), 'sınıf') : null;
+  if (classId) {
+    if (user.role !== 'principal' && !(await visibleClassIds(user)).includes(classId)) fail(403, 'Bu sınıfın programını görme yetkin yok.');
+    params.push(classId); conditions.push(`s.class_id = $${params.length}`);
+  } else if (user.role === 'teacher') {
+    params.push(user.id); conditions.push(`s.teacher_id = $${params.length}`);
+  } else if (user.role !== 'principal') {
+    params.push(await visibleClassIds(user)); conditions.push(`s.class_id = any($${params.length}::uuid[])`);
+  }
+  const where = conditions.length ? conditions.join(' and ') : 'true';
+  const { rows } = await q(`select s.id, s.weekday, to_char(s.starts_at, 'HH24:MI') as "startsAt", to_char(s.ends_at, 'HH24:MI') as "endsAt",
+      s.room, s.class_id as "classId", c.name as "className", s.subject_id as "subjectId", sj.name as "subjectName",
+      s.teacher_id as "teacherId", u.name as "teacherName"
+    from timetable_slots s join classes c on c.id = s.class_id join subjects sj on sj.id = s.subject_id join users u on u.id = s.teacher_id
+    where ${where} order by s.weekday, s.starts_at limit 1000`, params);
+  return ok({ slots: rows.map(r => ({ ...r, canDelete: user.role === 'principal' || r.teacherId === user.id })) });
+});
+
+on('POST', '/api/timetable', async ({ body, user }) => {
+  const classId = requireId(body.classId, 'sınıf');
+  const subjectId = requireId(body.subjectId, 'ders');
+  const weekday = Number(body.weekday);
+  if (!Number.isInteger(weekday) || weekday < 1 || weekday > 5) fail(400, 'Gün 1 (Pazartesi) ile 5 (Cuma) arasında olmalı.');
+  const startsAt = clockParam(body.startsAt);
+  const endsAt = clockParam(body.endsAt);
+  if (endsAt <= startsAt) fail(400, 'Bitiş saati başlangıç saatinden sonra olmalı.');
+  const room = str(body.room, 40);
+  let teacherId;
+  if (user.role === 'teacher') {
+    if (!(await canTeach(user, classId, subjectId))) fail(403, 'Bu sınıf ve ders için program ekleme yetkin yok.');
+    teacherId = user.id;
+  } else {
+    const { rows: [pair] } = await q('select teacher_id from teaching where class_id = $1 and subject_id = $2 limit 1', [classId, subjectId]);
+    if (!pair) fail(400, 'Bu sınıf ve ders için bir öğretmen atanmamış.');
+    teacherId = pair.teacher_id;
+  }
+  const { rows: [clash] } = await q(`select c.name as "className" from timetable_slots s join classes c on c.id = s.class_id
+    where s.weekday = $1 and (s.class_id = $2 or s.teacher_id = $3) and s.starts_at < $5::time and s.ends_at > $4::time limit 1`,
+  [weekday, classId, teacherId, startsAt, endsAt]);
+  if (clash) fail(409, `Bu saat aralığında çakışma var (${clash.className}).`);
+  const { rows: [row] } = await q(`insert into timetable_slots (class_id, subject_id, teacher_id, weekday, starts_at, ends_at, room)
+    values ($1, $2, $3, $4, $5, $6, $7) returning id`, [classId, subjectId, teacherId, weekday, startsAt, endsAt, room]);
+  return created({ id: row.id });
+}, { roles: STAFF });
+
+on('DELETE', '/api/timetable/:id', async ({ params, user }) => {
+  const id = requireId(params.id, 'ders');
+  const { rows: [row] } = await q('select teacher_id from timetable_slots where id = $1', [id]);
+  if (!row) fail(404, 'Program kaydı bulunamadı.');
+  if (user.role !== 'principal' && row.teacher_id !== user.id) fail(403, 'Bu kaydı silme yetkin yok.');
+  await q('delete from timetable_slots where id = $1', [id]);
+  return ok({ deleted: true });
+}, { roles: STAFF });
+
+// Takvim: okul etkinlikleri, ödev teslimleri ve sınav açılış/kapanışları (kullanıcının sınıflarına göre)
+on('GET', '/api/calendar', async ({ query, user }) => {
+  const from = isoDateParam(query.get('from'));
+  const to = isoDateParam(query.get('to'));
+  if (!from || !to || to < from) fail(400, 'Tarih aralığı geçersiz.');
+  if ((Date.parse(to) - Date.parse(from)) / 86400000 > 62) fail(400, 'En fazla 62 günlük aralık sorgulanabilir.');
+  const classIds = await visibleClassIds(user);
+  const { rows: events } = await q(`select e.id, e.title, e.kind, to_char(e.event_date, 'YYYY-MM-DD') as date, e.description,
+      e.class_id as "classId", c.name as "className", e.created_by as "createdBy"
+    from school_events e left join classes c on c.id = e.class_id
+    where e.event_date between $1 and $2 and (e.class_id is null or $3::uuid[] is null or e.class_id = any($3::uuid[]))`, [from, to, classIds]);
+  const { rows: tasks } = await q(`select a.id, a.title, to_char((a.due_at at time zone 'Europe/Istanbul')::date, 'YYYY-MM-DD') as date,
+      a.class_id as "classId", c.name as "className", s.name as "subjectName"
+    from assignments a join classes c on c.id = a.class_id join subjects s on s.id = a.subject_id
+    where a.due_at is not null and (a.due_at at time zone 'Europe/Istanbul')::date between $1 and $2
+      and ($3::uuid[] is null or a.class_id = any($3::uuid[]))`, [from, to, classIds]);
+  const { rows: quizzes } = await q(`select qz.id, qz.title, qz.class_id as "classId", c.name as "className",
+      to_char((qz.opens_at at time zone 'Europe/Istanbul')::date, 'YYYY-MM-DD') as "opensOn",
+      to_char((qz.closes_at at time zone 'Europe/Istanbul')::date, 'YYYY-MM-DD') as "closesOn"
+    from quizzes qz join classes c on c.id = qz.class_id
+    where qz.published and ($3::uuid[] is null or qz.class_id = any($3::uuid[]))
+      and (((qz.opens_at at time zone 'Europe/Istanbul')::date between $1 and $2) or ((qz.closes_at at time zone 'Europe/Istanbul')::date between $1 and $2))`, [from, to, classIds]);
+  const items = [
+    ...events.map(e => ({ id: e.id, kind: e.kind, title: e.title, date: e.date, className: e.className, classId: e.classId, description: e.description, origin: 'etkinlik', canDelete: user.role === 'principal' || e.createdBy === user.id })),
+    ...tasks.map(t => ({ id: t.id, kind: 'odev', title: `Ödev teslimi: ${t.title}`, date: t.date, className: t.className, classId: t.classId, origin: 'odev' })),
+    ...quizzes.flatMap(z => [
+      ...(z.opensOn >= from && z.opensOn <= to ? [{ id: z.id, kind: 'sinav', title: `Sınav açılıyor: ${z.title}`, date: z.opensOn, className: z.className, classId: z.classId, origin: 'sinav' }] : []),
+      ...(z.closesOn >= from && z.closesOn <= to ? [{ id: z.id, kind: 'sinav', title: `Sınav kapanıyor: ${z.title}`, date: z.closesOn, className: z.className, classId: z.classId, origin: 'sinav' }] : []),
+    ]),
+  ];
+  return ok({ items: items.sort((a, b) => a.date.localeCompare(b.date)) });
+});
+
+on('POST', '/api/calendar', async ({ body, user }) => {
+  const title = str(body.title, 140);
+  if (title.length < 2) fail(400, 'Etkinlik adı en az 2 karakter olmalı.');
+  if (!EVENT_KINDS.includes(body.kind)) fail(400, 'Etkinlik türü geçersiz.');
+  const date = isoDateParam(body.date);
+  if (!date) fail(400, 'Tarih geçersiz.');
+  const classId = body.classId ? requireId(body.classId, 'sınıf') : null;
+  if (user.role !== 'principal') {
+    if (!classId) fail(403, 'Öğretmenler etkinliği yalnızca kendi sınıfına ekleyebilir.');
+    if (!(await teachesClass(user, classId))) fail(403, 'Bu sınıfa etkinlik ekleme yetkin yok.');
+  }
+  const description = str(body.description, 500);
+  const { rows: [row] } = await q(`insert into school_events (title, kind, event_date, class_id, description, created_by)
+    values ($1, $2, $3, $4, $5, $6) returning id`, [title, body.kind, date, classId, description, user.id]);
+  return created({ id: row.id });
+}, { roles: STAFF });
+
+on('DELETE', '/api/calendar/:id', async ({ params, user }) => {
+  const id = requireId(params.id, 'etkinlik');
+  const { rows: [row] } = await q('select created_by from school_events where id = $1', [id]);
+  if (!row) fail(404, 'Etkinlik bulunamadı.');
+  if (user.role !== 'principal' && row.created_by !== user.id) fail(403, 'Bu etkinliği silme yetkin yok.');
+  await q('delete from school_events where id = $1', [id]);
+  return ok({ deleted: true });
+}, { roles: STAFF });
+
+// Karne: yazdırılabilir öğrenci özeti (notlar, devam, davranış, paylaşılan gözlemler)
+on('GET', '/api/reports/student/:id', async ({ params, user }) => {
+  const studentId = requireId(params.id, 'öğrenci');
+  await requireStudentView(user, studentId);
+  const { rows: [student] } = await q(`select u.id, u.name, u.student_no as "studentNo", c.name as "className"
+    from users u left join enrollments e on e.student_id = u.id left join classes c on c.id = e.class_id
+    where u.id = $1 and u.role = 'student'`, [studentId]);
+  if (!student) fail(404, 'Öğrenci bulunamadı.');
+  const { rows: notes } = await q(`select n.body, n.created_at as "createdAt", u.name as "teacherName"
+    from student_notes n left join users u on u.id = n.teacher_id where n.student_id = $1 and n.shared_with_parent
+    order by n.created_at desc limit 20`, [studentId]);
+  const behavior = await behaviorFor(studentId);
+  return ok({
+    student,
+    generatedAt: new Date().toISOString(),
+    grades: await gradeSummaryFor(studentId),
+    attendance: await attendanceSummaryFor(studentId),
+    behavior: { total: behavior.total, positive: behavior.positive, negative: behavior.negative, badges: behavior.badges },
+    notes,
+  });
+});
+
+// ---------- Canlı yarışma (Kahoot tarzı), soru görselleri, bildirimler (v17) ----------
+const LIVE_TOLERANCE_MS = 1000;
+
+async function newLivePin() {
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const pin = String(crypto.randomInt(100000, 1000000));
+    const { rowCount } = await q("select 1 from live_games where pin = $1 and status <> 'finished'", [pin]);
+    if (!rowCount) return pin;
+  }
+  fail(503, 'PIN üretilemedi. Lütfen tekrar deneyin.');
+}
+
+async function liveGame(id) {
+  const { rows: [g] } = await q(`select g.id, g.quiz_id, g.class_id, g.host_id, g.pin, g.status, g.current_index, g.question_started_at,
+      qz.title as quiz_title, c.name as class_name, s.name as subject_name
+    from live_games g join quizzes qz on qz.id = g.quiz_id join classes c on c.id = g.class_id join subjects s on s.id = qz.subject_id
+    where g.id = $1`, [id]);
+  if (!g) fail(404, 'Yarışma bulunamadı.');
+  return g;
+}
+
+async function liveQuestion(quizId, index) {
+  const { rows: [qq] } = await q(`select id, text, options, correct_index as "correctIndex", points, time_limit as "timeLimit",
+      (image_path is not null) as "hasImage" from quiz_questions where quiz_id = $1 and position = $2`, [quizId, index + 1]);
+  return qq || null;
+}
+
+// Yarışmayı bitirir. Her katılımcının doğru cevaplarının puanı sınav sonucu olarak kaydedilir (notlara yansır).
+async function finishLive(g) {
+  await tx(async client => {
+    await client.query("update live_games set status = 'finished', ended_at = now() where id = $1", [g.id]);
+    const { rows: [maxRow] } = await client.query('select coalesce(sum(points), 0)::int as total from quiz_questions where quiz_id = $1', [g.quiz_id]);
+    const { rows: players } = await client.query('select student_id from live_players where game_id = $1', [g.id]);
+    for (const player of players) {
+      const { rows: [got] } = await client.query(`select coalesce(sum(qq.points), 0)::int as score
+        from live_answers la join quiz_questions qq on qq.quiz_id = $2 and qq.position = la.question_index + 1
+        where la.game_id = $1 and la.student_id = $3 and la.correct`, [g.id, g.quiz_id, player.student_id]);
+      await client.query(`insert into quiz_attempts (quiz_id, student_id, started_at, deadline, submitted_at, score, max_score)
+        values ($1, $2, now(), now(), now(), $3, $4) on conflict (quiz_id, student_id) do nothing`, [g.quiz_id, player.student_id, got.score, maxRow.total]);
+    }
+  });
+}
+
+function requireLiveHost(user, g) {
+  if (user.role !== 'principal' && user.id !== g.host_id) fail(403, 'Bu yarışmayı yönetme yetkin yok.');
+}
+
+// Ekran (öğretmen) ve öğrenci (telefon) için farklı durum: öğrenci soru metnini ve doğru cevabı
+// yalnızca gösterim aşamasında görür. Soru metni ve görseli yalnızca öğretmen ekranına gider.
+async function liveState(g, user) {
+  const isHost = user.role === 'principal' || user.id === g.host_id;
+  const { rows: [{ total }] } = await q('select count(*)::int as total from quiz_questions where quiz_id = $1', [g.quiz_id]);
+  const { rows: [{ playersCount }] } = await q('select count(*)::int as "playersCount" from live_players where game_id = $1', [g.id]);
+  const { rows: leaderboard } = await q(`select u.name, p.score from live_players p join users u on u.id = p.student_id
+    where p.game_id = $1 order by p.score desc, u.name limit 10`, [g.id]);
+  const qq = g.current_index >= 0 ? await liveQuestion(g.quiz_id, g.current_index) : null;
+  const state = {
+    id: g.id, status: g.status, quizTitle: g.quiz_title, className: g.class_name, subjectName: g.subject_name,
+    total, index: g.current_index, playersCount, serverNow: new Date().toISOString(),
+  };
+  if (qq && (g.status === 'question' || g.status === 'reveal')) {
+    state.timeLimit = qq.timeLimit;
+    state.endsAt = new Date(new Date(g.question_started_at).getTime() + qq.timeLimit * 1000).toISOString();
+  }
+  if (isHost) {
+    state.pin = g.pin;
+    state.leaderboard = leaderboard;
+    if (g.status === 'lobby') {
+      const { rows: players } = await q(`select u.name from live_players p join users u on u.id = p.student_id
+        where p.game_id = $1 order by p.joined_at limit 80`, [g.id]);
+      state.players = players;
+    }
+    if (qq) {
+      state.question = {
+        text: qq.text, options: qq.options, points: qq.points,
+        imageUrl: qq.hasImage ? `/api/files/quiz-question/${qq.id}` : null,
+        correctIndex: g.status === 'reveal' ? qq.correctIndex : null,
+      };
+      const { rows: [{ answered }] } = await q('select count(*)::int as answered from live_answers where game_id = $1 and question_index = $2', [g.id, g.current_index]);
+      state.answered = answered;
+      const { rows: counts } = await q('select selected, count(*)::int as n from live_answers where game_id = $1 and question_index = $2 group by selected', [g.id, g.current_index]);
+      state.breakdown = qq.options.map((_, i) => counts.find(c => c.selected === i)?.n || 0);
+    }
+    return state;
+  }
+  const { rows: [me] } = await q('select score from live_players where game_id = $1 and student_id = $2', [g.id, user.id]);
+  const { rows: [{ rank }] } = await q('select (count(*) + 1)::int as rank from live_players where game_id = $1 and score > $2', [g.id, me.score]);
+  state.score = me.score;
+  state.rank = rank;
+  state.leaderboard = leaderboard.slice(0, 5).map(({ name, score }) => ({ name, score }));
+  if (qq && (g.status === 'question' || g.status === 'reveal')) {
+    state.options = qq.options;
+    const { rows: [mine] } = await q('select selected, correct, points from live_answers where game_id = $1 and question_index = $2 and student_id = $3', [g.id, g.current_index, user.id]);
+    state.answered = Boolean(mine);
+    state.myCorrect = mine ? mine.correct : null;
+    state.myPoints = mine ? mine.points : 0;
+    if (g.status === 'reveal') state.correctIndex = qq.correctIndex;
+  }
+  return state;
+}
+
+// Yarışma başlatma: öğretmen (kendi sınavı) ya da müdür. Sınıfın öğrencilerine bildirim gider.
+on('POST', '/api/live', async ({ body, user }) => {
+  const quizId = requireId(body.quizId, 'sınav');
+  const quiz = await loadQuiz(quizId);
+  if (!(await canTeach(user, quiz.class_id, quiz.subject_id))) fail(403, 'Bu sınav için yarışma başlatma yetkin yok.');
+  const { rows: [{ n }] } = await q('select count(*)::int as n from quiz_questions where quiz_id = $1', [quizId]);
+  if (!n) fail(400, 'Yarışma için en az bir soru olmalı.');
+  const pin = await newLivePin();
+  const { rows: [row] } = await q('insert into live_games (quiz_id, class_id, host_id, pin) values ($1, $2, $3, $4) returning id', [quizId, quiz.class_id, user.id, pin]);
+  const { rows: students } = await q('select student_id from enrollments where class_id = $1', [quiz.class_id]);
+  push.notify(students.map(s => s.student_id), { title: 'Canlı yarışma başladı', body: `${quiz.title} · PIN: ${pin}`, url: '/#/canli', tag: `live-${row.id}` }).catch(() => {});
+  return created({ id: row.id, pin });
+}, { roles: STAFF });
+
+on('GET', '/api/live/active', async ({ user }) => {
+  const { rows } = await q(`select g.id, g.status, qz.title as "quizTitle", s.name as "subjectName", c.name as "className"
+    from live_games g join quizzes qz on qz.id = g.quiz_id join subjects s on s.id = qz.subject_id join classes c on c.id = g.class_id
+    where g.status <> 'finished' and g.class_id in (select class_id from enrollments where student_id = $1)
+    order by g.created_at desc limit 5`, [user.id]);
+  return ok({ games: rows });
+}, { roles: STUDENT });
+
+on('POST', '/api/live/join', async ({ body, user }) => {
+  const pin = String(body.pin ?? '').trim();
+  if (!/^\d{6}$/.test(pin)) fail(400, 'PIN 6 haneli bir sayı olmalı.');
+  const { rows: [g] } = await q("select id, class_id from live_games where pin = $1 and status <> 'finished'", [pin]);
+  if (!g) fail(404, 'Bu PIN ile açık bir yarışma yok.');
+  if (!(await enrolledIn(user.id, g.class_id))) fail(403, 'Bu yarışma sizin sınıfınız için değil.');
+  await q('insert into live_players (game_id, student_id) values ($1, $2) on conflict do nothing', [g.id, user.id]);
+  return ok({ id: g.id });
+}, { roles: STUDENT });
+
+on('GET', '/api/live/:id/state', async ({ params, user }) => {
+  const g = await liveGame(requireId(params.id, 'yarışma'));
+  if (user.role !== 'principal' && user.id !== g.host_id) {
+    if (user.role !== 'student') fail(403, 'Bu yarışmayı görme yetkin yok.');
+    const { rowCount } = await q('select 1 from live_players where game_id = $1 and student_id = $2', [g.id, user.id]);
+    if (!rowCount) fail(403, 'Bu yarışmaya katılmadınız.');
+  }
+  return ok(await liveState(g, user));
+});
+
+// Ekran denetimi: başlat, cevabı göster, sonraki soru, bitir
+function liveHostAction(name, allowedStatuses, run) {
+  on('POST', `/api/live/:id/${name}`, async ({ params, user }) => {
+    const g = await liveGame(requireId(params.id, 'yarışma'));
+    requireLiveHost(user, g);
+    if (!allowedStatuses.includes(g.status)) fail(400, 'Bu işlem şu anki aşamada yapılamaz.');
+    await run(g);
+    return ok(await liveState(await liveGame(g.id), user));
+  }, { roles: STAFF });
+}
+liveHostAction('start', ['lobby'], async g => {
+  await q("update live_games set status = 'question', current_index = 0, question_started_at = now() where id = $1", [g.id]);
+});
+liveHostAction('reveal', ['question'], async g => {
+  await q("update live_games set status = 'reveal' where id = $1", [g.id]);
+});
+liveHostAction('next', ['reveal'], async g => {
+  const { rows: [{ total }] } = await q('select count(*)::int as total from quiz_questions where quiz_id = $1', [g.quiz_id]);
+  if (g.current_index + 1 < total) {
+    await q("update live_games set status = 'question', current_index = current_index + 1, question_started_at = now() where id = $1", [g.id]);
+  } else {
+    await finishLive(g);
+  }
+});
+liveHostAction('end', ['lobby', 'question', 'reveal'], async g => {
+  await finishLive(g);
+});
+
+// Öğrenci cevabı: süre içinde, bir kez. Puan: doğru cevap 500-1000 arası (hız bonusu), yanlış 0.
+on('POST', '/api/live/:id/answer', async ({ params, body, user }) => {
+  const g = await liveGame(requireId(params.id, 'yarışma'));
+  if (g.status !== 'question') fail(400, 'Şu anda cevap verilemez.');
+  const qq = await liveQuestion(g.quiz_id, g.current_index);
+  const limitMs = qq.timeLimit * 1000;
+  const elapsed = Date.now() - new Date(g.question_started_at).getTime();
+  if (elapsed > limitMs + LIVE_TOLERANCE_MS) fail(400, 'Süre doldu.');
+  const selected = body.selected;
+  if (!Number.isInteger(selected) || selected < 0 || selected >= qq.options.length) fail(400, 'Seçilen şık geçersiz.');
+  const { rowCount: joined } = await q('select 1 from live_players where game_id = $1 and student_id = $2', [g.id, user.id]);
+  if (!joined) fail(403, 'Bu yarışmaya katılmadınız.');
+  const correct = selected === qq.correctIndex;
+  const points = correct ? Math.max(500, Math.round(1000 - (Math.min(elapsed, limitMs) / limitMs) * 500)) : 0;
+  const saved = await tx(async client => {
+    const { rowCount } = await client.query(`insert into live_answers (game_id, question_index, student_id, selected, correct, points)
+      values ($1, $2, $3, $4, $5, $6) on conflict do nothing`, [g.id, g.current_index, user.id, selected, correct, points]);
+    if (!rowCount) return false;
+    await client.query('update live_players set score = score + $3 where game_id = $1 and student_id = $2', [g.id, user.id, points]);
+    return true;
+  });
+  if (!saved) fail(409, 'Bu soruya zaten cevap verdiniz.');
+  return ok({ correct, points });
+}, { roles: STUDENT });
+
+// Soru görseli: yetkili kişiler (sınavı görebilenler) için satır içi PNG/JPG
+on('GET', '/api/files/quiz-question/:id', async ({ params, user }) => {
+  const id = requireId(params.id, 'soru');
+  const { rows: [row] } = await q(`select qq.image_path, qq.image_mime, qq.image_name, qz.class_id, qz.subject_id, qz.published
+    from quiz_questions qq join quizzes qz on qz.id = qq.quiz_id where qq.id = $1`, [id]);
+  if (!row || !row.image_path) fail(404, 'Görsel bulunamadı.');
+  if (!(await quizAccess(user, row))) fail(403, 'Bu görsele erişim yetkin yok.');
+  const result = await fileOf(row.image_path, row.image_mime, row.image_name);
+  result.file.inline = true;
+  return result;
+});
+
+// Bildirim aboneliği (Web Push). Anahtar sunucuda üretilir; abonelik tarayıcının verdiği uçtur.
+on('GET', '/api/push/key', async () => ok({ publicKey: push.publicKey() }));
+
+on('POST', '/api/push/subscribe', async ({ body, user }) => {
+  const sub = body.subscription && typeof body.subscription === 'object' ? body.subscription : {};
+  const endpoint = str(sub.endpoint, 500);
+  const p256dh = str(sub.keys?.p256dh, 200);
+  const auth = str(sub.keys?.auth, 100);
+  if (!endpoint.startsWith('https://') || !p256dh || !auth) fail(400, 'Bildirim aboneliği geçersiz.');
+  await q(`insert into push_subscriptions (user_id, endpoint, p256dh, auth) values ($1, $2, $3, $4)
+    on conflict (endpoint) do update set user_id = excluded.user_id, p256dh = excluded.p256dh, auth = excluded.auth`, [user.id, endpoint, p256dh, auth]);
+  return created({ subscribed: true });
+});
+
+on('POST', '/api/push/unsubscribe', async ({ body, user }) => {
+  await q('delete from push_subscriptions where endpoint = $1 and user_id = $2', [str(body.endpoint, 500), user.id]);
+  return ok({ removed: true });
+});
+
+on('POST', '/api/push/test', async ({ user }) => {
+  await push.notify([user.id], { title: 'Okulum', body: 'Bildirimler çalışıyor.', url: '/#/overview', tag: 'test' });
+  return ok({ sent: true });
+});
 
 // ---------- Hata eşleme ----------
 function toHttpError(error) {

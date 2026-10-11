@@ -97,6 +97,34 @@ Müdür "Denetim" sayfasından okul bilgisi, sınıf/ders, hesap, parola, ödev,
 Her kayıtta kişi, zaman, işlem, hedef ve ayrıntı bulunur. Parolalar hiçbir zaman kaydedilmez.
 Kayıtlar silinmez; kullanıcı silinse bile kalır.
 
+## Canlı yarışma, soru görselleri ve bildirimler (v17)
+
+- **Canlı yarışma (Kahoot tarzı):** Öğretmen yayındaki bir sınav için "Canlı başlat" der ve 6 haneli PIN alır. Öğrenciler telefonlarında Canlı yarışma sayfasından PIN'i girer. Öğretmen başlatınca soru ekranda gösterilir, telefonlarda yalnızca renkli şıklar görünür. Öğretmen "Cevabı göster" ile doğru şıkkı ve kaç kişinin hangi şıkkı seçtiğini gösterir, "Sonraki soru" ile devam eder. Doğru cevap 500-1000 puan kazandırır; hızlı cevap daha çok puan verir. Bitişte katılımcıların doğru cevap puanları sınav sonucu olarak kaydedilir ve notlara yansır.
+- **Süre:** Her soru için 5-120 saniye süre seçilir. Süre dolunca cevap kabul edilmez. Cevap ve süre kontrolü sunucuda yapılır.
+- **Soru görselleri:** Sınav sorularına JPG veya PNG görseli eklenebilir (en fazla 5 MB). Canlı yarışmada görsel öğretmen ekranında gösterilir. Öğrenciler sınavı kendi başına çözerken görseli görür.
+- **Bildirimler:** Giriş yapan kullanıcıya bildirim izni banner'ı gösterilir. "İzin ver" ile tarayıcı izni istenir. Bildirimler şu durumlarda gelir: canlı yarışma açıldığında (sınıf öğrencilerine PIN ile), yeni sınav yayınlandığında, öğrenciye puan verildiğinde. Hesabım → Bildirim ayarları ile açılıp kapatılabilir ve test bildirimi gönderilebilir.
+- **Bildirim anahtarları:** Web Push anahtarları ilk açılışta otomatik üretilir ve veritabanındaki `app_settings` tablosunda saklanır. İsterseniz `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY` ve `VAPID_SUBJECT` ortam değişkenleriyle kendiniz verebilirsiniz.
+- **Hız sınırı:** Okul ağlarında birçok öğrenci aynı IP adresinden bağlanır. Bu yüzden varsayılan API sınırı dakikada 3000, yazma sınırı 600 istektir. Canlı yarışmada telefonlar yaklaşık 1,5 saniyede bir durum sorar.
+- **Sınırlar:** Bildirimler tarayıcının kendi bildirim servisi üzerinden gelir. Telefonda kilit ekranında görünmesi tarayıcıya ve işletim sistemine bağlıdır. iPhone'da bildirimler için siteyi önce ana ekrana eklemek gerekir.
+
+## Öğretmen araçları: davranış, program, takvim, karne (v16)
+
+- **Davranış puanları:** Öğretmen (ve müdür) sınıfındaki öğrencilere -10 ile +10 arasında puan verir, gerekçe yazar. Toplamlara göre rozetler kazanılır (İlk adım, Yıldız, Usta, Efsane). Öğrenci "Puanlarım" sayfasında, veli çocuğunun davranış bölümünde görür.
+- **Gözlem notları:** Öğretmen bir öğrenci hakkında not yazar. "Veliyle paylaş" işaretlenirse yalnızca o öğrencinin velisi görür. Öğrenci gözlem notlarını göremez.
+- **Ders programı:** Haftalık program, öğretmen ve sınıf çakışmaları otomatik engellenir. Öğrenci ve veli kendi sınıfının programını görür.
+- **Takvim:** Aylık görünüm. Okul geneli etkinlikleri (yalnızca müdür), sınıf etkinlikleri (öğretmen kendi sınıfı için), ödev teslim tarihleri ve sınav açılış/kapanışları tek takvimde toplanır.
+- **Karne:** Öğrencinin notları, devamı, davranış özeti ve paylaşılan gözlem notları tek sayfada. "Yazdır / PDF olarak kaydet" ile PDF alınabilir. Öğretmen, müdür, veli ve öğrenci kendi karnesini görebilir.
+
+## Görünüm, akış ve sayfa durumları (v15)
+
+- **Açılış ekranı:** Uygulama yüklenirken marka animasyonu ve ilerleme çubuğu görünür, hazır olunca yumuşakça kapanır.
+- **Sayfa geçişi:** Sayfa değişirken üstte ince bir ilerleme çubuğu gösterilir. Veriler gelene kadar iskelet ekranı görünür.
+- **404:** Bilinmeyen adresler için ayrı bir sayfa vardır. Uygulama içinde bilinmeyen bir sayfa da bu ekranı gösterir. Sunucu tarafında bilinmeyen adresler HTTP 404 ve `noindex` ile yanıtlanır.
+- **Asistan akışı:** Cevap parça parça gelir (`POST /api/ai/chat/stream`, SSE). Olaylar: `delta` (metin parçası), `done` (kayıt kimliği), `error` (sade hata mesajı). Hata olursa sohbet kaydı oluşmaz. İstemci sayfadan ayrılırsa yukarı akış da kesilir.
+- **Markdown:** Asistan cevapları kalın yazı, madde listesi, başlık, satır içi kod ve kod bloğu olarak biçimlenir. Önce HTML kaçışı yapılır, bu yüzden cevaplardan gelen HTML çalışmaz.
+- **Sağlık:** `/healthz` sürümü, veritabanı gecikmesini ve çalışma süresini döner.
+- **Varsayılan Gemini modeli:** `gemini-3.1-flash-lite`. `GEMINI_MODEL` ortam değişkeni ile değiştirilebilir.
+
 ## Veli, sınav, not grafikleri ve mobil (v14)
 
 - **Veli hesabı:** Müdür, Kişiler → "Yeni hesap" → rol "Veli" seçip çocukları işaretler. Veli girişi öğretmen/öğrenci girişinden yapılır. Veli yalnızca bağlı çocuklarının ödev, sınav, not ve devam bilgilerini görür, hiçbir şey değiştiremez. Öğretmenlerle çocuğunun sınıfındaki öğretmen için mesajlaşabilir.

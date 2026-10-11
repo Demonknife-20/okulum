@@ -26,6 +26,11 @@ const ICONS = {
   chart: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
   user: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
   menu: '<path d="M4 6h16M4 12h16M4 18h16"/>',
+  star: '<path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9 6.8 19.6l1-5.8-4.3-4.1 5.9-.9z"/>',
+  clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+  calendar: '<rect x="3" y="5" width="18" height="16" rx="3"/><path d="M3 10h18M8 3v4M16 3v4"/>',
+  bolt: '<path d="M13 2L4 14h7l-1 8 9-12h-7z"/>',
+  bell: '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 8 3 8H3s3-1 3-8"/><path d="M10.3 21a2 2 0 0 0 3.4 0"/>',
   help: '<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .9-1 1.7M12 17h.01"/>',
   moon: '<path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
@@ -163,3 +168,15 @@ export async function markSeen(scopes) {
   for (const scope of scopes) await api('/notifications/seen', { method: 'POST', body: { scope } }).catch(() => {});
   await refreshBadges();
 }
+
+// 404 görünümü: uygulama içinde ve genel sayfalarda ortak kullanılır.
+export const notFoundHtml = inApp => `<section class="not-found">
+  <div class="nf-code" aria-hidden="true">404</div>
+  <h1>Sayfa bulunamadı</h1>
+  <p>Aradığınız sayfa taşınmış, silinmiş ya da hiç var olmamış olabilir.</p>
+  <div class="nf-actions">
+    <a class="btn primary" href="${inApp ? '#/overview' : '#/'}">${inApp ? 'Genel bakışa dön' : 'Ana sayfaya dön'}</a>
+    <a class="btn ghost" href="/kullanim">Kullanım kılavuzu</a>
+  </div>
+  <div class="nf-orbs" aria-hidden="true"><i></i><i></i><i></i></div>
+</section>`;

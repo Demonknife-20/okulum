@@ -309,3 +309,119 @@ alter table quizzes enable row level security;
 alter table quiz_questions enable row level security;
 alter table quiz_attempts enable row level security;
 alter table quiz_answers enable row level security;
+
+-- v16: davranış puanları, gözlem notları, ders programı, okul takvimi
+create table if not exists behavior_points (
+  id uuid primary key default gen_random_uuid(),
+  student_id uuid not null references users(id) on delete cascade,
+  class_id uuid not null references classes(id) on delete cascade,
+  teacher_id uuid references users(id) on delete set null,
+  points integer not null check (points between -10 and 10 and points <> 0),
+  reason text not null default '' check (char_length(reason) <= 120),
+  created_at timestamptz not null default now()
+);
+create index if not exists behavior_points_student on behavior_points(student_id, created_at desc);
+create index if not exists behavior_points_class on behavior_points(class_id);
+
+create table if not exists student_notes (
+  id uuid primary key default gen_random_uuid(),
+  student_id uuid not null references users(id) on delete cascade,
+  teacher_id uuid references users(id) on delete set null,
+  body text not null check (char_length(body) between 1 and 1000),
+  shared_with_parent boolean not null default false,
+  created_at timestamptz not null default now()
+);
+create index if not exists student_notes_student on student_notes(student_id, created_at desc);
+
+create table if not exists timetable_slots (
+  id uuid primary key default gen_random_uuid(),
+  class_id uuid not null references classes(id) on delete cascade,
+  subject_id uuid not null references subjects(id) on delete cascade,
+  teacher_id uuid not null references users(id) on delete cascade,
+  weekday integer not null check (weekday between 1 and 5),
+  starts_at time not null,
+  ends_at time not null,
+  room text not null default '' check (char_length(room) <= 40),
+  check (ends_at > starts_at)
+);
+create index if not exists timetable_class on timetable_slots(class_id, weekday, starts_at);
+create index if not exists timetable_teacher on timetable_slots(teacher_id, weekday, starts_at);
+
+create table if not exists school_events (
+  id uuid primary key default gen_random_uuid(),
+  title text not null check (char_length(title) between 2 and 140),
+  kind text not null check (kind in ('sinav', 'tatil', 'etkinlik', 'toplanti')),
+  event_date date not null,
+  class_id uuid references classes(id) on delete cascade,
+  description text not null default '' check (char_length(description) <= 500),
+  created_by uuid references users(id) on delete set null,
+  created_at timestamptz not null default now()
+);
+create index if not exists school_events_date on school_events(event_date);
+
+alter table behavior_points enable row level security;
+alter table student_notes enable row level security;
+alter table timetable_slots enable row level security;
+alter table school_events enable row level security;
+
+-- v17: canlı yarışma (Kahoot tarzı), soru görselleri, bildirim abonelikleri, uygulama ayarları
+alter table quiz_questions add column if not exists image_path text;
+alter table quiz_questions add column if not exists image_mime text;
+alter table quiz_questions add column if not exists image_name text;
+alter table quiz_questions add column if not exists time_limit integer not null default 20;
+alter table quiz_questions drop constraint if exists quiz_questions_time_limit_check;
+alter table quiz_questions add constraint quiz_questions_time_limit_check check (time_limit between 5 and 120);
+
+create table if not exists live_games (
+  id uuid primary key default gen_random_uuid(),
+  quiz_id uuid not null references quizzes(id) on delete cascade,
+  class_id uuid not null references classes(id) on delete cascade,
+  host_id uuid references users(id) on delete set null,
+  pin text not null,
+  status text not null default 'lobby' check (status in ('lobby', 'question', 'reveal', 'finished')),
+  current_index integer not null default -1,
+  question_started_at timestamptz,
+  created_at timestamptz not null default now(),
+  ended_at timestamptz
+);
+create unique index if not exists live_games_active_pin on live_games(pin) where status <> 'finished';
+
+create table if not exists live_players (
+  game_id uuid not null references live_games(id) on delete cascade,
+  student_id uuid not null references users(id) on delete cascade,
+  score integer not null default 0,
+  joined_at timestamptz not null default now(),
+  primary key (game_id, student_id)
+);
+
+create table if not exists live_answers (
+  game_id uuid not null references live_games(id) on delete cascade,
+  question_index integer not null,
+  student_id uuid not null references users(id) on delete cascade,
+  selected integer not null,
+  correct boolean not null,
+  points integer not null,
+  answered_at timestamptz not null default now(),
+  primary key (game_id, question_index, student_id)
+);
+
+create table if not exists push_subscriptions (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references users(id) on delete cascade,
+  endpoint text not null unique,
+  p256dh text not null,
+  auth text not null,
+  created_at timestamptz not null default now()
+);
+create index if not exists push_subscriptions_user on push_subscriptions(user_id);
+
+create table if not exists app_settings (
+  key text primary key,
+  value text not null
+);
+
+alter table live_games enable row level security;
+alter table live_players enable row level security;
+alter table live_answers enable row level security;
+alter table push_subscriptions enable row level security;
+alter table app_settings enable row level security;

@@ -71,4 +71,15 @@ Sitemap: ${base}/sitemap.xml
 `;
 }
 
-module.exports = { usagePage, aboutPage, sitemap, robots };
+function notFoundPage(base) {
+  const body = `<section class="not-found">
+    <div class="nf-code" aria-hidden="true">404</div>
+    <h1>Sayfa bulunamadı</h1>
+    <p>Aradığınız adres taşınmış, silinmiş ya da hiç var olmamış olabilir.</p>
+    <div class="nf-actions"><a class="btn primary" href="/">Ana sayfa</a><a class="btn ghost" href="/kullanim">Kullanım kılavuzu</a></div>
+  </section>`;
+  return SHELL(base, { title: 'Sayfa bulunamadı · Okulum', description: 'Aradığınız sayfa bulunamadı.', path: '/', body })
+    .replace('content="index, follow"', 'content="noindex, nofollow"');
+}
+
+module.exports = { usagePage, aboutPage, notFoundPage, sitemap, robots };
