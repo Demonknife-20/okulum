@@ -4,7 +4,7 @@ import { state, api, $, $$, esc, ROLE, icon, fmtDate, todayIso, pct, initials, t
 export const ACTIONS = {}, FORMS = {}, CHANGES = {}, INPUTS = {};
 
 let timers = [];
-export function stopTimers() { timers.forEach(clearInterval); timers = []; }
+export function stopTimers() { timers.forEach(clearInterval); timers = []; clearQuizTimer(); }
 const every = (fn, ms) => { const id = setInterval(fn, ms); timers.push(id); return id; };
 
 // ---------- Ortak parçalar ----------
@@ -705,12 +705,14 @@ function teachingMatrix(selected = []) {
     </tbody></table></div>`;
 }
 
+const checkedChildren = form => [...form.querySelectorAll('input[name=child]:checked')].map(input => input.value);
+
 const checkedPairs = form => [...form.querySelectorAll('input[name=pair]:checked')].map(input => {
   const [classId, subjectId] = input.value.split('|');
   return { classId, subjectId };
 });
 
-function userForm(user = null) {
+function userForm(user = null, students = []) {
   const editing = Boolean(user);
   const role = user?.role || 'teacher';
   const classOptions = state.classes.map(c => `<option value="${esc(c.id)}" ${user?.classId === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('');
@@ -718,7 +720,7 @@ function userForm(user = null) {
     <div class="grid-2">
       ${editing
         ? `<label class="field"><span>Rol</span><input value="${esc(ROLE[role])}" disabled></label>`
-        : `<label class="field"><span>Rol</span><select name="role" data-change="roleToggle"><option value="teacher">Öğretmen</option><option value="student">Öğrenci</option><option value="principal">Müdür (ek yönetici)</option></select></label>`}
+        : `<label class="field"><span>Rol</span><select name="role" data-change="roleToggle"><option value="teacher">Öğretmen</option><option value="student">Öğrenci</option><option value="parent">Veli</option><option value="principal">Müdür (ek yönetici)</option></select></label>`}
       <label class="field"><span>Ad soyad</span><input name="name" required maxlength="80" value="${esc(user?.name || '')}"></label>
     </div>
     ${editing ? '' : `<div class="grid-2">
@@ -733,16 +735,28 @@ function userForm(user = null) {
       <span class="field-label">Verdiği sınıf ve dersler</span>
       ${teachingMatrix(user?.teaching || [])}
     </div>
+    <div data-for="parent" ${role === 'parent' ? '' : 'hidden'}>
+      <span class="field-label">Bağlı çocuklar</span>
+      <div class="member-list">${students.length
+        ? students.map(st => `<label class="member-row"><input type="checkbox" name="child" value="${esc(st.id)}" ${(user?.childIds || []).includes(st.id) ? 'checked' : ''}>
+            <span><strong>${esc(st.name)}</strong><small class="muted">${esc(st.className || 'Sınıfsız')} · ${esc(st.studentNo || '')}</small></span></label>`).join('')
+        : '<p class="muted small">Önce öğrenci hesabı açın.</p>'}</div>
+    </div>
     <p class="form-error" data-error role="alert"></p>
     <div class="form-actions"><button class="btn ghost" type="button" data-action="close-modal">Vazgeç</button>
       <button class="btn primary" type="submit">${editing ? 'Kaydet' : 'Hesabı oluştur'}</button></div>
   </form>`;
 }
 
-ACTIONS['new-user'] = () => openModal('Yeni hesap', userForm());
-ACTIONS['edit-user'] = el => {
+ACTIONS['new-user'] = async () => {
+  const { users } = await api('/users?role=student&size=100');
+  openModal('Yeni hesap', userForm(null, users));
+};
+ACTIONS['edit-user'] = async el => {
   const user = peopleCache.find(u => u.id === el.dataset.id);
-  if (user) openModal('Hesabı düzenle', userForm(user));
+  if (!user) return;
+  const { users } = await api('/users?role=student&size=100');
+  openModal('Hesabı düzenle', userForm(user, users));
 };
 CHANGES.roleToggle = el => $$('[data-for]').forEach(node => { node.hidden = node.dataset.for !== el.value; });
 
@@ -752,6 +766,8 @@ FORMS['new-user'] = async form => {
   if (role === 'student') {
     body.studentNo = val(form, 'studentNo');
     body.classId = val(form, 'classId') || null;
+  } else if (role === 'parent') {
+    body.childIds = checkedChildren(form);
   } else {
     body.teaching = checkedPairs(form);
   }
@@ -766,6 +782,8 @@ FORMS['edit-user'] = async form => {
   if (form.dataset.role === 'student') {
     body.studentNo = val(form, 'studentNo');
     body.classId = val(form, 'classId');
+  } else if (form.dataset.role === 'parent') {
+    body.childIds = checkedChildren(form);
   } else {
     body.teaching = checkedPairs(form);
   }
@@ -800,6 +818,7 @@ ACTIONS['delete-user'] = async el => {
 const classInfo = u => {
   if (u.role === 'student') return u.className || 'Sınıfsız';
   if (u.role === 'principal') return 'Okul müdürü';
+  if (u.role === 'parent') return `${(u.childIds || []).length} çocuk bağlı`;
   if (u.teaching) return u.teaching.map(t => `${t.className} · ${t.subjectName}`).join(', ') || 'Ders ataması yok';
   return 'Öğretmen';
 };
@@ -1313,7 +1332,7 @@ const AUDIT_LABELS = {
   class_created: 'Sınıf eklendi', class_deleted: 'Sınıf silindi', subject_created: 'Ders eklendi', subject_deleted: 'Ders silindi',
   user_created: 'Hesap açıldı', user_updated: 'Hesap düzenlendi', user_deleted: 'Hesap silindi',
   password_reset: 'Şifre sıfırlandı', password_changed: 'Kendi şifresini değiştirdi', profile_updated: 'Ad değiştirildi',
-  board_created: 'Pano açıldı', board_deleted: 'Pano silindi', board_note_deleted: 'Pano notu silindi', ai_logs_viewed: 'Asistan kaydı görüntülendi', users_imported: 'Toplu hesap eklendi',
+  board_created: 'Pano açıldı', board_deleted: 'Pano silindi', board_note_deleted: 'Pano notu silindi', ai_logs_viewed: 'Asistan kaydı görüntülendi', users_imported: 'Toplu hesap eklendi', quiz_created: 'Sınav oluşturuldu', quiz_deleted: 'Sınav silindi',
   assignment_created: 'Ödev oluşturuldu', assignment_updated: 'Ödev düzenlendi', assignment_deleted: 'Ödev silindi',
   grades_saved: 'Not kaydedildi', attendance_saved: 'Yoklama kaydedildi',
 };
@@ -1534,13 +1553,388 @@ async function aiLogsView(header, params) {
     </section>` };
 }
 
+// ---------- Grafikler (CSS çubukları) ----------
+const barRows = (items, { suffix = '%', emptyText = 'Veri yok' } = {}) => items.length
+  ? `<div class="bar-rows">${items.map(item => `
+      <div class="bar-row">
+        <span class="bar-label" title="${esc(item.label)}">${esc(item.label)}</span>
+        <div class="bar-track" role="img" aria-label="${esc(item.label)}: ${esc(item.value ?? 0)}${suffix}"><i data-w="${Math.max(0, Math.min(100, Number(item.value) || 0))}"></i></div>
+        <b class="bar-value">${item.value === null || item.value === undefined ? '—' : `${esc(item.value)}${suffix}`}</b>
+      </div>`).join('')}</div>`
+  : `<p class="muted small">${esc(emptyText)}</p>`;
+
+const distributionRows = bins => {
+  const max = Math.max(1, ...bins.map(b => b.count));
+  return `<div class="dist">${bins.map(b => `
+    <div class="dist-col"><div class="dist-bar"><i data-h="${Math.round((b.count / max) * 100)}"></i></div>
+      <b>${b.count}</b><span>${esc(b.label)}</span></div>`).join('')}</div>`;
+};
+
+// ---------- Veli ----------
+async function pageParentOverview() {
+  const { children } = await api('/parent/children');
+  const cards = children.map(c => {
+    const rate = pct(c.present, c.total);
+    return `<a class="child-card" href="#/cocuklar?id=${esc(c.id)}">
+      <span class="avatar green">${esc(initials(c.name))}</span>
+      <div><strong>${esc(c.name)}</strong><small class="muted">${esc(c.className || 'Sınıfsız')} · ${esc(c.studentNo || '')}</small></div>
+      <span class="child-rate">${rate === null ? 'Devam yok' : `%${rate} devam`}</span>
+    </a>`;
+  }).join('');
+  return { html: `
+    ${head(`Merhaba, ${firstName(state.me.name)}`, 'Çocuklarınızın ödev, not ve devam durumunu buradan izleyin.')}
+    ${children.length ? `<div class="child-grid">${cards}</div>`
+      : panel('Çocuklarım', '', empty('Bağlı öğrenci yok', 'Okul müdürünüz hesabınıza çocuğunuzu bağladığında burada görünür.'))}
+    ${panel('Hızlı erişim', '', quick([['#/cocuklar', 'Çocuklarım', 'user'], ['#/messages', 'Mesajlar', 'chat'], ['#/asistan', 'Asistan', 'spark']]))}` };
+}
+
+async function pageCocuklar(params) {
+  const { children } = await api('/parent/children');
+  if (!children.length) return { html: `${head('Çocuklarım')}${panel('Çocuklarım', '', empty('Bağlı öğrenci yok', 'Okul müdürünüz çocuğunuzu hesabınıza bağladığında burada görünür.'))}` };
+  const childId = children.some(c => c.id === params.id) ? params.id : children[0].id;
+  const data = await api(`/parent/children/${childId}`);
+  const switcher = children.length > 1
+    ? `<select data-change="childSwitch" aria-label="Çocuk seç">${children.map(c => `<option value="${esc(c.id)}" ${c.id === childId ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select>` : '';
+  const grades = data.grades.subjects.map(sub => ({ label: sub.subjectName, value: sub.average }));
+  const attendance = data.attendance.subjects.map(sub => ({ label: sub.subjectName, value: pct(sub.present, sub.total) }));
+  const assignmentRows = data.assignments.map(a => `<tr>
+    <td><strong>${esc(a.title)}</strong><small class="cell-note">${esc(a.subjectName)}</small></td>
+    <td>${esc(fmtDate(a.dueAt))}</td>
+    <td>${a.grade ? badge(`Not: ${a.grade}`, 'ok') : a.submittedAt ? badge('Teslim edildi') : isPast(a.dueAt) ? badge('Teslim yok', 'danger') : badge('Bekliyor', 'warn')}</td>
+    <td><small>${esc(a.feedback || '')}</small></td></tr>`).join('');
+  const quizRows = data.quizzes.map(z => `<tr>
+    <td><strong>${esc(z.title)}</strong><small class="cell-note">${esc(z.subjectName)}</small></td>
+    <td>${z.submittedAt ? `${z.score} / ${z.maxScore}` : '—'}</td>
+    <td>${z.submittedAt ? badge('Tamamlandı', 'ok') : isPast(z.closesAt) ? badge('Girilmedi', 'danger') : badge('Açık', 'warn')}</td></tr>`).join('');
+  return { html: `
+    ${head(data.child.name, `${data.child.className || 'Sınıfsız'} · ${data.child.studentNo || ''}`,
+      `${switcher}<a class="btn ghost" href="#/messages">${icon('chat')}<span>Öğretmene yaz</span></a>`)}
+    <div class="stats">
+      ${stat('Devam · 30 gün', data.attendance.recent.length ? `%${pct(data.attendance.subjects.reduce((x, y) => x + y.present, 0), data.attendance.subjects.reduce((x, y) => x + y.total, 0)) ?? 0}` : '—', 'Tüm derslerde', 'check')}
+      ${stat('Genel ortalama', data.grades.subjects.length ? `${Math.round(data.grades.subjects.reduce((x, y) => x + y.average, 0) / data.grades.subjects.length)}` : '—', 'Notlardan hesaplanır', 'chart')}
+      ${stat('Teslim', data.assignments.filter(a => a.submittedAt).length, `${data.assignments.length} ödevden`, 'file')}
+    </div>
+    <div class="two-col">
+      ${panel('Derslere göre not', '', `<div class="pad">${barRows(grades, { emptyText: 'Henüz not yok' })}</div>`)}
+      ${panel('Derslere göre devam', '', `<div class="pad">${barRows(attendance, { emptyText: 'Henüz yoklama yok' })}</div>`)}
+    </div>
+    ${panel('Ödevler', `${data.assignments.length} ödev`, data.assignments.length
+      ? `<div class="table-wrap"><table class="table"><thead><tr><th>Ödev</th><th>Son teslim</th><th>Durum</th><th>Öğretmen notu</th></tr></thead><tbody>${assignmentRows}</tbody></table></div>`
+      : empty('Ödev yok', 'Çocuğunuzun sınıfına ödev verildiğinde burada görünür.'))}
+    ${panel('Sınavlar', `${data.quizzes.length} sınav`, data.quizzes.length
+      ? `<div class="table-wrap"><table class="table"><thead><tr><th>Sınav</th><th>Puan</th><th>Durum</th></tr></thead><tbody>${quizRows}</tbody></table></div>`
+      : empty('Sınav yok', 'Yayınlanan sınavlar burada görünür.'))}` };
+}
+CHANGES.childSwitch = el => setQuery('cocuklar', { id: el.value });
+
+// ---------- Sınavlar (öğretmen) ve Sınavlarım (öğrenci) ----------
+const QUIZ_STATE = { 'yakında': 'Yakında', 'açık': 'Açık', 'kapandı': 'Kapandı' };
+async function pageSinavlar() {
+  const { quizzes } = await api('/quizzes');
+  const role = state.me.role;
+  if (role === 'student') {
+    const cards = quizzes.map(z => {
+      const done = z.mine?.submittedAt;
+      return `<article class="card-item">
+        <header class="card-head"><div><h3>${esc(z.title)}</h3><small class="muted">${esc(z.subjectName)} · ${z.timeLimitMinutes} dakika</small></div>
+          ${badge(QUIZ_STATE[z.state] || z.state, z.state === 'açık' ? 'ok' : z.state === 'kapandı' ? 'neutral' : 'warn')}</header>
+        <p class="small muted">Kapanış: ${esc(fmtDate(z.closesAt))}</p>
+        ${done ? `<p class="feedback"><strong>Puanınız:</strong> ${z.mine.score} / ${z.mine.maxScore}</p>` : ''}
+        <footer class="card-actions"><a class="btn ${z.state === 'açık' && !done ? 'primary' : 'ghost'} sm" href="#/sinav?id=${esc(z.id)}">${done ? 'Sonucu gör' : z.state === 'açık' ? 'Sınava gir' : 'Ayrıntı'}</a></footer>
+      </article>`;
+    }).join('');
+    return { html: `${head('Sınavlarım', 'Açık sınavlara girin. Süre dolunca cevaplarınız otomatik gönderilir.')}
+      ${quizzes.length ? `<div class="cards">${cards}</div>` : empty('Sınav yok', 'Öğretmeniniz sınav yayınladığında burada görünür.')}` };
+  }
+  const canCreate = role === 'teacher' && state.teaching.length > 0;
+  const rows = quizzes.map(z => `<tr>
+    <td><strong>${esc(z.title)}</strong><small class="cell-note">${z.questionCount} soru · ${z.timeLimitMinutes} dk</small></td>
+    <td>${esc(z.className)}<small class="cell-note">${esc(z.subjectName)}</small></td>
+    <td>${esc(fmtDate(z.opensAt))}<small class="cell-note">kapanış ${esc(fmtDate(z.closesAt))}</small></td>
+    <td>${z.published ? badge(QUIZ_STATE[z.state] || z.state, z.state === 'açık' ? 'ok' : 'warn') : badge('Taslak')}</td>
+    <td>${z.submittedCount}</td>
+    <td class="row-actions">
+      <a class="btn ghost sm" href="#/sinav?id=${esc(z.id)}">Sonuçlar</a>
+      ${canCreate ? `<button class="btn ghost sm" type="button" data-action="quiz-toggle" data-id="${esc(z.id)}" data-published="${z.published}">${z.published ? 'Gizle' : 'Yayınla'}</button>
+        <button class="icon-btn sm" type="button" data-action="quiz-delete" data-id="${esc(z.id)}" aria-label="Sınavı sil">${icon('trash')}</button>` : ''}
+    </td></tr>`).join('');
+  return { html: `${head('Sınavlar', 'Çoktan seçmeli sınavlar hazırlayın, süre ve zaman aralığı belirleyin. Sonuçlar otomatik hesaplanır.',
+      canCreate ? `<button class="btn primary" type="button" data-action="quiz-new">${icon('plus')}<span>Yeni sınav</span></button>` : '')}
+    <section class="panel">${quizzes.length
+      ? `<div class="table-wrap"><table class="table"><thead><tr><th>Sınav</th><th>Sınıf · Ders</th><th>Zaman aralığı</th><th>Durum</th><th>Teslim</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`
+      : empty('Henüz sınav yok', canCreate ? 'İlk sınavınızı oluşturarak başlayın.' : 'Sınıfınız için sınav hazırlandığında burada görünür.')}</section>` };
+}
+
+function quizQuestionBlock() {
+  const uid = Math.random().toString(36).slice(2, 8);
+  return `<div class="quiz-q">
+    <div class="quiz-q-head"><strong class="qno">Soru</strong>
+      <button class="icon-btn sm" type="button" data-action="quiz-remove-q" aria-label="Soruyu kaldır">${icon('close')}</button></div>
+    <label class="field"><span>Soru metni</span><textarea name="qtext" rows="2" maxlength="1000" required></textarea></label>
+    <div class="quiz-opts">${[0, 1, 2, 3].map(i => `<label class="quiz-opt">
+      <input type="radio" name="correct-${uid}" value="${i}" ${i === 0 ? 'checked' : ''} aria-label="Doğru cevap ${i + 1}">
+      <input name="opt" maxlength="300" placeholder="${i < 2 ? 'Seçenek' : 'İsteğe bağlı seçenek'} ${i + 1}">
+    </label>`).join('')}</div>
+    <label class="field narrow"><span>Puan</span><select name="points">${[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(v => `<option value="${v}">${v}</option>`).join('')}</select></label>
+  </div>`;
+}
+
+function renumberQuestions() {
+  document.querySelectorAll('#quizQuestions .quiz-q').forEach((block, i) => { block.querySelector('.qno').textContent = `Soru ${i + 1}`; });
+}
+
+function quizForm() {
+  const pairs = state.teaching.map(t => ({ value: `${t.classId}|${t.subjectId}`, label: `${t.className} · ${t.subjectName}` }));
+  const now = new Date();
+  const open = new Date(now.getTime() - 60000), close = new Date(now.getTime() + 7 * 86400000);
+  return `<form class="stack" data-form="quiz-create">
+    <div class="grid-2">
+      <label class="field"><span>Sınav adı</span><input name="title" required minlength="2" maxlength="160" placeholder="Örn. Kesirler kısa sınavı"></label>
+      <label class="field"><span>Sınıf ve ders</span><select name="pair" required>${pairs.map(p => `<option value="${esc(p.value)}">${esc(p.label)}</option>`).join('')}</select></label>
+    </div>
+    <div class="grid-2">
+      <label class="field"><span>Açılış</span><input name="opensAt" type="datetime-local" required value="${esc(toLocalInput(open.toISOString()))}"></label>
+      <label class="field"><span>Kapanış</span><input name="closesAt" type="datetime-local" required value="${esc(toLocalInput(close.toISOString()))}"></label>
+    </div>
+    <div class="grid-2">
+      <label class="field"><span>Süre (dakika)</span><input name="timeLimitMinutes" type="number" min="1" max="240" value="20" required></label>
+      <label class="switch switch-line"><input type="checkbox" name="published"><span class="switch-ui" aria-hidden="true"></span><span><strong>Hemen yayınla</strong><small>Kapalıysa taslak olarak kaydedilir.</small></span></label>
+    </div>
+    <h3 class="sub-title">Sorular</h3>
+    <div id="quizQuestions">${quizQuestionBlock()}</div>
+    <button class="btn ghost" type="button" data-action="quiz-add-q">${icon('plus')}<span>Soru ekle</span></button>
+    <p class="form-error" data-error role="alert"></p>
+    <div class="form-actions"><button class="btn ghost" type="button" data-action="close-modal">Vazgeç</button><button class="btn primary" type="submit">Sınavı kaydet</button></div>
+  </form>`;
+}
+
+ACTIONS['quiz-new'] = () => { openModal('Yeni sınav', quizForm(), { wide: true }); renumberQuestions(); };
+ACTIONS['quiz-add-q'] = () => {
+  const box = document.querySelector('#quizQuestions');
+  if (box.querySelectorAll('.quiz-q').length >= 50) throw new Error('Bir sınavda en fazla 50 soru olabilir.');
+  box.insertAdjacentHTML('beforeend', quizQuestionBlock());
+  renumberQuestions();
+  box.lastElementChild.querySelector('textarea')?.focus();
+};
+ACTIONS['quiz-remove-q'] = el => {
+  const blocks = document.querySelectorAll('#quizQuestions .quiz-q');
+  if (blocks.length <= 1) throw new Error('Sınavda en az bir soru olmalı.');
+  el.closest('.quiz-q').remove();
+  renumberQuestions();
+};
+
+FORMS['quiz-create'] = async form => {
+  const [classId, subjectId] = val(form, 'pair').split('|');
+  const questions = [...form.querySelectorAll('.quiz-q')].map((block, index) => {
+    const text = block.querySelector('[name=qtext]').value.trim();
+    const rows = [...block.querySelectorAll('.quiz-opt')];
+    const checked = rows.findIndex(row => row.querySelector('input[type=radio]').checked);
+    const options = rows.map(row => row.querySelector('input[name=opt]').value.trim());
+    if (!text) throw new Error(`${index + 1}. sorunun metni boş.`);
+    if (!options[checked]) throw new Error(`${index + 1}. sorunun doğru cevabı boş bırakılmış. Doğru seçeneği işaretleyin.`);
+    const filtered = options.filter(Boolean);
+    if (filtered.length < 2) throw new Error(`${index + 1}. soruda en az iki seçenek yazın.`);
+    const correctIndex = filtered.indexOf(options[checked]);
+    return { text, options: filtered, correctIndex, points: Number(block.querySelector('[name=points]').value) || 1 };
+  });
+  const published = form.querySelector('[name=published]').checked;
+  await api('/quizzes', { method: 'POST', body: {
+    title: val(form, 'title').trim(), classId, subjectId, questions, published,
+    opensAt: new Date(val(form, 'opensAt')).toISOString(), closesAt: new Date(val(form, 'closesAt')).toISOString(),
+    timeLimitMinutes: Number(val(form, 'timeLimitMinutes')),
+  } });
+  closeModal();
+  toast(published ? 'Sınav yayınlandı' : 'Sınav taslak olarak kaydedildi');
+  refresh();
+};
+
+ACTIONS['quiz-toggle'] = async el => {
+  await api(`/quizzes/${el.dataset.id}`, { method: 'PATCH', body: { published: el.dataset.published !== 'true' } });
+  toast('Sınav durumu güncellendi');
+  refresh();
+};
+ACTIONS['quiz-delete'] = async el => {
+  const yes = await confirmDialog('Sınavı sil', 'Sınav, sorular ve tüm öğrenci cevapları silinecek. Bu işlem geri alınamaz.');
+  if (!yes) return;
+  await api(`/quizzes/${el.dataset.id}`, { method: 'DELETE' });
+  toast('Sınav silindi');
+  refresh();
+};
+
+// Sınav detayı: öğretmen sonuçları, öğrenci çözme ve sonuç ekranı
+let quizTimer = null;
+function clearQuizTimer() { if (quizTimer) { clearInterval(quizTimer); quizTimer = null; } }
+
+async function pageSinav(params) {
+  if (!params.id) return { html: `${head('Sınav')}${panel('Sınav', '', empty('Sınav seçilmedi', 'Sınavlar sayfasından bir sınav seçin.'))}` };
+  if (state.me.role === 'student') return pageSinavOgrenci(params.id);
+  const data = await api(`/quizzes/${params.id}/results`);
+  const rows = data.attempts.map(a => `<tr>
+    <td><strong>${esc(a.studentName)}</strong><small class="cell-note">${esc(a.studentNo || '')}</small></td>
+    <td>${a.submittedAt ? `${a.score} / ${a.maxScore}` : '—'}</td>
+    <td>${a.percent === null ? badge('Teslim yok') : meterInline(a.percent)}</td>
+    <td>${a.submittedAt ? esc(fmtDate(a.submittedAt)) : badge('Devam ediyor', 'warn')}</td></tr>`).join('');
+  return { html: `${head(data.quiz.title, 'Sınav sonuçları ve sınıf dağılımı', '<a class="btn ghost" href="#/sinavlar">← Sınavlar</a>')}
+    <div class="stats">
+      ${stat('Teslim', `${data.stats.submitted} / ${data.stats.classSize}`, 'Sınıftan teslim eden', 'check')}
+      ${stat('Ortalama', data.stats.average === null ? '—' : `%${data.stats.average}`, 'Teslim edenlerin ortalaması', 'chart')}
+    </div>
+    <div class="two-col">
+      ${panel('Puan dağılımı', '', `<div class="pad">${distributionRows(data.stats.distribution)}</div>`)}
+      ${panel('Öğrenciler', `${data.attempts.length} deneme`, data.attempts.length
+        ? `<div class="table-wrap"><table class="table"><thead><tr><th>Öğrenci</th><th>Puan</th><th>Yüzde</th><th>Teslim</th></tr></thead><tbody>${rows}</tbody></table></div>`
+        : empty('Henüz deneme yok', 'Öğrenciler sınava girdiğinde sonuçlar burada görünür.'))}
+    </div>` };
+}
+
+function meterInline(percent) {
+  return `<span class="meter"><span class="bar"><i data-w="${percent}"></i></span><b>%${percent}</b></span>`;
+}
+
+async function pageSinavOgrenci(id) {
+  const data = await api(`/quizzes/${id}`);
+  const quiz = data.quiz;
+  const attempt = data.attempt;
+  const finished = Boolean(attempt?.submittedAt);
+  const now = Date.now();
+  const opensAt = new Date(quiz.opensAt).getTime(), closesAt = new Date(quiz.closesAt).getTime();
+  const header = head(quiz.title, `${quiz.timeLimitMinutes} dakika · kapanış ${fmtDate(quiz.closesAt)}`, '<a class="btn ghost" href="#/sinavlar">← Sınavlarım</a>');
+  if (finished) {
+    const items = data.questions.map(qq => {
+      const ok = qq.selected === qq.correctIndex;
+      return `<li class="result-q ${ok ? 'ok' : 'bad'}"><strong>${esc(qq.text)}</strong>
+        <small>Sizin cevabınız: ${qq.selected === null || qq.selected === undefined ? 'boş' : esc(qq.options[qq.selected])}</small>
+        ${ok ? '' : `<small>Doğru cevap: ${esc(qq.options[qq.correctIndex])}</small>`}</li>`;
+    }).join('');
+    return { html: `${header}
+      <section class="panel result-hero"><div class="pad"><p class="kicker">Sonucunuz</p>
+        <div class="result-score">${attempt.score}<span> / ${attempt.maxScore}</span></div>
+        <p class="muted">Teslim: ${esc(fmtDate(attempt.submittedAt))}</p></div></section>
+      ${panel('Cevaplarınız', '', `<ul class="result-list">${items}</ul>`)}` };
+  }
+  if (!attempt && now < opensAt) return { html: `${header}${panel('Sınav', '', empty('Sınav henüz açılmadı', `Açılış: ${fmtDate(quiz.opensAt)}`))}` };
+  if (!attempt && now > closesAt) return { html: `${header}${panel('Sınav', '', empty('Sınav kapandı', 'Bu sınava artık giremezsiniz.'))}` };
+  if (!attempt) {
+    return { html: `${header}<section class="panel"><div class="pad stack">
+      <p>Bu sınav <strong>${data.questions.length} soru</strong> içerir ve <strong>${quiz.timeLimitMinutes} dakika</strong> sürer. Süre başladıktan sonra durdurulamaz; süre dolunca cevaplarınız otomatik gönderilir.</p>
+      <div class="form-actions"><button class="btn primary lg" type="button" data-action="quiz-start" data-id="${esc(id)}">Sınavı başlat</button></div>
+    </div></section>` };
+  }
+  return { html: `${header}${takeHtml(data, attempt)}`, after: () => startTimer(attempt.deadline) };
+}
+
+function takeHtml(data, attempt) {
+  const questions = data.questions.map((qq, i) => {
+    const selected = qq.selected;
+    return `<fieldset class="quiz-question">
+      <legend><span class="qnum">${i + 1}</span> ${esc(qq.text)} <small class="muted">(${qq.points} puan)</small></legend>
+      <div class="quiz-options">${qq.options.map((option, j) => `<label class="quiz-option ${selected === j ? 'on' : ''}">
+        <input type="radio" name="q-${esc(qq.id)}" value="${j}" data-question="${esc(qq.id)}" ${selected === j ? 'checked' : ''}>
+        <span>${esc(option)}</span></label>`).join('')}</div>
+    </fieldset>`;
+  }).join('');
+  return `<div class="quiz-bar" role="timer" aria-live="off"><span>Kalan süre</span><strong id="quizTimer">--:--</strong><span class="muted small" id="quizSaved">Cevaplar kaydedildi</span></div>
+    <form class="quiz-form" id="quizForm" data-form="quiz-submit" data-id="${esc(attempt.id)}">
+      ${questions}
+      <p class="form-error" data-error role="alert"></p>
+      <div class="form-actions"><button class="btn primary lg" type="submit">Sınavı bitir ve gönder</button></div>
+    </form>`;
+}
+
+let saveTimer = null;
+function collectAnswers() {
+  const answers = [];
+  document.querySelectorAll('#quizForm input[type=radio]:checked').forEach(input => {
+    answers.push({ questionId: input.dataset.question, selected: Number(input.value) });
+  });
+  return answers;
+}
+
+function startTimer(deadline) {
+  clearQuizTimer();
+  const end = new Date(deadline).getTime();
+  const attemptId = document.querySelector('#quizForm')?.dataset.id;
+  const tick = async () => {
+    const left = Math.max(0, Math.floor((end - Date.now()) / 1000));
+    const el = document.querySelector('#quizTimer');
+    if (!el) { clearQuizTimer(); return; }
+    el.textContent = `${String(Math.floor(left / 60)).padStart(2, '0')}:${String(left % 60).padStart(2, '0')}`;
+    el.classList.toggle('late', left < 60);
+    if (left <= 0) {
+      clearQuizTimer();
+      toast('Süre doldu, cevaplarınız gönderiliyor.');
+      await api(`/quiz-attempts/${attemptId}/submit`, { method: 'POST', body: {} }).catch(() => {});
+      refresh();
+    }
+  };
+  tick();
+  quizTimer = setInterval(tick, 1000);
+  document.querySelectorAll('#quizForm input[type=radio]').forEach(input => {
+    input.addEventListener('change', () => {
+      input.closest('.quiz-options')?.querySelectorAll('.quiz-option').forEach(l => l.classList.toggle('on', l.querySelector('input').checked));
+      clearTimeout(saveTimer);
+      saveTimer = setTimeout(async () => {
+        const saved = document.querySelector('#quizSaved');
+        try {
+          await api(`/quiz-attempts/${attemptId}/answers`, { method: 'PUT', body: { answers: collectAnswers() } });
+          if (saved) saved.textContent = 'Cevaplar kaydedildi';
+        } catch (error) {
+          if (saved) saved.textContent = error.message;
+        }
+      }, 400);
+    });
+  });
+}
+
+ACTIONS['quiz-start'] = async el => {
+  await api(`/quizzes/${el.dataset.id}/attempts`, { method: 'POST', body: {} });
+  refresh();
+};
+
+FORMS['quiz-submit'] = async form => {
+  clearQuizTimer();
+  const result = await api(`/quiz-attempts/${form.dataset.id}/submit`, { method: 'POST', body: {} });
+  toast(`Sınavınız gönderildi: ${result.score} / ${result.maxScore}`);
+  refresh();
+};
+
+// ---------- Notlar (öğrenci: kendi; öğretmen/müdür: sınıf) ----------
+async function pageNotlar(params) {
+  if (state.me.role === 'student') {
+    const data = await api('/grades/me');
+    const subjectBars = barRows(data.subjects.map(sub => ({ label: `${sub.subjectName} (${sub.count} not)`, value: sub.average })), { emptyText: 'Henüz not yok' });
+    const assignmentRows = data.assignments.map(a => `<tr><td><strong>${esc(a.title)}</strong></td><td>${esc(a.subjectName)}</td><td>${badge(a.grade, 'ok')}</td><td><small>${esc(a.feedback || '')}</small></td></tr>`).join('');
+    const quizRows = data.quizzes.map(z => `<tr><td><strong>${esc(z.title)}</strong></td><td>${esc(z.subjectName)}</td><td>${z.score} / ${z.maxScore}</td><td>${meterInline(z.percent)}</td></tr>`).join('');
+    return { html: `${head('Notlarım', 'Derslere göre ortalamanız, ödev notlarınız ve sınav sonuçlarınız.')}
+      ${panel('Derslere göre ortalama', '', `<div class="pad">${subjectBars}</div>`)}
+      ${panel('Ödev notları', '', data.assignments.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Ödev</th><th>Ders</th><th>Not</th><th>Geri bildirim</th></tr></thead><tbody>${assignmentRows}</tbody></table></div>` : empty('Henüz not yok', 'Öğretmeniniz notlandırdığında burada görünür.'))}
+      ${panel('Sınav sonuçları', '', data.quizzes.length ? `<div class="table-wrap"><table class="table"><thead><tr><th>Sınav</th><th>Ders</th><th>Puan</th><th>Yüzde</th></tr></thead><tbody>${quizRows}</tbody></table></div>` : empty('Sınav sonucu yok', 'Tamamladığınız sınavların sonuçları burada görünür.'))}` };
+  }
+  const classes = state.me.role === 'teacher'
+    ? uniqueBy(state.teaching.map(t => ({ id: t.classId, name: t.className })), 'id')
+    : state.classes;
+  if (!classes.length) return { html: `${head('Notlar')}${panel('Notlar', '', empty('Sınıf yok', 'Sınıf atandığında not grafikleri burada görünür.'))}` };
+  const classId = classes.some(c => c.id === params.classId) ? params.classId : classes[0].id;
+  const data = await api(`/grades/class?classId=${classId}`);
+  const select = `<select data-change="gradeClass" aria-label="Sınıf seç">${classes.map(c => `<option value="${esc(c.id)}" ${c.id === classId ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select>`;
+  return { html: `${head('Notlar', 'Sınıf bazında ödev ve sınav ortalamaları ile not dağılımı.', select)}
+    <div class="two-col">
+      ${panel('Ödev ortalamaları', '', `<div class="pad">${barRows(data.assignments.map(a => ({ label: `${a.title} · ${a.subjectName}`, value: a.average })), { emptyText: 'Notlandırılmış ödev yok' })}</div>`)}
+      ${panel('Sınav ortalamaları', '', `<div class="pad">${barRows(data.quizzes.map(z => ({ label: `${z.title} · ${z.subjectName}`, value: z.average })), { emptyText: 'Teslim edilmiş sınav yok' })}</div>`)}
+    </div>
+    ${panel('Not dağılımı', 'ödev notları', `<div class="pad">${distributionRows(data.distribution)}</div>`)}` };
+}
+CHANGES.gradeClass = el => setQuery('notlar', { classId: el.value });
+
 // ---------- Yönlendirme tablosu ----------
 const PAGES = {
   overview: pageOverview, classes: pageClasses, assignments: pageAssignments, attendance: pageAttendance,
   messages: pageMessages, people: pagePeople, school: pageSchool, audit: pageAudit,
   yardim: async () => ({ html: helpHtml() }),
   panolar: pagePanolar, pano: pageBoard, asistan: pageAsistan,
+  cocuklar: pageCocuklar, sinavlar: pageSinavlar, sinav: pageSinav, notlar: pageNotlar,
 };
 export function renderView(page, params) {
+  if (page === 'overview' && state.me.role === 'parent') return pageParentOverview();
   return PAGES[page](params);
 }

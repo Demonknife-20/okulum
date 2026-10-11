@@ -808,6 +808,125 @@ test('asistan: kural dışı istemler yapay zekâya gitmeden reddedilir', async 
   assert.ok(!r.data.reply.includes('Yanıt:'), 'istek yapay zekâya gönderilmemeli');
 });
 
+test('veli hesabı: çocuğunu görür, başka öğrenciyi göremez, yalnızca çocuğunun öğretmeniyle yazışır', async () => {
+  const created = await call('POST', '/api/users', { cookie: state.principal, body: { role: 'parent', name: 'Ece Annesi', username: 'ece.veli', password: 'veli-sifre-1', childIds: [state.eceId] } });
+  assert.equal(created.status, 201);
+  state.parentCookie = await login('ece.veli', 'veli-sifre-1');
+  const kids = await call('GET', '/api/parent/children', { cookie: state.parentCookie });
+  assert.equal(kids.data.children.length, 1);
+  assert.equal(kids.data.children[0].name, 'Ece Yılmaz');
+  const child = await call('GET', `/api/parent/children/${state.eceId}`, { cookie: state.parentCookie });
+  assert.equal(child.status, 200);
+  assert.ok(child.data.assignments.some(a => a.title === 'Kesirler (güncel)'), 'çocuğun ödevi görünür');
+  assert.equal((await call('GET', `/api/parent/children/${state.deryaId}`, { cookie: state.parentCookie })).status, 403, 'başka öğrenci görünmez');
+  assert.equal((await call('GET', '/api/parent/children', { cookie: state.ece })).status, 403, 'öğrenci veli ekranını kullanamaz');
+  assert.equal((await call('POST', '/api/conversations', { cookie: state.parentCookie, body: { userId: state.ayseId } })).status, 201, 'çocuğun öğretmeni');
+  assert.equal((await call('POST', '/api/conversations', { cookie: state.parentCookie, body: { userId: state.aliId } })).status, 403, 'çocuğun öğretmeni değil');
+  assert.equal((await call('POST', '/api/conversations', { cookie: state.parentCookie, body: { userId: state.deryaId } })).status, 403, 'öğrenciyle yazışamaz');
+  assert.ok((await call('GET', '/api/users', { cookie: state.ayse })).data.users.some(u => u.name === 'Ece Annesi'), 'öğretmen veliyi listede görür');
+  assert.equal((await call('GET', `/api/grades/class?classId=${state.class6A}`, { cookie: state.parentCookie })).status, 403);
+});
+
+test('not grafikleri: öğrenci ve sınıf özeti, dağılım verisi', async () => {
+  const me = await call('GET', '/api/grades/me', { cookie: state.ece });
+  assert.equal(me.status, 200);
+  assert.ok(me.data.assignments.some(a => a.grade === '85'), 'ödev notu listede');
+  assert.ok(me.data.subjects.some(sub => sub.subjectName === 'Matematik' && sub.count >= 1), 'derse göre ortalama');
+  const cls = await call('GET', `/api/grades/class?classId=${state.class6A}`, { cookie: state.ayse });
+  assert.equal(cls.status, 200);
+  assert.equal(cls.data.distribution.length, 5);
+  assert.ok(cls.data.assignments.length >= 1);
+  assert.equal((await call('GET', `/api/grades/class?classId=${state.class6A}`, { cookie: state.ali })).status, 403);
+  assert.equal((await call('GET', '/api/grades/me', { cookie: state.parentCookie })).status, 403);
+});
+
+test('sınav: öğretmen hazırlar, öğrenci çözer, sonuç otomatik hesaplanır, tekrar çözülemez', async () => {
+  const now = Date.now();
+  const created = await call('POST', '/api/quizzes', { cookie: state.ayse, body: {
+    title: 'Kesirler kısa sınavı', classId: state.class6A, subjectId: state.math,
+    opensAt: new Date(now - 3600e3).toISOString(), closesAt: new Date(now + 86400e3).toISOString(), timeLimitMinutes: 10, published: true,
+    questions: [
+      { text: '1/2 + 1/2 kaçtır?', options: ['1/4', '1', '2'], correctIndex: 1, points: 2 },
+      { text: '3/4 kesri hangisidir?', options: ['üç bölü dört', 'dört bölü üç'], correctIndex: 0 },
+    ],
+  } });
+  assert.equal(created.status, 201, JSON.stringify(created.data));
+  state.quiz = created.data.id;
+  const forEce = await call('GET', `/api/quizzes/${state.quiz}`, { cookie: state.ece });
+  assert.equal(forEce.status, 200);
+  assert.equal(forEce.data.questions[0].correctIndex, undefined, 'çözerken doğru cevap gizli');
+  const [q1, q2] = forEce.data.questions;
+  const start = await call('POST', `/api/quizzes/${state.quiz}/attempts`, { cookie: state.ece });
+  assert.equal(start.status, 201);
+  state.attempt = start.data.attemptId;
+  assert.equal((await call('POST', `/api/quizzes/${state.quiz}/attempts`, { cookie: state.ece })).data.resumed, true, 'yarım deneme sürdürülür');
+  assert.equal((await call('PUT', `/api/quiz-attempts/${state.attempt}/answers`, { cookie: state.ece, body: { answers: [{ questionId: q1.id, selected: 9 }] } })).status, 400, 'geçersiz şık');
+  assert.equal((await call('PUT', `/api/quiz-attempts/${state.attempt}/answers`, { cookie: state.ece, body: { answers: [{ questionId: q1.id, selected: 1 }, { questionId: q2.id, selected: 1 }] } })).status, 200);
+  const result = await call('POST', `/api/quiz-attempts/${state.attempt}/submit`, { cookie: state.ece });
+  assert.equal(result.status, 200);
+  assert.equal(result.data.score, 2, 'doğru cevap 2 puan, yanlış 0');
+  assert.equal(result.data.maxScore, 3);
+  assert.equal(result.data.questions[0].correct, true);
+  const after = await call('GET', `/api/quizzes/${state.quiz}`, { cookie: state.ece });
+  assert.equal(after.data.questions[0].correctIndex, 1, 'teslimden sonra doğru cevap görünür');
+  assert.equal((await call('POST', `/api/quizzes/${state.quiz}/attempts`, { cookie: state.ece })).status, 409, 'tekrar çözülemez');
+  const results = await call('GET', `/api/quizzes/${state.quiz}/results`, { cookie: state.ayse });
+  assert.equal(results.status, 200);
+  assert.equal(results.data.stats.submitted, 1);
+  assert.equal(results.data.attempts[0].percent, 67);
+  assert.equal((await call('GET', `/api/quizzes/${state.quiz}/results`, { cookie: state.ali })).status, 403);
+  const kids = await call('GET', `/api/parent/children/${state.eceId}`, { cookie: state.parentCookie });
+  assert.ok(kids.data.quizzes.some(z => z.title === 'Kesirler kısa sınavı' && z.score === 2), 'veli sınav sonucunu görür');
+});
+
+test('sınav: açılmamış, yayınlanmamış ve süresi dolan sınavlar kurallara uyar', async () => {
+  const now = Date.now();
+  const future = await call('POST', '/api/quizzes', { cookie: state.ayse, body: { title: 'Gelecek sınav', classId: state.class6A, subjectId: state.math,
+    opensAt: new Date(now + 3600e3).toISOString(), closesAt: new Date(now + 7200e3).toISOString(), published: true, questions: [{ text: 'Soru', options: ['a', 'b'], correctIndex: 0 }] } });
+  assert.equal((await call('POST', `/api/quizzes/${future.data.id}/attempts`, { cookie: state.ece })).status, 400, 'açılmamış sınava girilemez');
+  const draft = await call('POST', '/api/quizzes', { cookie: state.ayse, body: { title: 'Taslak sınav', classId: state.class6A, subjectId: state.math,
+    opensAt: new Date(now - 3600e3).toISOString(), closesAt: new Date(now + 3600e3).toISOString(), published: false, questions: [{ text: 'Soru', options: ['a', 'b'], correctIndex: 1 }] } });
+  assert.equal((await call('GET', `/api/quizzes/${draft.data.id}`, { cookie: state.ece })).status, 403, 'taslak öğrenciye görünmez');
+  assert.equal((await call('PATCH', `/api/quizzes/${draft.data.id}`, { cookie: state.ayse, body: { published: true } })).status, 200);
+  assert.equal((await call('GET', `/api/quizzes/${draft.data.id}`, { cookie: state.ece })).status, 200, 'yayınlanınca görünür');
+  assert.equal((await call('POST', '/api/quizzes', { cookie: state.ayse, body: { title: 'Hatalı', classId: state.class6A, subjectId: state.math,
+    opensAt: new Date(now).toISOString(), closesAt: new Date(now - 1000).toISOString(), questions: [{ text: 'x', options: ['a', 'b'], correctIndex: 0 }] } })).status, 400, 'kapanış açılıştan önce olamaz');
+  assert.equal((await call('POST', '/api/quizzes', { cookie: state.ayse, body: { title: 'Hatalı', classId: state.class6A, subjectId: state.math,
+    opensAt: new Date(now - 1000).toISOString(), closesAt: new Date(now + 1000e3).toISOString(), questions: [{ text: 'x', options: ['a', 'b'], correctIndex: 5 }] } })).status, 400, 'doğru cevap aralık dışı');
+
+  // Süre dolunca otomatik teslim
+  const timed = await call('POST', '/api/quizzes', { cookie: state.ayse, body: { title: 'Süreli sınav', classId: state.class6A, subjectId: state.math,
+    opensAt: new Date(now - 3600e3).toISOString(), closesAt: new Date(now + 86400e3).toISOString(), timeLimitMinutes: 5, published: true,
+    questions: [{ text: 'Soru 1', options: ['a', 'b'], correctIndex: 0, points: 3 }] } });
+  const attempt = (await call('POST', `/api/quizzes/${timed.data.id}/attempts`, { cookie: state.ece })).data.attemptId;
+  await call('PUT', `/api/quiz-attempts/${attempt}/answers`, { cookie: state.ece, body: { answers: [] } });
+  const db = new Client({ connectionString: DB, ssl: false });
+  await db.connect();
+  await db.query("update quiz_attempts set deadline = now() - interval '2 minutes' where id = $1", [attempt]);
+  await db.end();
+  const late = await call('PUT', `/api/quiz-attempts/${attempt}/answers`, { cookie: state.ece, body: { answers: [] } });
+  assert.equal(late.status, 400, 'süre dolunca cevap kabul edilmez');
+  assert.match(late.data.error, /Süreniz doldu/);
+  const view = await call('GET', `/api/quizzes/${timed.data.id}`, { cookie: state.ece });
+  assert.ok(view.data.attempt.submittedAt, 'süre dolunca deneme otomatik teslim edilir');
+});
+
+test('google sayfaları: kılavuz, hakkında, site haritası, robots ve kurulabilir uygulama dosyası yayında', async () => {
+  const guide = await call('GET', '/kullanim');
+  assert.equal(guide.status, 200);
+  assert.match(String(guide.data), /Okulum kullanım kılavuzu/);
+  assert.match(String(guide.data), /<link rel="canonical"/);
+  assert.equal((await call('GET', '/hakkinda')).status, 200);
+  const sitemap = await call('GET', '/sitemap.xml');
+  assert.match(String(sitemap.data), /<loc>[^<]*\/kullanim<\/loc>/);
+  const robots = await call('GET', '/robots.txt');
+  assert.match(String(robots.data), /Sitemap: /);
+  assert.match(String(robots.data), /Disallow: \/api\//);
+  const manifest = await call('GET', '/manifest.webmanifest');
+  assert.equal(manifest.status, 200);
+  assert.match(String(manifest.data), /"short_name": "Okulum"/);
+});
+
 test('hız sınırı: çok sayıda başarısız girişten sonra 429', async () => {
   const statuses = [];
   for (let i = 0; i < 14; i += 1) {

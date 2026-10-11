@@ -247,3 +247,65 @@ alter table ai_consents enable row level security;
 alter table ai_conversations enable row level security;
 alter table ai_messages enable row level security;
 alter table ai_usage enable row level security;
+
+-- v14: veli hesapları, sınav/quiz modülü
+alter table users drop constraint if exists users_role_check;
+alter table users add constraint users_role_check check (role in ('principal', 'teacher', 'student', 'parent'));
+
+create table if not exists parent_links (
+  parent_id uuid not null references users(id) on delete cascade,
+  student_id uuid not null references users(id) on delete cascade,
+  primary key (parent_id, student_id)
+);
+create index if not exists parent_links_student on parent_links(student_id);
+
+create table if not exists quizzes (
+  id uuid primary key default gen_random_uuid(),
+  title text not null check (char_length(title) between 2 and 160),
+  class_id uuid not null references classes(id) on delete cascade,
+  subject_id uuid not null references subjects(id) on delete cascade,
+  created_by uuid references users(id) on delete set null,
+  opens_at timestamptz not null,
+  closes_at timestamptz not null,
+  time_limit_minutes integer not null default 20 check (time_limit_minutes between 1 and 240),
+  published boolean not null default false,
+  created_at timestamptz not null default now(),
+  check (closes_at > opens_at)
+);
+create index if not exists quizzes_class on quizzes(class_id, subject_id);
+
+create table if not exists quiz_questions (
+  id uuid primary key default gen_random_uuid(),
+  quiz_id uuid not null references quizzes(id) on delete cascade,
+  position integer not null,
+  text text not null check (char_length(text) between 1 and 1000),
+  options jsonb not null,
+  correct_index integer not null check (correct_index >= 0),
+  points integer not null default 1 check (points between 1 and 10)
+);
+create index if not exists quiz_questions_quiz on quiz_questions(quiz_id, position);
+
+create table if not exists quiz_attempts (
+  id uuid primary key default gen_random_uuid(),
+  quiz_id uuid not null references quizzes(id) on delete cascade,
+  student_id uuid not null references users(id) on delete cascade,
+  started_at timestamptz not null default now(),
+  deadline timestamptz not null,
+  submitted_at timestamptz,
+  score integer,
+  max_score integer,
+  unique (quiz_id, student_id)
+);
+
+create table if not exists quiz_answers (
+  attempt_id uuid not null references quiz_attempts(id) on delete cascade,
+  question_id uuid not null references quiz_questions(id) on delete cascade,
+  selected integer not null check (selected >= 0),
+  primary key (attempt_id, question_id)
+);
+
+alter table parent_links enable row level security;
+alter table quizzes enable row level security;
+alter table quiz_questions enable row level security;
+alter table quiz_attempts enable row level security;
+alter table quiz_answers enable row level security;

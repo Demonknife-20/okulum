@@ -86,6 +86,14 @@ async function enrolledIn(userId, classId) {
 async function canDirectMessage(a, b) {
   if (a.id === b.id) return false;
   if (a.role === 'principal' || b.role === 'principal') return true;
+  if (a.role === 'parent' || b.role === 'parent') {
+    const parent = a.role === 'parent' ? a : b;
+    const other = parent === a ? b : a;
+    if (other.role !== 'teacher') return false;
+    const { rowCount } = await q(`select 1 from parent_links pl join enrollments e on e.student_id = pl.student_id
+      join teaching t on t.class_id = e.class_id where pl.parent_id = $1 and t.teacher_id = $2 limit 1`, [parent.id, other.id]);
+    return rowCount > 0;
+  }
   if (a.role === 'teacher' && b.role === 'teacher') return true;
   const teacher = a.role === 'teacher' ? a : b.role === 'teacher' ? b : null;
   const student = a.role === 'student' ? a : b.role === 'student' ? b : null;
@@ -99,7 +107,16 @@ function visibility(user) {
   if (user.role === 'principal') return { where: 'true', params: [] };
   if (user.role === 'teacher') return {
     where: `(u.role in ('teacher', 'principal') or (u.role = 'student' and u.id in (
-      select e.student_id from enrollments e where e.class_id in (select t.class_id from teaching t where t.teacher_id = $1))))`,
+      select e.student_id from enrollments e where e.class_id in (select t.class_id from teaching t where t.teacher_id = $1)))
+      or (u.role = 'parent' and u.id in (
+      select pl.parent_id from parent_links pl join enrollments e on e.student_id = pl.student_id
+      where e.class_id in (select t.class_id from teaching t where t.teacher_id = $1))))`,
+    params: [user.id],
+  };
+  if (user.role === 'parent') return {
+    where: `(u.role = 'principal' or (u.role = 'teacher' and u.id in (
+      select t.teacher_id from teaching t join enrollments e on e.class_id = t.class_id
+      join parent_links pl on pl.student_id = e.student_id where pl.parent_id = $1)))`,
     params: [user.id],
   };
   return {
@@ -365,7 +382,7 @@ on('GET', '/api/users', async ({ user, query }) => {
 
 on('POST', '/api/users', async ({ body, user }) => {
   const role = body.role;
-  if (!['teacher', 'student', 'principal'].includes(role)) fail(400, 'Rol müdür, öğretmen veya öğrenci olmalı.');
+  if (!['teacher', 'student', 'principal', 'parent'].includes(role)) fail(400, 'Rol müdür, öğretmen, öğrenci veya veli olmalı.');
   const name = str(body.name, 80);
   if (name.length < 2) fail(400, 'Ad soyad en az 2 karakter olmalı.');
   const username = str(body.username, 32).toLowerCase();
@@ -375,11 +392,13 @@ on('POST', '/api/users', async ({ body, user }) => {
   if (role === 'student' && !studentNo) fail(400, 'Öğrenci için okul numarası zorunlu.');
   const classId = role === 'student' && body.classId ? requireId(body.classId, 'sınıf') : null;
   const teaching = role === 'teacher' ? pairs(body.teaching) : [];
+  const childIds = role === 'parent' ? await studentIdsOf(body.childIds, false) : [];
   const result = await tx(async client => {
     const { rows: [u] } = await client.query(`insert into users (username, password_hash, name, role, student_no)
       values ($1, $2, $3, $4, $5) returning id, username, name, role, student_no`, [username, sec.hashPassword(pass), name, role, studentNo]);
     if (classId) await client.query('insert into enrollments (student_id, class_id) values ($1, $2)', [u.id, classId]);
     for (const p of teaching) await client.query('insert into teaching (teacher_id, class_id, subject_id) values ($1, $2, $3)', [u.id, p.classId, p.subjectId]);
+    for (const childId of childIds) await client.query('insert into parent_links (parent_id, student_id) values ($1, $2)', [u.id, childId]);
     return u;
   });
   await audit(user, 'user_created', result.name, { role, username, className: classId ? 'atandı' : null, teachingPairs: role === 'teacher' ? teaching.length : undefined });
@@ -401,6 +420,11 @@ on('PATCH', '/api/users/:id', async ({ params, body, user }) => {
     if (target.role === 'student' && body.classId !== undefined) {
       await client.query('delete from enrollments where student_id = $1', [id]);
       if (body.classId) await client.query('insert into enrollments (student_id, class_id) values ($1, $2)', [id, requireId(body.classId, 'sınıf')]);
+    }
+    if (target.role === 'parent' && body.childIds !== undefined) {
+      const childIds = await studentIdsOf(body.childIds, true);
+      await client.query('delete from parent_links where parent_id = $1', [id]);
+      for (const childId of childIds) await client.query('insert into parent_links (parent_id, student_id) values ($1, $2)', [id, childId]);
     }
     if (target.role === 'teacher' && body.teaching !== undefined) {
       await client.query('delete from teaching where teacher_id = $1', [id]);
@@ -1583,6 +1607,347 @@ on('POST', '/api/import/users', async ({ body, user }) => {
   await audit(user, 'users_imported', `${plan.length} kayıt`, { students: plan.filter(i => i.role === 'student').length, teachers: plan.filter(i => i.role === 'teacher').length, generatedPasswords: credentials.length });
   return created({ created: plan.length, credentials });
 }, { roles: PRINCIPAL });
+
+// ---------- Veli, not özetleri, sınav ve quiz ----------
+async function studentIdsOf(list, allowEmpty) {
+  if (!Array.isArray(list)) fail(400, 'Çocuk listesi geçersiz.');
+  const ids = [...new Set(list.map(v => requireId(v, 'öğrenci')))];
+  if (!allowEmpty && !ids.length) fail(400, 'Veli hesabı en az bir öğrenciye bağlanmalı.');
+  if (ids.length > 10) fail(400, 'Bir veli en fazla 10 öğrenciye bağlanabilir.');
+  if (!ids.length) return ids;
+  const { rows } = await q("select id from users where id = any($1::uuid[]) and role = 'student'", [ids]);
+  if (rows.length !== ids.length) fail(400, 'Bağlanacak öğrencilerden biri bulunamadı.');
+  return ids;
+}
+
+async function linkedStudent(user, studentId) {
+  const { rowCount } = await q('select 1 from parent_links where parent_id = $1 and student_id = $2', [user.id, studentId]);
+  if (!rowCount) fail(403, 'Bu öğrenciye erişim yetkiniz yok.');
+}
+
+const numericGrade = value => {
+  const n = Number(String(value ?? '').trim().replace(',', '.'));
+  return Number.isFinite(n) && n >= 0 && n <= 100 ? n : null;
+};
+
+async function attendanceSummaryFor(studentId) {
+  const subjects = (await q(`select s.id as "subjectId", s.name as "subjectName", count(*)::int as total,
+      count(*) filter (where a.present)::int as present
+    from attendance a join subjects s on s.id = a.subject_id where a.student_id = $1 group by s.id, s.name order by s.name`, [studentId])).rows;
+  const recent = (await q(`select s.name as "subjectName", a.lesson_date as date, a.present from attendance a
+    join subjects s on s.id = a.subject_id where a.student_id = $1 order by a.lesson_date desc, s.name limit 30`, [studentId])).rows;
+  return { subjects, recent };
+}
+
+// Öğrencinin not özeti: ödev notları (0-100) ve quiz yüzdeleri, derslere göre ortalama ile birlikte.
+async function gradeSummaryFor(studentId) {
+  const { rows: items } = await q(`select a.title, s.name as "subjectName", x.grade, x.feedback, x.graded_at as "gradedAt"
+    from submissions x join assignments a on a.id = x.assignment_id join subjects s on s.id = a.subject_id
+    where x.student_id = $1 and x.grade is not null order by x.submitted_at desc limit 100`, [studentId]);
+  const { rows: quizzes } = await q(`select qz.title, s.name as "subjectName", at.score, at.max_score as "maxScore", at.submitted_at as "submittedAt"
+    from quiz_attempts at join quizzes qz on qz.id = at.quiz_id join subjects s on s.id = qz.subject_id
+    where at.student_id = $1 and at.submitted_at is not null order by at.submitted_at desc limit 100`, [studentId]);
+  const subjects = new Map();
+  const add = (name, value) => {
+    const entry = subjects.get(name) || { subjectName: name, total: 0, count: 0 };
+    entry.total += value; entry.count += 1; subjects.set(name, entry);
+  };
+  for (const item of items) { const value = numericGrade(item.grade); if (value !== null) add(item.subjectName, value); }
+  const quizItems = quizzes.map(z => ({ ...z, percent: z.maxScore ? Math.round((z.score / z.maxScore) * 100) : 0 }));
+  for (const z of quizItems) add(z.subjectName, z.percent);
+  return {
+    subjects: [...subjects.values()].map(e => ({ subjectName: e.subjectName, average: Math.round(e.total / e.count), count: e.count }))
+      .sort((a, b) => a.subjectName.localeCompare(b.subjectName, 'tr')),
+    assignments: items.map(i => ({ title: i.title, subjectName: i.subjectName, grade: i.grade, feedback: i.feedback, gradedAt: i.gradedAt })),
+    quizzes: quizItems.map(z => ({ title: z.title, subjectName: z.subjectName, score: z.score, maxScore: z.maxScore, percent: z.percent, submittedAt: z.submittedAt })),
+  };
+}
+
+on('GET', '/api/grades/me', async ({ user }) => ok(await gradeSummaryFor(user.id)), { roles: STUDENT });
+
+// Sınıf not grafiği: öğretmen kendi derslerini, müdür tüm dersleri görür
+on('GET', '/api/grades/class', async ({ query, user }) => {
+  const classId = requireId(query.get('classId'), 'sınıf');
+  if (user.role === 'teacher' && !(await teachesClass(user, classId))) fail(403, 'Bu sınıfın notlarını görme yetkin yok.');
+  const scope = user.role === 'teacher'
+    ? 'and a.subject_id in (select t.subject_id from teaching t where t.teacher_id = $2 and t.class_id = $1)'
+    : '';
+  const params = user.role === 'teacher' ? [classId, user.id] : [classId];
+  const { rows: assignmentRows } = await q(`select a.id, a.title, s.name as "subjectName", x.grade
+    from assignments a join subjects s on s.id = a.subject_id left join submissions x on x.assignment_id = a.id
+    where a.class_id = $1 ${scope} order by a.created_at`, params);
+  const byAssignment = new Map();
+  const all = [];
+  for (const row of assignmentRows) {
+    const entry = byAssignment.get(row.id) || { title: row.title, subjectName: row.subjectName, total: 0, count: 0 };
+    const value = numericGrade(row.grade);
+    if (value !== null) { entry.total += value; entry.count += 1; all.push(value); }
+    byAssignment.set(row.id, entry);
+  }
+  const quizRows = (await q(`select qz.title, s.name as "subjectName", avg(at.score * 100.0 / nullif(at.max_score, 0))::float as average,
+      count(at.id)::int as count
+    from quizzes qz join subjects s on s.id = qz.subject_id
+    left join quiz_attempts at on at.quiz_id = qz.id and at.submitted_at is not null
+    where qz.class_id = $1 ${user.role === 'teacher' ? 'and qz.subject_id in (select t.subject_id from teaching t where t.teacher_id = $2 and t.class_id = $1)' : ''}
+    group by qz.id, qz.title, s.name order by qz.title`, params)).rows;
+  const bins = [['0-19', 0, 19], ['20-39', 20, 39], ['40-59', 40, 59], ['60-79', 60, 79], ['80-100', 80, 100]]
+    .map(([label, min, max]) => ({ label, count: all.filter(v => v >= min && v <= max).length }));
+  return ok({
+    assignments: [...byAssignment.values()].map(e => ({ title: e.title, subjectName: e.subjectName, average: e.count ? Math.round(e.total / e.count) : null, count: e.count })),
+    quizzes: quizRows.map(r => ({ title: r.title, subjectName: r.subjectName, average: r.average === null ? null : Math.round(r.average), count: r.count })),
+    distribution: bins,
+  });
+}, { roles: STAFF });
+
+// Veli: çocuklarım
+on('GET', '/api/parent/children', async ({ user }) => {
+  const { rows } = await q(`select u.id, u.name, u.student_no as "studentNo", c.name as "className",
+      (select count(*)::int from attendance a where a.student_id = u.id and a.lesson_date >= current_date - 30) as total,
+      (select count(*)::int from attendance a where a.student_id = u.id and a.lesson_date >= current_date - 30 and a.present) as present
+    from parent_links pl join users u on u.id = pl.student_id
+    left join enrollments e on e.student_id = u.id left join classes c on c.id = e.class_id
+    where pl.parent_id = $1 order by u.name`, [user.id]);
+  return ok({ children: rows });
+}, { roles: ['parent'] });
+
+on('GET', '/api/parent/children/:id', async ({ params, user }) => {
+  const studentId = requireId(params.id, 'öğrenci');
+  await linkedStudent(user, studentId);
+  const { rows: [child] } = await q(`select u.id, u.name, u.student_no as "studentNo", c.name as "className"
+    from users u left join enrollments e on e.student_id = u.id left join classes c on c.id = e.class_id where u.id = $1`, [studentId]);
+  const { rows: assignments } = await q(`select a.id, a.title, a.kind, a.due_at as "dueAt", s.name as "subjectName",
+      x.grade, x.feedback, x.submitted_at as "submittedAt"
+    from assignments a join subjects s on s.id = a.subject_id
+    left join submissions x on x.assignment_id = a.id and x.student_id = $1
+    where a.class_id = (select e.class_id from enrollments e where e.student_id = $1)
+    order by coalesce(a.due_at, a.created_at) desc limit 50`, [studentId]);
+  const { rows: quizzes } = await q(`select qz.id, qz.title, qz.closes_at as "closesAt", s.name as "subjectName",
+      at.score, at.max_score as "maxScore", at.submitted_at as "submittedAt"
+    from quizzes qz join subjects s on s.id = qz.subject_id
+    left join quiz_attempts at on at.quiz_id = qz.id and at.student_id = $1
+    where qz.published and qz.class_id = (select e.class_id from enrollments e where e.student_id = $1)
+    order by qz.closes_at desc limit 50`, [studentId]);
+  return ok({
+    child, assignments, quizzes,
+    attendance: await attendanceSummaryFor(studentId),
+    grades: await gradeSummaryFor(studentId),
+  });
+}, { roles: ['parent'] });
+
+// ---------- Sınav ve quiz ----------
+const QUIZ_GRACE_MS = 15 * 1000;
+
+function parseQuizQuestions(list) {
+  if (!Array.isArray(list) || !list.length) fail(400, 'Sınavda en az bir soru olmalı.');
+  if (list.length > 50) fail(400, 'Bir sınavda en fazla 50 soru olabilir.');
+  return list.map((item, index) => {
+    const text = str(item?.text, 1000);
+    if (!text) fail(400, `${index + 1}. sorunun metni boş.`);
+    const options = Array.isArray(item?.options) ? item.options.map(v => str(v, 300)) : [];
+    if (options.length < 2 || options.length > 5 || options.some(v => !v)) fail(400, `${index + 1}. soruda 2-5 dolu seçenek olmalı.`);
+    const correctIndex = Number.isInteger(item?.correctIndex) ? item.correctIndex : -1;
+    if (correctIndex < 0 || correctIndex >= options.length) fail(400, `${index + 1}. sorunun doğru cevabı seçilmemiş.`);
+    const points = Number.isInteger(item?.points) ? item.points : 1;
+    if (points < 1 || points > 10) fail(400, `${index + 1}. sorunun puanı 1-10 arasında olmalı.`);
+    return { text, options, correctIndex, points, position: index + 1 };
+  });
+}
+
+// Süresi dolan ve teslim edilmemiş denemeyi, kayıtlı cevaplarla otomatik teslim eder.
+async function finalizeAttempt(attemptId) {
+  await tx(async client => {
+    const { rows: [attempt] } = await client.query('select id, quiz_id, submitted_at from quiz_attempts where id = $1 for update', [attemptId]);
+    if (!attempt || attempt.submitted_at) return;
+    const { rows } = await client.query(`select qq.points, qq.correct_index, a.selected
+      from quiz_questions qq left join quiz_answers a on a.question_id = qq.id and a.attempt_id = $1
+      where qq.quiz_id = $2`, [attemptId, attempt.quiz_id]);
+    const maxScore = rows.reduce((sum, r) => sum + r.points, 0);
+    const score = rows.reduce((sum, r) => sum + (r.selected === r.correct_index ? r.points : 0), 0);
+    await client.query('update quiz_attempts set submitted_at = now(), score = $2, max_score = $3 where id = $1', [attemptId, score, maxScore]);
+  });
+}
+
+async function settleExpired(studentId, quizId) {
+  const { rows } = await q(`select id from quiz_attempts where student_id = $1 and quiz_id = $2 and submitted_at is null
+    and deadline + make_interval(secs => $3) < now()`, [studentId, quizId, QUIZ_GRACE_MS / 1000]);
+  for (const row of rows) await finalizeAttempt(row.id);
+}
+
+async function quizAccess(user, quiz) {
+  if (user.role === 'principal') return 'full';
+  if (user.role === 'teacher') return (await canTeach(user, quiz.class_id, quiz.subject_id)) ? 'full' : null;
+  if (user.role === 'student' && quiz.published && (await enrolledIn(user.id, quiz.class_id))) return 'student';
+  return null;
+}
+
+async function loadQuiz(id) {
+  const { rows: [quiz] } = await q('select * from quizzes where id = $1', [id]);
+  if (!quiz) fail(404, 'Sınav bulunamadı.');
+  return quiz;
+}
+
+on('POST', '/api/quizzes', async ({ body, user }) => {
+  const classId = requireId(body.classId, 'sınıf');
+  const subjectId = requireId(body.subjectId, 'ders');
+  if (!(await canTeach(user, classId, subjectId))) fail(403, 'Bu sınıf ve ders için sınav oluşturma yetkin yok.');
+  const title = str(body.title, 160);
+  if (title.length < 2) fail(400, 'Sınav başlığı en az 2 karakter olmalı.');
+  const opensAt = new Date(body.opensAt);
+  const closesAt = new Date(body.closesAt);
+  if (Number.isNaN(opensAt.getTime()) || Number.isNaN(closesAt.getTime())) fail(400, 'Açılış ve kapanış tarihleri geçersiz.');
+  if (closesAt <= opensAt) fail(400, 'Kapanış zamanı açılış zamanından sonra olmalı.');
+  const timeLimit = Number.isInteger(body.timeLimitMinutes) ? body.timeLimitMinutes : 20;
+  if (timeLimit < 1 || timeLimit > 240) fail(400, 'Süre 1-240 dakika arasında olmalı.');
+  const questions = parseQuizQuestions(body.questions);
+  const quizId = await tx(async client => {
+    const { rows: [row] } = await client.query(`insert into quizzes (title, class_id, subject_id, created_by, opens_at, closes_at, time_limit_minutes, published)
+      values ($1, $2, $3, $4, $5, $6, $7, $8) returning id`, [title, classId, subjectId, user.id, opensAt.toISOString(), closesAt.toISOString(), timeLimit, body.published === true]);
+    for (const question of questions) {
+      await client.query(`insert into quiz_questions (quiz_id, position, text, options, correct_index, points) values ($1, $2, $3, $4, $5, $6)`,
+        [row.id, question.position, question.text, JSON.stringify(question.options), question.correctIndex, question.points]);
+    }
+    return row.id;
+  });
+  await audit(user, 'quiz_created', title, { questions: questions.length, published: body.published === true });
+  return created({ id: quizId });
+}, { roles: STAFF });
+
+on('GET', '/api/quizzes', async ({ user }) => {
+  const scope = user.role === 'principal' ? 'true'
+    : user.role === 'teacher' ? 'exists (select 1 from teaching t where t.teacher_id = $1 and t.class_id = qz.class_id and t.subject_id = qz.subject_id)'
+    : 'qz.published and qz.class_id = (select e.class_id from enrollments e where e.student_id = $1)';
+  const { rows } = await q(`select qz.id, qz.title, qz.class_id as "classId", qz.subject_id as "subjectId", c.name as "className",
+      s.name as "subjectName", qz.opens_at as "opensAt", qz.closes_at as "closesAt", qz.time_limit_minutes as "timeLimitMinutes",
+      qz.published, (select count(*)::int from quiz_questions x where x.quiz_id = qz.id) as "questionCount",
+      (select count(*)::int from quiz_attempts x where x.quiz_id = qz.id and x.submitted_at is not null) as "submittedCount",
+      (select json_build_object('id', x.id, 'score', x.score, 'maxScore', x.max_score, 'submittedAt', x.submitted_at, 'deadline', x.deadline)
+         from quiz_attempts x where x.quiz_id = qz.id and x.student_id = $1) as "mine"
+    from quizzes qz join classes c on c.id = qz.class_id join subjects s on s.id = qz.subject_id
+    where ${scope} order by qz.closes_at desc limit 200`, [user.id]);
+  return ok({ quizzes: rows.map(r => ({ ...r, state: Date.now() < new Date(r.opensAt) ? 'yakında' : Date.now() <= new Date(r.closesAt) ? 'açık' : 'kapandı' })) });
+});
+
+on('GET', '/api/quizzes/:id', async ({ params, user }) => {
+  const id = requireId(params.id, 'sınav');
+  const quiz = await loadQuiz(id);
+  const access = await quizAccess(user, quiz);
+  if (!access) fail(403, 'Bu sınavı görme yetkin yok.');
+  if (access === 'student') await settleExpired(user.id, id);
+  const { rows: questions } = await q('select id, position, text, options, correct_index as "correctIndex", points from quiz_questions where quiz_id = $1 order by position', [id]);
+  const detail = { id: quiz.id, title: quiz.title, classId: quiz.class_id, subjectId: quiz.subject_id, opensAt: quiz.opens_at, closesAt: quiz.closes_at, timeLimitMinutes: quiz.time_limit_minutes, published: quiz.published };
+  if (access === 'full') return ok({ quiz: detail, questions });
+  // Öğrenci: doğru cevaplar yalnızca kendi teslimi bittikten sonra görünür
+  const { rows: [attempt] } = await q('select id, deadline, submitted_at, score, max_score from quiz_attempts where quiz_id = $1 and student_id = $2', [id, user.id]);
+  const finished = Boolean(attempt?.submitted_at);
+  const answers = attempt ? (await q('select question_id, selected from quiz_answers where attempt_id = $1', [attempt.id])).rows : [];
+  return ok({
+    quiz: detail,
+    questions: questions.map(qq => ({ id: qq.id, position: qq.position, text: qq.text, options: qq.options, points: qq.points,
+      ...(finished ? { correctIndex: qq.correctIndex, selected: answers.find(a => a.question_id === qq.id)?.selected ?? null } : {}) })),
+    attempt: attempt ? { id: attempt.id, deadline: attempt.deadline, submittedAt: attempt.submitted_at, score: attempt.score, maxScore: attempt.max_score } : null,
+  });
+}, { auth: true });
+
+on('PATCH', '/api/quizzes/:id', async ({ params, body, user }) => {
+  const id = requireId(params.id, 'sınav');
+  const quiz = await loadQuiz(id);
+  if (!(await canTeach(user, quiz.class_id, quiz.subject_id))) fail(403, 'Bu sınavı düzenleme yetkin yok.');
+  const sets = [];
+  const values = [id];
+  if (body.published !== undefined) { values.push(body.published === true); sets.push(`published = $${values.length}`); }
+  if (body.closesAt !== undefined) {
+    const closesAt = new Date(body.closesAt);
+    if (Number.isNaN(closesAt.getTime()) || closesAt <= new Date(quiz.opens_at)) fail(400, 'Kapanış zamanı açılıştan sonra olmalı.');
+    values.push(closesAt.toISOString()); sets.push(`closes_at = $${values.length}`);
+  }
+  if (!sets.length) fail(400, 'Güncellenecek alan yok.');
+  await q(`update quizzes set ${sets.join(', ')} where id = $1`, values);
+  return ok({ updated: true });
+}, { roles: STAFF });
+
+on('DELETE', '/api/quizzes/:id', async ({ params, user }) => {
+  const id = requireId(params.id, 'sınav');
+  const quiz = await loadQuiz(id);
+  if (!(await canTeach(user, quiz.class_id, quiz.subject_id))) fail(403, 'Bu sınavı silme yetkin yok.');
+  await q('delete from quizzes where id = $1', [id]);
+  await audit(user, 'quiz_deleted', quiz.title);
+  return ok({ deleted: true });
+}, { roles: TEACHER });
+
+on('POST', '/api/quizzes/:id/attempts', async ({ params, user }) => {
+  const id = requireId(params.id, 'sınav');
+  const quiz = await loadQuiz(id);
+  if (!(await quizAccess(user, quiz)) || (await quizAccess(user, quiz)) !== 'student') fail(403, 'Bu sınava giremezsiniz.');
+  const now = Date.now();
+  const { rows: [existing] } = await q('select id, deadline, submitted_at from quiz_attempts where quiz_id = $1 and student_id = $2', [id, user.id]);
+  if (existing?.submitted_at) fail(409, 'Bu sınavı zaten tamamladınız.');
+  if (existing && new Date(existing.deadline).getTime() + QUIZ_GRACE_MS > now) return ok({ attemptId: existing.id, deadline: existing.deadline, resumed: true });
+  if (existing) { await finalizeAttempt(existing.id); fail(409, 'Süreniz dolduğu için bu sınav tamamlandı.'); }
+  if (now < new Date(quiz.opens_at).getTime()) fail(400, 'Sınav henüz açılmadı.');
+  if (now > new Date(quiz.closes_at).getTime()) fail(400, 'Sınavın süresi doldu.');
+  const deadline = new Date(Math.min(now + quiz.time_limit_minutes * 60 * 1000, new Date(quiz.closes_at).getTime()));
+  const { rows: [attempt] } = await q('insert into quiz_attempts (quiz_id, student_id, deadline) values ($1, $2, $3) returning id', [id, user.id, deadline.toISOString()]);
+  return created({ attemptId: attempt.id, deadline: deadline.toISOString(), resumed: false });
+}, { roles: STUDENT });
+
+on('PUT', '/api/quiz-attempts/:id/answers', async ({ params, body, user }) => {
+  const id = requireId(params.id, 'deneme');
+  const { rows: [attempt] } = await q('select id, quiz_id, student_id, deadline, submitted_at from quiz_attempts where id = $1', [id]);
+  if (!attempt || attempt.student_id !== user.id) fail(404, 'Deneme bulunamadı.');
+  if (attempt.submitted_at) fail(400, 'Bu deneme zaten teslim edildi.');
+  if (Date.now() > new Date(attempt.deadline).getTime() + QUIZ_GRACE_MS) { await finalizeAttempt(id); fail(400, 'Süreniz doldu, cevaplarınız teslim edildi.'); }
+  const answers = Array.isArray(body.answers) ? body.answers.slice(0, 50) : fail(400, 'Cevap listesi geçersiz.');
+  const { rows: questions } = await q('select id, options from quiz_questions where quiz_id = $1', [attempt.quiz_id]);
+  const optionCount = new Map(questions.map(qq => [qq.id, qq.options.length]));
+  for (const answer of answers) {
+    const questionId = requireId(answer?.questionId, 'soru');
+    const selected = answer?.selected;
+    if (!optionCount.has(questionId)) fail(400, 'Cevap bu sınavın sorusu değil.');
+    if (!Number.isInteger(selected) || selected < 0 || selected >= optionCount.get(questionId)) fail(400, 'Seçilen şık geçersiz.');
+  }
+  await tx(async client => {
+    for (const answer of answers) {
+      await client.query(`insert into quiz_answers (attempt_id, question_id, selected) values ($1, $2, $3)
+        on conflict (attempt_id, question_id) do update set selected = excluded.selected`, [id, answer.questionId, answer.selected]);
+    }
+  });
+  return ok({ saved: answers.length });
+}, { roles: STUDENT });
+
+async function attemptResult(attemptId) {
+  const { rows: [attempt] } = await q('select id, quiz_id, score, max_score, submitted_at from quiz_attempts where id = $1', [attemptId]);
+  const { rows } = await q(`select qq.id, qq.position, qq.text, qq.options, qq.correct_index as "correctIndex", qq.points, a.selected
+    from quiz_questions qq left join quiz_answers a on a.question_id = qq.id and a.attempt_id = $1
+    where qq.quiz_id = $2 order by qq.position`, [attemptId, attempt.quiz_id]);
+  return { score: attempt.score, maxScore: attempt.max_score, submittedAt: attempt.submitted_at,
+    questions: rows.map(r => ({ position: r.position, text: r.text, options: r.options, correctIndex: r.correctIndex, selected: r.selected, correct: r.selected === r.correctIndex, points: r.points })) };
+}
+
+on('POST', '/api/quiz-attempts/:id/submit', async ({ params, user }) => {
+  const id = requireId(params.id, 'deneme');
+  const { rows: [attempt] } = await q('select id, student_id from quiz_attempts where id = $1', [id]);
+  if (!attempt || attempt.student_id !== user.id) fail(404, 'Deneme bulunamadı.');
+  await finalizeAttempt(id);
+  return ok(await attemptResult(id));
+}, { roles: STUDENT });
+
+on('GET', '/api/quizzes/:id/results', async ({ params, user }) => {
+  const id = requireId(params.id, 'sınav');
+  const quiz = await loadQuiz(id);
+  if (!(await quizAccess(user, quiz)) || (await quizAccess(user, quiz)) !== 'full') fail(403, 'Bu sınavın sonuçlarını görme yetkin yok.');
+  const { rows: attempts } = await q(`select at.id, at.score, at.max_score as "maxScore", at.submitted_at as "submittedAt", at.deadline,
+      u.name as "studentName", u.student_no as "studentNo"
+    from quiz_attempts at join users u on u.id = at.student_id where at.quiz_id = $1 order by u.name`, [id]);
+  const { rows: [{ n }] } = await q('select count(*)::int as n from enrollments where class_id = $1', [quiz.class_id]);
+  const percents = attempts.filter(a => a.submittedAt && a.maxScore).map(a => Math.round((a.score / a.maxScore) * 100));
+  const bins = [['0-19', 0, 19], ['20-39', 20, 39], ['40-59', 40, 59], ['60-79', 60, 79], ['80-100', 80, 100]]
+    .map(([label, min, max]) => ({ label, count: percents.filter(v => v >= min && v <= max).length }));
+  return ok({
+    quiz: { id: quiz.id, title: quiz.title },
+    attempts: attempts.map(a => ({ ...a, percent: a.submittedAt && a.maxScore ? Math.round((a.score / a.maxScore) * 100) : null })),
+    stats: { classSize: n, submitted: percents.length, average: percents.length ? Math.round(percents.reduce((x, y) => x + y, 0) / percents.length) : null, distribution: bins },
+  });
+}, { auth: true });
 
 // ---------- Hata eşleme ----------
 function toHttpError(error) {

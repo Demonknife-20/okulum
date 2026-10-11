@@ -5,6 +5,9 @@ const { migrate, q, pool } = require('./src/db');
 const storage = require('./src/storage');
 const { handleApi, toHttpError, HttpError } = require('./src/api');
 const { createLimiter } = require('./src/security');
+const seo = require('./src/seo');
+// Ortak içerik (ES modülü): sunucu tarafında bir kez yüklenir
+const contentReady = import(require('node:url').pathToFileURL(path.join(__dirname, 'public', 'content.mjs')).href);
 
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || (process.env.RENDER ? '0.0.0.0' : '127.0.0.1');
@@ -26,6 +29,12 @@ Disallow: /api/
 Disallow: /gizli-dizin/
 Crawl-delay: 10
 `;
+// Site adresi: PUBLIC_URL tanımlıysa o, değilse istek adresi (Render'da https).
+const siteBase = req => {
+  if (process.env.PUBLIC_URL) return process.env.PUBLIC_URL.replace(/\/$/, '');
+  const proto = process.env.NODE_ENV === 'production' ? 'https' : 'http';
+  return `${proto}://${req.headers['x-forwarded-host'] || req.headers.host || 'localhost'}`;
+};
 const clientKey = req => {
   if (process.env.TRUST_PROXY) {
     const forwarded = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
@@ -34,6 +43,7 @@ const clientKey = req => {
   return req.socket.remoteAddress || 'unknown';
 };
 const MIME = {
+  '.mjs': 'text/javascript; charset=utf-8',
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
   '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.webmanifest': 'application/manifest+json',
 };
@@ -126,9 +136,22 @@ const server = http.createServer(async (req, res) => {
     console.warn(new Date().toISOString(), 'kopyalama tuzağı tetiklendi:', key0, url.pathname);
     return send(res, 403, { error: 'Erişim engellendi.' });
   }
+  // Google için: gerçek adresli sayfalar, site haritası ve robots.txt
+  const base = siteBase(req);
   if (url.pathname === '/robots.txt') {
     res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=3600' });
-    return res.end(ROBOTS);
+    return res.end(seo.robots(base));
+  }
+  if (url.pathname === '/sitemap.xml') {
+    res.writeHead(200, { 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=3600' });
+    return res.end(seo.sitemap(base));
+  }
+  if (url.pathname === '/kullanim' || url.pathname === '/hakkinda') {
+    return contentReady.then(content => {
+      const html = url.pathname === '/kullanim' ? seo.usagePage(base, content) : seo.aboutPage(base, content);
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=600' });
+      res.end(html);
+    }).catch(() => send(res, 500, { error: 'Sayfa hazırlanamadı.' }));
   }
 
   if (!url.pathname.startsWith('/api/')) {

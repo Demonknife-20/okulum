@@ -1,0 +1,20 @@
+{
+  "name": "Okulum · Okul yönetim sistemi",
+  "short_name": "Okulum",
+  "description": "Ödev, yoklama, sınav, not ve veli takibi için okul yönetim sistemi.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f3f6f1",
+  "theme_color": "#1b6b50",
+  "lang": "tr",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

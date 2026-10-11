@@ -34,6 +34,7 @@ html = replaceOnce(html, 'src="/app.js"', `src="/${jsFile}"`);
 html = replaceOnce(html, 'href="/styles.css"', `href="/${cssFile}"`);
 fs.writeFileSync(path.join(out, 'index.html'), html);
 fs.copyFileSync(path.join(src, 'icon.svg'), path.join(out, 'icon.svg'));
+fs.copyFileSync(path.join(src, 'manifest.webmanifest'), path.join(out, 'manifest.webmanifest'));
 
 const kb = file => (fs.statSync(path.join(out, file)).size / 1024).toFixed(1);
 console.log(`dist hazır: ${jsFile} (${kb(jsFile)} KB), ${cssFile} (${kb(cssFile)} KB)`);

@@ -4,8 +4,9 @@ import { renderPublic } from './public.js';
 
 const NAV = {
   principal: [['overview', 'Genel bakış', 'home'], ['people', 'Kişiler', 'users'], ['school', 'Okul', 'school'], ['panolar', 'Panolar', 'board'], ['asistan', 'Asistan', 'spark'], ['messages', 'Mesajlar', 'chat'], ['audit', 'Denetim', 'file'], ['yardim', 'Kullanım', 'help']],
-  teacher: [['overview', 'Genel bakış', 'home'], ['classes', 'Sınıflarım', 'grid'], ['assignments', 'Ödevler', 'file'], ['attendance', 'Yoklama', 'check'], ['panolar', 'Panolar', 'board'], ['asistan', 'Asistan', 'spark'], ['messages', 'Mesajlar', 'chat'], ['people', 'Kişiler', 'users'], ['yardim', 'Kullanım', 'help']],
-  student: [['overview', 'Genel bakış', 'home'], ['assignments', 'Ödevlerim', 'file'], ['attendance', 'Devamım', 'check'], ['panolar', 'Panolar', 'board'], ['asistan', 'Asistan', 'spark'], ['messages', 'Mesajlar', 'chat'], ['yardim', 'Kullanım', 'help']],
+  teacher: [['overview', 'Genel bakış', 'home'], ['classes', 'Sınıflarım', 'grid'], ['assignments', 'Ödevler', 'file'], ['sinavlar', 'Sınavlar', 'quiz'], ['attendance', 'Yoklama', 'check'], ['notlar', 'Notlar', 'chart'], ['panolar', 'Panolar', 'board'], ['asistan', 'Asistan', 'spark'], ['messages', 'Mesajlar', 'chat'], ['people', 'Kişiler', 'users'], ['yardim', 'Kullanım', 'help']],
+  parent: [['overview', 'Genel bakış', 'home'], ['cocuklar', 'Çocuklarım', 'user'], ['messages', 'Mesajlar', 'chat'], ['asistan', 'Asistan', 'spark'], ['yardim', 'Kullanım', 'help']],
+  student: [['overview', 'Genel bakış', 'home'], ['assignments', 'Ödevlerim', 'file'], ['sinavlar', 'Sınavlarım', 'quiz'], ['notlar', 'Notlarım', 'chart'], ['attendance', 'Devamım', 'check'], ['panolar', 'Panolar', 'board'], ['asistan', 'Asistan', 'spark'], ['messages', 'Mesajlar', 'chat'], ['yardim', 'Kullanım', 'help']],
 };
 const BADGES = ['messages', 'assignments'];
 // Yükleme sırasında gösterilen iskelet ekran (metin yerine).
@@ -54,6 +55,7 @@ function renderChrome() {
   $('#nav').innerHTML = NAV[me.role].map(([page, label, ic]) =>
     `<a class="nav-item" href="#/${page}" data-page="${page}">${icon(ic)}<span>${esc(label)}</span>${
       BADGES.includes(page) ? `<span class="nav-badge" data-badge="${page}" hidden></span>` : ''}</a>`).join('');
+  renderTabbar(me);
 }
 
 function highlight(page) {
@@ -61,6 +63,26 @@ function highlight(page) {
     const active = link.dataset.page === page;
     link.classList.toggle('active', active);
     if (active) link.setAttribute('aria-current', 'page'); else link.removeAttribute('aria-current');
+  });
+  $$('.tab').forEach(tab => tab.classList.toggle('active', tab.dataset.tab === page));
+}
+
+// Telefonda alt gezinme çubuğu: rolün ilk dört sayfası ve menü düğmesi
+function renderTabbar(me) {
+  const tabs = NAV[me.role].slice(0, 4).map(([page, label, ic]) =>
+    `<a class="tab" href="#/${page}" data-tab="${page}">${icon(ic)}<span>${esc(label)}</span></a>`).join('');
+  $('#tabbar').innerHTML = `${tabs}<button class="tab" type="button" data-action="open-menu" aria-label="Tüm menü">${icon('menu')}<span>Menü</span></button>`;
+}
+
+// Geniş tabloları telefonda kart olarak göstermek için her hücreye sütun adını ekler
+function labelTables(root) {
+  root.querySelectorAll('table').forEach(table => {
+    const labels = [...table.querySelectorAll('thead th')].map(th => th.textContent.trim());
+    table.querySelectorAll('tbody tr').forEach(tr => {
+      [...tr.children].forEach((cell, index) => {
+        if (cell.tagName === 'TD' && !cell.hasAttribute('colspan') && labels[index]) cell.setAttribute('data-label', labels[index]);
+      });
+    });
   });
 }
 
@@ -93,13 +115,13 @@ async function routePublic() {
 let routeSeq = 0;
 async function routeApp() {
   const { page, params } = parseHash();
-  const entry = NAV[state.me.role].find(([key]) => key === page) || (page === 'pano' ? ['pano', 'Pano'] : null);
+  const entry = NAV[state.me.role].find(([key]) => key === page) || (page === 'pano' ? ['pano', 'Pano'] : page === 'sinav' ? ['sinavlar', 'Sınav'] : null);
   if (!entry) { history.replaceState(null, '', '#/overview'); return routeApp(); }
 
   const seq = ++routeSeq;
   stopTimers();
   showApp();
-  highlight(page === 'pano' ? 'panolar' : page);
+  highlight(page === 'pano' ? 'panolar' : page === 'sinav' ? 'sinavlar' : page);
   $('#crumb').textContent = `${state.school?.name || 'Okulum'} / ${entry[1]}`;
   const view = $('#view');
   view.innerHTML = skeleton();
@@ -109,6 +131,7 @@ async function routeApp() {
     view.innerHTML = html;
     after?.();
     paintWidths(view);
+    labelTables(view);
     if (page === 'assignments') markSeen(state.me.role === 'student' ? ['assignments', 'grades'] : ['submissions']);
     else refreshBadges();
   } catch (error) {
