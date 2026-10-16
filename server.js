@@ -13,10 +13,12 @@ const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || (process.env.RENDER ? '0.0.0.0' : '127.0.0.1');
 const PUBLIC = fs.existsSync(path.join(__dirname, 'dist', 'index.html')) ? path.join(__dirname, 'dist') : path.join(__dirname, 'public');
 const BODY_LIMIT = 8 * 1024 * 1024;
+const IP_BACKSTOP = createLimiter({ max: Number(process.env.IP_RATE_PER_MIN || 30000), windowMs: 60 * 1000 });
 const API_LIMIT = createLimiter({ max: Number(process.env.API_RATE_PER_MIN || 3000), windowMs: 60 * 1000 });
 const WRITE_LIMIT = createLimiter({ max: Number(process.env.WRITE_RATE_PER_MIN || 600), windowMs: 60 * 1000 });
 // ---- Kopyalama (HTTrack, wget, WebCopier vb.) koruması ----
-const STATIC_LIMIT = createLimiter({ max: Number(process.env.STATIC_RATE_PER_MIN || 600), windowMs: 60 * 1000 });
+const STATIC_LIMIT = createLimiter({ max: Number(process.env.STATIC_RATE_PER_MIN || 6000), windowMs: 60 * 1000 });
+const HASHED_ASSET = /\.[A-Za-z0-9]{8,}\.(js|css|woff2?|png|jpg)$/;
 const BOT_UA = /httrack|webcopier|teleport|offline\s?explorer|sitesucker|webzip|webreaper|grab-site|getleft|website\s?quester|wget|scrapy|sitesnagger/i;
 // Gizli tuzak: normal kullanıcı bu adresleri görmez; kopyalayıcılar bağlantıları izleyince yakalanır.
 const TRAP = /^\/(gizli-dizin|wp-admin|wp-login\.php|\.env|\.git|phpmyadmin)(\/|$)/i;
@@ -169,14 +171,18 @@ const server = http.createServer(async (req, res) => {
 
   if (!url.pathname.startsWith('/api/')) {
     if (!['GET', 'HEAD'].includes(req.method)) return send(res, 405, { error: 'Bu işlem desteklenmiyor.' });
-    if (STATIC_LIMIT(key0)) return send(res, 429, { error: 'Çok fazla istek. Lütfen biraz bekleyin.' });
+    if (!HASHED_ASSET.test(url.pathname) && STATIC_LIMIT(key0)) return send(res, 429, { error: 'Çok fazla istek. Lütfen biraz bekleyin.' });
     return serveStatic(res, url.pathname, base);
   }
   res.setHeader('X-Robots-Tag', 'noindex, nofollow');
 
   try {
     const key = clientKey(req);
-    if (API_LIMIT(key) || (!['GET', 'HEAD'].includes(req.method) && WRITE_LIMIT(key))) {
+    // Oturumu olan kullanıcılar kendi sınırlarıyla sayılır: aynı okul ağındaki herkes birbirini engellemez.
+    const sessionKey = req.headers.cookie
+      ? `s:${require('node:crypto').createHash('sha256').update(req.headers.cookie).digest('hex').slice(0, 32)}`
+      : key;
+    if (IP_BACKSTOP(key) || API_LIMIT(sessionKey) || (!['GET', 'HEAD'].includes(req.method) && WRITE_LIMIT(sessionKey))) {
       throw new HttpError(429, 'Çok fazla istek gönderildi. Lütfen biraz bekleyin.');
     }
     if (!['GET', 'HEAD'].includes(req.method)) {
@@ -224,6 +230,9 @@ async function start() {
   await storage.ensureBucket();
   await require('./src/push').init();
   require('./src/ai').startRetention();
+  require('./src/backup').startBackupSchedule();
+  require('./src/api').startDigestSchedule();
+  require('./src/api').startReminderSchedule();
   server.listen(PORT, HOST, () => {
     console.log(`Okulum hazır: http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT} · depolama: ${storage.useSupabase ? 'Supabase' : 'yerel (geliştirme)'}`);
   });
@@ -233,6 +242,23 @@ function shutdown() {
   server.close(() => pool.end().then(() => process.exit(0)));
   setTimeout(() => process.exit(0), 5000).unref();
 }
+// Hata raporu: isteğe bağlı webhook (ERROR_WEBHOOK_URL, ör. Slack/Discord). Kullanıcı verisi gönderilmez.
+function reportError(context, error) {
+  console.error(new Date().toISOString(), context, error?.stack || error);
+  const hook = process.env.ERROR_WEBHOOK_URL || '';
+  if (!hook.startsWith('https://')) return;
+  fetch(hook, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: `Okulum hatası · ${context} · ${error?.name || 'Hata'}` }),
+    signal: AbortSignal.timeout(5000),
+  }).catch(() => {});
+}
+process.on('unhandledRejection', error => reportError('unhandledRejection', error));
+process.on('uncaughtException', error => {
+  reportError('uncaughtException', error);
+  setTimeout(() => process.exit(1), 1000).unref(); // platform sunucuyu yeniden başlatır
+});
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
 

@@ -97,6 +97,14 @@ Müdür "Denetim" sayfasından okul bilgisi, sınıf/ders, hesap, parola, ödev,
 Her kayıtta kişi, zaman, işlem, hedef ve ayrıntı bulunur. Parolalar hiçbir zaman kaydedilmez.
 Kayıtlar silinmez; kullanıcı silinse bile kalır.
 
+## Tema ve telefon düzeni (v18)
+
+- **Koyu tema yumuşatıldı:** Arka plan artık gece siyahı değil, koyu yeşilimsi gri. Kartlar ve yüzeyler birbirinden ayrılıyor, metinler okunaklı kalıyor.
+- **Telefon düzeni:** İstatistikler iki sütunlu, sayfa başlığı ve düğmeler tam genişlikte. Pencereler (modal) ekranın altından açılan sayfa olarak görünüyor. Alanlar iOS'ta otomatik yakınlaşmayı önlemek için 16 px yazı boyuyla geliyor. Dokunma alanları en az 46 px.
+- **Alt gezinme çubuğu:** Beş sekme (dört sayfa ve Menü), güvenli alan (iPhone çentiği) hesaba katılıyor.
+- **Performans:** Telefonda ağır arka plan animasyonları ve bulanıklık efektleri kapatıldı.
+- **Tablolar:** Telefonda her satır bir kart olur, alanların etiketleri solda, değerler sağda görünür.
+
 ## Canlı yarışma, soru görselleri ve bildirimler (v17)
 
 - **Canlı yarışma (Kahoot tarzı):** Öğretmen yayındaki bir sınav için "Canlı başlat" der ve 6 haneli PIN alır. Öğrenciler telefonlarında Canlı yarışma sayfasından PIN'i girer. Öğretmen başlatınca soru ekranda gösterilir, telefonlarda yalnızca renkli şıklar görünür. Öğretmen "Cevabı göster" ile doğru şıkkı ve kaç kişinin hangi şıkkı seçtiğini gösterir, "Sonraki soru" ile devam eder. Doğru cevap 500-1000 puan kazandırır; hızlı cevap daha çok puan verir. Bitişte katılımcıların doğru cevap puanları sınav sonucu olarak kaydedilir ve notlara yansır.
@@ -258,3 +266,87 @@ Müdür tüm okulu, öğretmen kendi derslerini, öğrenci yalnızca kendi devam
 - Sınıf veya ders silinince ilgili ödev dosyaları da silinir; bu geri alınamaz (arayüzde onay istenir).
 - Devamsızlık uyarıları veritabanında toplanır ve 60 saniye önbelleğe alınır. Her yazma işlemi önbelleği geçersiz kılar. Önbellek bellekte tutulduğu için tek sunucu örneği varsayılır.
 - Bildirimler 20 saniyede bir yenilenir; gerçek zamanlı (push) değildir.
+
+## Kararlılık ve yedekleme (v19)
+
+- **Giriş:** Parola kontrolü artık olay döngüsünü bloke etmeyen asenkron işlemle yapılıyor. Aynı anda çok giriş olsa da diğer istekler bekletilmez.
+- **Hız sınırları:** Giriş yapmış kullanıcılar kendi oturumlarıyla sayılır; aynı okul ağındaki öğrenciler birbirini engellemez. IP üst sınırı (`IP_RATE_PER_MIN`) ayrıca korur. Sayfa dosyaları (parmak izli JS/CSS) sınırdan muaftır.
+- **Canlı yarışma:** Durum yanıtı 1 saniye önbelleğe alınır, telefon yoklama aralığı 2 saniyedir.
+- **Veritabanı havuzu:** `PG_POOL_SIZE` varsayılanı 10.
+- **Yedekleme:** Her gün otomatik yedek alınır (son 30 yedek saklanır). Müdür "Yedekler" bölümünden elle yedek alabilir ve indirebilir. `BACKUP_KEY` ortam değişkeni tanımlanırsa yedekler AES-256-GCM ile şifrelenir. **Bu anahtarı kaybederseniz yedekler açılamaz; güvenli bir yerde saklayın.**
+- **Hata bildirimi:** `ERROR_WEBHOOK_URL` (https) tanımlanırsa beklenmeyen hatalar webhook'a iletilir.
+- **Uyanık tutma:** `.github/workflows/keepalive.yml` her 10 dakikada sağlık ucunu çağırır. Adres için GitHub deposunda `SITE_URL` değişkeni tanımlayabilirsiniz.
+- **Testler:** `.github/workflows/ci.yml` her gönderimde testleri PostgreSQL ile çalıştırır.
+- **Yük testi:** `scripts/loadtest.mjs` (eşzamanlı istemci ve p95 gecikme ölçümü).
+
+## Güvenlik ve veri hakları (v20)
+
+- **Müdür iki adımlı doğrulama (TOTP):** Müdür hesabı Hesabım → "İki adımlı doğrulama" ile açılır. Gizli anahtar veritabanında şifreli saklanır. Açıkken girişte uygulamadaki 6 haneli kod istenir. Kapatmak için parola ve kod gerekir.
+- **Şifremi unuttum:** E-posta adresi kayıtlı hesaplara 15 dakika geçerli 6 haneli kod gönderilir. Kod saklanırken özetlenir, 5 hatalı denemeden sonra geçersiz olur. Başarılı sıfırlamada tüm eski oturumlar düşer. Yanıt, adres kayıtlı olsun ya da olmasın aynıdır (hesap keşfini önler).
+- **KVKK aydınlatma metni:** Giriş sonrası metin gösterilir ve onaylanması istenir. **Metin bir taslaktır; yayına almadan önce okulun hukuk danışmanı onaylamalıdır.**
+- **Erişim hakkı:** Hesabım → "Verilerimi indir" kişinin verilerini JSON olarak verir.
+- **Silme hakkı:** Öğrenci ve öğretmen silme talebi açar. Müdür "Kişiler → Silme talepleri" bölümünde onaylarsa hesap anonimleştirilir (ad, kullanıcı adı, e-posta ve parola silinir, giriş yapılamaz). Akademik kayıtlar kişi tanımlanamaz hâlde kalır. Müdür kendi talebini değerlendiremez.
+- **Takvim bağlantısı:** Hesabım → "Takvim bağlantısı" kişiye özel bir ICS adresi verir. Google, Apple ve Outlook takvimine abone olunabilir.
+- **Bildirimler:** Yeni ödev, yeni mesaj ve veli için devamsızlık bildirimleri eklendi.
+- **Müdür analizi (API):** `GET /api/analytics/school` sınıf bazında devam oranı, sınav ortalaması ve en çok devamsızlığı olan öğrencileri verir. Sayfası henüz yok.
+
+**E-posta için ortam değişkenleri (Render):** `SMTP_HOST`, `SMTP_PORT` (genellikle 587), `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`. Ücretsiz plan sunan bir SMTP sağlayıcısı kullanılabilir. Bu değişkenler tanımlı değilse "Şifremi unuttum" kapalı görünür ve müdüre başvurulması istenir.
+
+**Bağımlılık güvenliği:** `npm audit` 0 açık gösteriyor (esbuild ve nodemailer güncellendi).
+
+**Hâlâ eksik:** Müdür analiz sayfası, sınavda açık uçlu soru ve soru bankası, yoklamada mazeretli kayıt, karne için sunucu tarafı PDF, veli haftalık özeti, ödev dosyaları için sürüm geçmişi ve virüs taraması, şema için düzgün bir migrasyon sistemi, gerçek ortamda yük testi.
+
+## Analiz, mazeretli yoklama, veli haftalık özeti (v21)
+
+- **Müdür analizi:** Menüde "Analiz". Son 30 günün okul geneli devam oranı, sınıflara göre devam ve sınav ortalaması, en çok devamsızlığı olan 10 öğrenci.
+- **Mazeretli yoklama:** Yoklama ekranında "Gelmedi" yanında "Mazeretli" seçeneği. Mazeretli ders **devam sayılır** (devam oranını düşürmez) ve devamsızlık listelerinde görünmez. Veli bildirimi gitmez.
+- **Veli haftalık özeti:** Her Pazar 17:00'den sonra (İstanbul saatiyle) velilere bir push bildirimi gider: son 7 günün devamı, davranış puanı toplamı ve önümüzdeki 7 gündeki ödevler (teslim edilmemiş olanlar dahil). Müdür `POST /api/digest/run` ile elle de gönderebilir.
+
+## Kullanıcı e-postaları ve SMTP kontrolü (v22)
+
+- **Kullanıcı formunda e-posta:** Müdür yeni hesap oluştururken ya da mevcut bir hesabı düzenlerken e-posta girebilir. Adres küçük harfe çevrilir, biçimi denetlenir ve iki hesapta aynı olamaz. Öğretmen ve diğer kullanıcılar e-postaları göremez.
+- **Kişiler sayfası:** Müdür e-posta adresi olmayan kişileri "E-posta yok" etiketiyle görür.
+- **E-posta kapalıyken uyarı:** SMTP değişkenleri tanımlı değilse müdürün Kişiler sayfasında "E-posta gönderimi kapalı" uyarısı çıkar.
+- **Test e-postası:** Müdür Kişiler sayfasındaki "Test e-postası" düğmesiyle SMTP'yi kendi adresine test gönderimi yapabilir. Önce kendi hesabına bir e-posta adresi eklemesi gerekir.
+
+## Karne PDF ve ödev hatırlatması (v23)
+
+- **Karne PDF:** Karne sayfasındaki "PDF indir" düğmesi ya da `GET /api/reports/student/:id/pdf` ile Türkçe karakterli A4 karne indirilir. İçerik: derslere göre not ortalaması, devam, davranış özeti, veliyle paylaşılan öğretmen notları. Yetki kuralları karne sayfasıyla aynıdır (öğretmen, müdür, bağlı veli, öğrencinin kendisi).
+- **Ödev hatırlatması:** Her gün 18:00'den sonra (İstanbul saatiyle) 24 saat içinde son teslimi olan ve henüz teslim etmemiş öğrencilere bildirim gider. Müdür `POST /api/reminders/run` ile elle tetikleyebilir.
+- **Yeni bağımlılıklar:** `pdfkit` ve `dejavu-fonts-ttf` (Render'ın `npm install` adımı otomatik kurar).
+
+## Migrasyonlar ve seçenek karıştırma (v24)
+
+- **Sürümlü migrasyonlar:** Şema değişiklikleri artık `src/migrations/NNNN_aciklama.sql` dosyalarıdır. Her dosya yalnızca bir kez, sıra numarasına göre uygulanır ve `schema_migrations` tablosuna kaydedilir. Temel şema (`src/schema.sql`) ilk kez çalışırken `0000_baseline` olarak kaydedilir. Yeni bir değişiklik için bir sonraki numarayla yeni dosya ekleyin, eski dosyaları değiştirmeyin.
+- **Seçenek karıştırma:** Sınav oluştururken "Seçenekleri karıştır" açılabilir. Her öğrencinin denemesinde şıklar farklı sırada gösterilir. Cevaplar özgün şık sırasına çevrilerek puanlanır, bu yüzden puanlama değişmez. Teslimden sonra şıklar özgün sırasıyla görünür. Canlı yarışmada şık karıştırma uygulanmaz.
+
+## Pansiyon: evci ve çarşı izni defteri (v25)
+
+- **Pansiyon modu:** Müdür "İzin defteri" sayfasındaki düğmeyle açar/kapatır. Kapalıyken izin özellikleri devre dışıdır.
+- **Talep:** Öğrenci kendisi, veli bağlı çocuğu adına evci veya çarşı izni talep eder (çıkış-dönüş, en fazla 14 gün). Talep sahibi bekleyen talebini iptal edebilir.
+- **Onay:** Müdür ya da öğrencinin sınıfını okutan öğretmen onaylar veya reddeder. Öğrenci ve veliye bildirim gider.
+- **Çıkış ve dönüş e-imzası:** Nöbetçi personel onaylı izni açar. Çıkacak kişi (öğrenci, veli ya da diğer) ad, soyad ve öğrenci numarasını yazar, ekrandaki alana e-imzasını atar. Öğrenci imzalıyorsa öğrenci numarası kayıtla eşleşmek zorundadır. Dönüşte aynı işlem tekrarlanır.
+- **Defter:** Kayıtlar durumlarıyla listelenir; müdür ve öğretmen e-imzaları görebilir. "CSV indir" düğmesi Excel uyumlu bir döküm verir.
+- **Veri gizliliği:** İmzalar ve öğrenci numaraları yalnızca müdür ve ilgili öğretmene açıktır. Pansiyon kayıtları KVKK aydınlatma metninde yer alır, metnin hukuk danışmanınızca onaylanması gerekir.
+
+## Pansiyon gece yoklaması (v26)
+
+- **Kim yapar:** Müdür ve sınıfını okutan öğretmen. İzin defterinin üst kısmındaki "Gece yoklaması" düğmesinden açılır.
+- **Ne kaydedilir:** Her öğrenci için gece kaydı: Yatıyor, Yok veya İzinli. Tarih seçilebilir, gelecek bir gün için kayıt alınamaz.
+- **Otomatik öneri:** Gece penceresinde (21:00 – ertesi gün 07:00) onaylı ya da dışarıdaki bir izni olan öğrenci "İzinli" olarak önerilir. Öğretmen onaylayıp kaydeder.
+- **Bildirim:** "Yok" işaretlenen öğrencinin velisine ve öğrencinin kendisine bildirim gider.
+- **Not:** Yatılı öğrenci ayrımı şu an sınıf bazlıdır; sınıftaki herkes gece yoklamasına dahil edilir.
+
+## Açık uçlu sınav soruları (v27)
+
+- **Soru türü:** Sınav formunda her soru için "Çoktan seçmeli" ya da "Açık uçlu (elle puanlanır)" seçilir. Açık uçlu soruda şık yazılmaz.
+- **Öğrenci:** Açık uçlu soruya en fazla 2000 karakterlik metin yazar. Cevap sınav süresi boyunca otomatik kaydedilir.
+- **Puanlama:** Çoktan seçmeli sorular teslimde hesaplanır. Açık uçlu puanlar öğretmen puanladıkça eklenir. Puan açık uçlu sorular puanlanana kadar sınav "Değerlendiriliyor" durumunda kalır ve öğrenci puanını görmez.
+- **Öğretmen:** Sınav sonuçları sayfasındaki "Açık uçlu soruları puanla" düğmesi tüm öğrencilerin cevaplarını tek ekranda gösterir. Her soru için 0 ile soru puanı arasında puan girilir.
+- **Kısıtlar:** Açık uçlu soru içeren sınav canlı yarışmada kullanılamaz (canlı yarışma otomatik puanlama ile çalışır). Açık uçlu cevaplarda otomatik yazım denetimi yoktur.
+
+## Telefon menüsü ve alt panel (v28)
+
+- Menü açıkken alt gezinme çubuğu ve bildirim kutusu gizlenir, böylece alt paneldeki "Hesabım" ve "Çıkış" düğmeleri her zaman dokunulabilir.
+- Alt panel menünün en altına sabitlenir (yapışkan). Menü uzunsa kendi içinde kaydırılır.
+- Düğmeler telefonda en az 50 piksel yüksekliğinde.
