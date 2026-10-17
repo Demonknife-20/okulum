@@ -365,3 +365,8 @@ Müdür tüm okulu, öğretmen kendi derslerini, öğrenci yalnızca kendi devam
 - Sınıf materyali "Sayfada aç" ile yüklenir (GeoGebra paylaşım kimliği üzerinden).
 - Uygulama yüklenemezse (ağ, reklam engelleyici, GeoGebra'nın erişilemezliği) bir yedek bağlantı gösterilir.
 - Gereksinim: `https://www.geogebra.org` erişilebilir olmalı. GeoGebra uygulamaları GeoGebra'nın sunucularından yüklenir; kendi sunucunuza kopyalanamaz.
+
+## Render derleme düzeltmesi (v31)
+
+- `esbuild` derleme aracı üretim bağımlılıklarına taşındı. Render `NODE_ENV=production` ile kurduğunda geliştirme bağımlılıkları atlanır; bu yüzden derleme `esbuild` bulamıyordu.
+- Derleme komutu: `npm install && npm run build` (değişmedi).
