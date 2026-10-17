@@ -231,7 +231,7 @@ on('POST', '/api/login', async ({ req, res, body }) => {
   const pass = typeof body.password === 'string' ? body.password : '';
   const ipKey = `ip:${clientIp(req)}`, userKey = `user:${username}`;
   if (sec.isLimited(ipKey) || sec.isLimited(userKey)) fail(429, 'Çok fazla deneme yaptın. 15 dakika sonra tekrar dene.');
-  const { rows: [user] } = await q('select id, username, name, role, student_no, password_hash, session_version, totp_enabled, totp_secret from users where username = $1', [username]);
+  const { rows: [user] } = await q('select id, username, name, role, student_no, password_hash, session_version, totp_enabled, totp_secret, totp_last_step from users where username = $1', [username]);
   let valid = false;
   if (user) valid = await sec.verifyPasswordAsync(pass, user.password_hash);
   else await sec.burnTimeAsync(pass);
@@ -251,11 +251,16 @@ on('POST', '/api/login', async ({ req, res, body }) => {
   }
   if (user.role === 'principal' && user.totp_enabled) {
     if (!body.totp) return ok({ mfaRequired: true });
-    if (!mfa.verifyTotp(mfa.openSecret(user.totp_secret), body.totp)) {
+    const step = mfa.matchStep(mfa.openSecret(user.totp_secret), body.totp);
+    if (step === null) {
       sec.recordFailure(ipKey);
       sec.recordFailure(userKey);
       fail(401, 'Doğrulama kodu hatalı.');
     }
+    if (user.totp_last_step !== null && step <= Number(user.totp_last_step)) {
+      fail(401, 'Bu doğrulama kodu zaten kullanıldı. Uygulamadaki yeni kodu bekleyin.');
+    }
+    await q('update users set totp_last_step = $2 where id = $1', [user.id, step]);
   }
   await q('update users set last_login_at = now(), last_login_ip = $2 where id = $1', [user.id, clientIp(req)]);
   if (user.role === 'principal') await audit({ id: user.id, name: user.name, role: 'principal' }, 'login_success', user.username, { ip: clientIp(req) });

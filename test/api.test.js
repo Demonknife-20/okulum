@@ -1246,6 +1246,8 @@ test('iki adımlı doğrulama: RFC 6238 vektörü, müdür açar, girişte kod i
   const ok2 = await call('POST', '/api/login', { body: { username: 'murat', password: 'mudur-sifresi-1', portal: 'principal', totp: mfa.totpAt(setup.data.secret, Math.floor(Date.now() / 30000)) } });
   assert.equal(ok2.status, 200);
   assert.ok(ok2.cookie);
+  const replay = await call('POST', '/api/login', { body: { username: 'murat', password: 'mudur-sifresi-1', portal: 'principal', totp: mfa.totpAt(setup.data.secret, Math.floor(Date.now() / 30000)) } });
+  assert.equal(replay.status, 401, 'aynı kod ikinci kez kullanılamaz');
   assert.equal((await call('POST', '/api/me/2fa/disable', { cookie: state.principal, body: { password: 'yanlis', code } })).status, 401);
   const off = await call('POST', '/api/me/2fa/disable', { cookie: state.principal, body: { password: 'mudur-sifresi-1', code: mfa.totpAt(setup.data.secret, Math.floor(Date.now() / 30000)) } });
   assert.equal(off.status, 200);

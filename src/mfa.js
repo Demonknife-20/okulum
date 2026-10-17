@@ -47,14 +47,19 @@ function totpAt(secret, counter) {
 }
 
 // Kayma payı: bir önceki ve sonraki 30 saniyelik dilim de kabul edilir (saat farkları için).
-function verifyTotp(secret, code, window = 1) {
+// Eşleşen 30 saniyelik zaman adımını döndürür; eşleşme yoksa null
+function matchStep(secret, code, window = 1) {
   const value = String(code ?? '').replace(/\s/g, '');
-  if (!/^\d{6}$/.test(value)) return false;
+  if (!/^\d{6}$/.test(value)) return null;
   const counter = Math.floor(Date.now() / 30000);
   for (let step = -window; step <= window; step += 1) {
-    if (totpAt(secret, counter + step) === value) return true;
+    if (totpAt(secret, counter + step) === value) return counter + step;
   }
-  return false;
+  return null;
+}
+
+function verifyTotp(secret, code, window = 1) {
+  return matchStep(secret, code, window) !== null;
 }
 
 function otpauthUri(secret, account) {
@@ -77,4 +82,4 @@ function openSecret(sealed) {
   return Buffer.concat([decipher.update(buffer.subarray(28)), decipher.final()]).toString('utf8');
 }
 
-module.exports = { base32Encode, newSecret, totpAt, verifyTotp, otpauthUri, sealSecret, openSecret };
+module.exports = { base32Encode, newSecret, totpAt, verifyTotp, matchStep, otpauthUri, sealSecret, openSecret };

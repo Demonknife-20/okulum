@@ -394,3 +394,8 @@ Müdür tüm okulu, öğretmen kendi derslerini, öğrenci yalnızca kendi devam
 - **Açı** aracı: kenar, köşe, diğer kenar (`Açı(B,A,D)`), derece cinsinden etiket.
 - Dokunmatik ekranda nokta, doğru ve çember koyma ve parmakla nokta taşıma test edildi (telefon boyutu, gerçek dokunuş olayları).
 - Açı aracı birim testlerinde doğrulandı; tarayıcıda dokunmatik olarak henüz denenmedi.
+
+## Güvenlik ve test düzeni (v35)
+
+- İki adımlı doğrulamada aynı 30 saniyelik kod iki kez kullanılamaz (`users.totp_last_step`, migrasyon 0007).
+- Tarayıcı testleri `test/e2e/` klasöründe; `npm test` yalnızca API ve birim testlerini çalıştırır.
