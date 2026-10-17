@@ -12,7 +12,7 @@ if (!url) throw new Error('DATABASE_URL tanımlı değil.');
 const local = /localhost|127\.0\.0\.1|\?host=\//.test(url);
 const pool = new Pool({
   connectionString: url,
-  max: Number(process.env.PG_POOL_SIZE || 5),
+  max: Number(process.env.PG_POOL_SIZE || 10),
   idleTimeoutMillis: 30_000,
   ssl: local || process.env.DATABASE_SSL === 'false' ? false : { rejectUnauthorized: false },
 });
@@ -35,8 +35,29 @@ async function tx(work) {
   }
 }
 
+// Sürümlü migrasyonlar: temel şema (schema.sql) ilk kez uygulanır, ardından src/migrations/ klasöründeki
+// her .sql dosyası sıra numarasına göre YALNIZCA BİR KEZ uygulanır ve schema_migrations tablosuna kaydedilir.
+// Yeni bir değişiklik için src/migrations/NNNN_aciklama.sql dosyası ekleyin (NNNN bir önceki numaradan büyük olmalı).
+const MIGRATIONS_DIR = path.join(__dirname, 'migrations');
+
 async function migrate() {
-  await q(fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8'));
+  await q('create table if not exists schema_migrations (name text primary key, applied_at timestamptz not null default now())');
+  const { rows } = await q('select name from schema_migrations');
+  const applied = new Set(rows.map(row => row.name));
+  const steps = [['0000_baseline', fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8')]];
+  if (fs.existsSync(MIGRATIONS_DIR)) {
+    for (const file of fs.readdirSync(MIGRATIONS_DIR).filter(name => name.endsWith('.sql')).sort()) {
+      steps.push([file.replace(/\.sql$/, ''), fs.readFileSync(path.join(MIGRATIONS_DIR, file), 'utf8')]);
+    }
+  }
+  for (const [name, sql] of steps) {
+    if (applied.has(name)) continue;
+    await tx(async client => {
+      await client.query(sql);
+      await client.query('insert into schema_migrations (name) values ($1)', [name]);
+    });
+    console.log(`Migrasyon uygulandı: ${name}`);
+  }
 }
 
 module.exports = { q, tx, migrate, pool };

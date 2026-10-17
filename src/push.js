@@ -15,6 +15,7 @@ async function init() {
     if (saved.vapid_public && saved.vapid_private) {
       publicKey = saved.vapid_public;
       privateKey = saved.vapid_private;
+      console.warn('Uyarı: VAPID anahtarı veritabanında. Ortam değişkenine taşıyın: node scripts/vapid.mjs');
     } else {
       const keys = webpush.generateVAPIDKeys();
       publicKey = keys.publicKey;

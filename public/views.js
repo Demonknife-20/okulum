@@ -435,10 +435,11 @@ function attRows() {
   return att.students.map(s => {
     const v = att.values[s.id];
     const control = att.readonly
-      ? (v === 'present' ? badge('Geldi', 'ok') : v === 'absent' ? badge('Gelmedi', 'danger') : badge('Kaydedilmedi'))
+      ? (v === 'present' ? badge('Geldi', 'ok') : v === 'absent' ? badge('Gelmedi', 'danger') : v === 'excused' ? badge('Mazeretli') : badge('Kaydedilmedi'))
       : `<div class="seg" role="group" aria-label="${esc(s.name)} yoklaması">
           <button type="button" class="seg-btn ${v === 'present' ? 'on' : ''}" data-action="att-set" data-id="${esc(s.id)}" data-value="present" aria-pressed="${v === 'present'}">Geldi</button>
           <button type="button" class="seg-btn absent ${v === 'absent' ? 'on' : ''}" data-action="att-set" data-id="${esc(s.id)}" data-value="absent" aria-pressed="${v === 'absent'}">Gelmedi</button>
+          <button type="button" class="seg-btn excused ${v === 'excused' ? 'on' : ''}" data-action="att-set" data-id="${esc(s.id)}" data-value="excused" aria-pressed="${v === 'excused'}">Mazeretli</button>
         </div>`;
     return `<tr><td>${esc(s.studentNo)}</td><td><strong>${esc(s.name)}</strong></td><td>${control}</td><td>${meter(s.present, s.total)}</td></tr>`;
   }).join('') || `<tr><td colspan="4">${empty('Öğrenci yok', 'Müdür bu sınıfa öğrenci eklediğinde yoklama burada görünür.')}</td></tr>`;
@@ -725,6 +726,7 @@ function userForm(user = null, students = []) {
         : `<label class="field"><span>Rol</span><select name="role" data-change="roleToggle"><option value="teacher">Öğretmen</option><option value="student">Öğrenci</option><option value="parent">Veli</option><option value="principal">Müdür (ek yönetici)</option></select></label>`}
       <label class="field"><span>Ad soyad</span><input name="name" required maxlength="80" value="${esc(user?.name || '')}"></label>
     </div>
+    <label class="field"><span>E-posta (şifre sıfırlama için)</span><input name="email" type="email" maxlength="120" autocomplete="off" value="${esc(user?.email || '')}"></label>
     ${editing ? '' : `<div class="grid-2">
       <label class="field"><span>Kullanıcı adı</span><input name="username" required minlength="3" maxlength="32" autocomplete="off"></label>
       <label class="field"><span>İlk şifre</span><input name="password" type="password" required minlength="8" maxlength="128" autocomplete="new-password"><small>En az 8 karakter; harf ve rakam.</small></label>
@@ -764,7 +766,7 @@ CHANGES.roleToggle = el => $$('[data-for]').forEach(node => { node.hidden = node
 
 FORMS['new-user'] = async form => {
   const role = val(form, 'role');
-  const body = { role, name: val(form, 'name'), username: val(form, 'username'), password: val(form, 'password') };
+  const body = { role, name: val(form, 'name'), username: val(form, 'username'), password: val(form, 'password'), email: val(form, 'email').trim() };
   if (role === 'student') {
     body.studentNo = val(form, 'studentNo');
     body.classId = val(form, 'classId') || null;
@@ -780,7 +782,7 @@ FORMS['new-user'] = async form => {
 };
 
 FORMS['edit-user'] = async form => {
-  const body = { name: val(form, 'name') };
+  const body = { name: val(form, 'name'), email: val(form, 'email').trim() };
   if (form.dataset.role === 'student') {
     body.studentNo = val(form, 'studentNo');
     body.classId = val(form, 'classId');
@@ -836,7 +838,7 @@ function personRow(u, principal) {
   }
   const roleKind = u.role === 'teacher' ? 'ok' : u.role === 'principal' ? 'brand' : 'neutral';
   return `<tr>
-    <td><div class="person"><span class="avatar sm ${tone(u.role)}">${esc(initials(u.name))}</span><div><strong>${esc(u.name)}</strong>${principal && u.username ? `<small class="cell-note">@${esc(u.username)}</small>` : ''}</div></div></td>
+    <td><div class="person"><span class="avatar sm ${tone(u.role)}">${esc(initials(u.name))}</span><div><strong>${esc(u.name)}</strong>${principal ? (u.email ? `<small class="person-mail">${esc(u.email)}</small>` : '<small class="person-mail none">E-posta yok</small>') : ''}${principal && u.username ? `<small class="cell-note">@${esc(u.username)}</small>` : ''}</div></div></td>
     <td>${badge(ROLE[u.role], roleKind)}</td>
     <td>${esc(classInfo(u))}</td>
     <td>${esc(u.studentNo || '—')}</td>
@@ -871,10 +873,16 @@ ACTIONS['page-people'] = el => { people.page = Number(el.dataset.page); loadPeop
 
 async function pagePeople() {
   const principal = state.me.role === 'principal';
-  const actions = principal ? `<button class="btn ghost" type="button" data-action="import-open">${icon('plus')}<span>CSV ile ekle</span></button><a class="btn ghost" href="/api/export/users" download>${icon('download')}<span>CSV indir</span></a><button class="btn primary" type="button" data-action="new-user">${icon('plus')}<span>Yeni hesap</span></button>` : '';
+  const mailStatus = principal ? await api('/mail/status').catch(() => null) : null;
+  const mailBanner = mailStatus && !mailStatus.configured
+    ? '<div class="mail-warn"><strong>E-posta gönderimi kapalı.</strong> Şifre sıfırlama kodları gönderilemiyor. Render ortam değişkenlerinde SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS ve SMTP_FROM tanımlanmalı.</div>'
+    : '';
+  const actions = principal ? `<button class="btn ghost" type="button" data-action="mail-test">Test e-postası</button>
+    <button class="btn ghost" type="button" data-action="deletion-open">Silme talepleri</button>
+    <button class="btn ghost" type="button" data-action="import-open">${icon('plus')}<span>CSV ile ekle</span></button><a class="btn ghost" href="/api/export/users" download>${icon('download')}<span>CSV indir</span></a><button class="btn primary" type="button" data-action="new-user">${icon('plus')}<span>Yeni hesap</span></button>` : '';
   const option = (value, label) => `<option value="${value}" ${people.role === value ? 'selected' : ''}>${label}</option>`;
   return {
-    html: `${head('Kişiler', principal ? 'Okul hesaplarını yönet: ekle, düzenle, şifre sıfırla.' : 'Sınıfınla ilgili kişiler ve iletişim.', actions)}
+    html: `${head('Kişiler', principal ? 'Okul hesaplarını yönet: ekle, düzenle, şifre sıfırla.' : 'Sınıfınla ilgili kişiler ve iletişim.', actions)}${mailBanner}
       <section class="panel">
         <div class="toolbar">
           <div class="toolbar-group">
@@ -1051,6 +1059,11 @@ ACTIONS.account = () => openModal('Hesabım', `<form class="stack" data-form="ac
   <div class="security-box">
     <p><strong>Son giriş:</strong> ${esc(state.me.lastLoginAt ? fmtDate(state.me.lastLoginAt) : 'Bilgi yok')}${state.me.lastLoginIp ? ` · IP ${esc(state.me.lastLoginIp)}` : ''}</p>
     <p class="small muted">Tanımadığınız bir giriş görürseniz hemen şifrenizi değiştirin ve tüm cihazlardan çıkış yapın.</p>
+    <button class="btn ghost sm" type="button" data-action="email-open">E-posta adresi</button>
+    ${state.me.role === 'principal' ? '<button class="btn ghost sm" type="button" data-action="mfa-open">İki adımlı doğrulama</button>' : ''}
+    <button class="btn ghost sm" type="button" data-action="calendar-link">Takvim bağlantısı</button>
+    <a class="btn ghost sm" href="/api/me/export" download>Verilerimi indir</a>
+    ${state.me.role === 'principal' ? '' : '<button class="btn ghost sm" type="button" data-action="delete-request">Hesap silme talebi</button>'}
     <button class="btn ghost sm" type="button" data-action="notify-settings">Bildirim ayarları</button>
     <button class="btn ghost sm" type="button" data-action="revoke-sessions">Tüm cihazlardan çıkış yap</button>
   </div>
@@ -1723,9 +1736,11 @@ async function pageSinavlar() {
 
 function quizQuestionBlock() {
   const uid = Math.random().toString(36).slice(2, 8);
-  return `<div class="quiz-q">
+  return `<div class="quiz-q" data-kind="choice">
     <div class="quiz-q-head"><strong class="qno">Soru</strong>
       <button class="icon-btn sm" type="button" data-action="quiz-remove-q" aria-label="Soruyu kaldır">${icon('close')}</button></div>
+    <label class="field"><span>Soru türü</span><select name="kind" data-change="quizKind">
+      <option value="choice">Çoktan seçmeli</option><option value="text">Açık uçlu (elle puanlanır)</option></select></label>
     <label class="field"><span>Soru metni</span><textarea name="qtext" rows="2" maxlength="1000" required></textarea></label>
     <label class="field"><span>Görsel (isteğe bağlı)</span><input name="qimage" type="file" accept="image/png,image/jpeg">
       <small>JPG veya PNG, en fazla 5 MB. Canlı yarışmada görsel öğretmen ekranında gösterilir.</small></label>
@@ -1764,6 +1779,7 @@ function quizForm() {
     <h3 class="sub-title">Sorular</h3>
     <div id="quizQuestions">${quizQuestionBlock()}</div>
     <button class="btn ghost" type="button" data-action="quiz-add-q">${icon('plus')}<span>Soru ekle</span></button>
+    <label class="switch switch-line"><input type="checkbox" name="shuffleOptions"><span class="switch-ui" aria-hidden="true"></span><span><strong>Seçenekleri karıştır</strong><small>Her öğrenciye şıklar farklı sırada gösterilir. Puanlama değişmez.</small></span></label>
     <p class="form-error" data-error role="alert"></p>
     <div class="form-actions"><button class="btn ghost" type="button" data-action="close-modal">Vazgeç</button><button class="btn primary" type="submit">Sınavı kaydet</button></div>
   </form>`;
@@ -1788,27 +1804,29 @@ FORMS['quiz-create'] = async form => {
   const [classId, subjectId] = val(form, 'pair').split('|');
   const questions = await Promise.all([...form.querySelectorAll('.quiz-q')].map(async (block, index) => {
     const text = block.querySelector('[name=qtext]').value.trim();
-    const rows = [...block.querySelectorAll('.quiz-opt')];
-    const checked = rows.findIndex(row => row.querySelector('input[type=radio]').checked);
-    const options = rows.map(row => row.querySelector('input[name=opt]').value.trim());
+    const kind = block.querySelector('[name=kind]').value === 'text' ? 'text' : 'choice';
     if (!text) throw new Error(`${index + 1}. sorunun metni boş.`);
-    if (!options[checked]) throw new Error(`${index + 1}. sorunun doğru cevabı boş bırakılmış. Doğru seçeneği işaretleyin.`);
-    const filtered = options.filter(Boolean);
-    if (filtered.length < 2) throw new Error(`${index + 1}. soruda en az iki seçenek yazın.`);
     const file = block.querySelector('[name=qimage]').files[0];
     if (file && file.size > 5 * 1024 * 1024) throw new Error(`${index + 1}. sorunun görseli 5 MB sınırını aşıyor.`);
-    return {
+    const base = {
+      kind,
       text,
-      options: filtered,
-      correctIndex: filtered.indexOf(options[checked]),
       points: Number(block.querySelector('[name=points]').value) || 1,
       timeLimit: Number(block.querySelector('[name=time]').value) || 20,
       image: file ? await readFile(file) : null,
     };
+    if (kind === 'text') return base;
+    const rows = [...block.querySelectorAll('.quiz-opt')];
+    const checked = rows.findIndex(row => row.querySelector('input[type=radio]').checked);
+    const options = rows.map(row => row.querySelector('input[name=opt]').value.trim());
+    if (!options[checked]) throw new Error(`${index + 1}. sorunun doğru cevabı boş bırakılmış. Doğru seçeneği işaretleyin.`);
+    const filtered = options.filter(Boolean);
+    if (filtered.length < 2) throw new Error(`${index + 1}. soruda en az iki seçenek yazın.`);
+    return { ...base, options: filtered, correctIndex: filtered.indexOf(options[checked]) };
   }));
   const published = form.querySelector('[name=published]').checked;
   await api('/quizzes', { method: 'POST', body: {
-    title: val(form, 'title').trim(), classId, subjectId, questions, published,
+    title: val(form, 'title').trim(), classId, subjectId, questions, published, shuffleOptions: form.querySelector('[name=shuffleOptions]').checked,
     opensAt: new Date(val(form, 'opensAt')).toISOString(), closesAt: new Date(val(form, 'closesAt')).toISOString(),
     timeLimitMinutes: Number(val(form, 'timeLimitMinutes')),
   } });
@@ -1843,7 +1861,7 @@ async function pageSinav(params) {
     <td>${a.submittedAt ? `${a.score} / ${a.maxScore}` : '—'}</td>
     <td>${a.percent === null ? badge('Teslim yok') : meterInline(a.percent)}</td>
     <td>${a.submittedAt ? esc(fmtDate(a.submittedAt)) : badge('Devam ediyor', 'warn')}</td></tr>`).join('');
-  return { html: `${head(data.quiz.title, 'Sınav sonuçları ve sınıf dağılımı', '<a class="btn ghost" href="#/sinavlar">← Sınavlar</a>')}
+  return { html: `${head(data.quiz.title, 'Sınav sonuçları ve sınıf dağılımı', '<a class="btn ghost" href="#/sinavlar">← Sınavlar</a><button class="btn primary" type="button" data-action="grade-open" data-id="${esc(params.id)}">Açık uçlu soruları puanla</button>')}
     <div class="stats">
       ${stat('Teslim', `${data.stats.submitted} / ${data.stats.classSize}`, 'Sınıftan teslim eden', 'check')}
       ${stat('Ortalama', data.stats.average === null ? '—' : `%${data.stats.average}`, 'Teslim edenlerin ortalaması', 'chart')}
@@ -1870,14 +1888,24 @@ async function pageSinavOgrenci(id) {
   const header = head(quiz.title, `${quiz.timeLimitMinutes} dakika · kapanış ${fmtDate(quiz.closesAt)}`, '<a class="btn ghost" href="#/sinavlar">← Sınavlarım</a>');
   if (finished) {
     const items = data.questions.map(qq => {
+      if (qq.kind === 'text') {
+        const pending = qq.awarded === null || qq.awarded === undefined;
+        const mark = attempt.graded && !pending ? `${qq.awarded} / ${qq.points} puan` : 'Öğretmeniniz puanladığında görünür';
+        return `<li class="result-q ${attempt.graded ? 'ok' : ''}"><strong>${esc(qq.text)}</strong>
+          <small>Sizin cevabınız: ${qq.textAnswer ? esc(qq.textAnswer) : 'boş'}</small>
+          <small>${esc(mark)}</small></li>`;
+      }
       const ok = qq.selected === qq.correctIndex;
       return `<li class="result-q ${ok ? 'ok' : 'bad'}"><strong>${esc(qq.text)}</strong>
         <small>Sizin cevabınız: ${qq.selected === null || qq.selected === undefined ? 'boş' : esc(qq.options[qq.selected])}</small>
         ${ok ? '' : `<small>Doğru cevap: ${esc(qq.options[qq.correctIndex])}</small>`}</li>`;
     }).join('');
+    const scoreBlock = attempt.graded
+      ? `<div class="result-score">${attempt.score}<span> / ${attempt.maxScore}</span></div>`
+      : '<div class="result-score pending">Değerlendiriliyor</div>';
     return { html: `${header}
       <section class="panel result-hero"><div class="pad"><p class="kicker">Sonucunuz</p>
-        <div class="result-score">${attempt.score}<span> / ${attempt.maxScore}</span></div>
+        ${scoreBlock}
         <p class="muted">Teslim: ${esc(fmtDate(attempt.submittedAt))}</p></div></section>
       ${panel('Cevaplarınız', '', `<ul class="result-list">${items}</ul>`)}` };
   }
@@ -1894,9 +1922,15 @@ async function pageSinavOgrenci(id) {
 
 function takeHtml(data, attempt) {
   const questions = data.questions.map((qq, i) => {
+    const legend = `<legend><span class="qnum">${i + 1}</span> ${esc(qq.text)} <small class="muted">(${qq.points} puan)</small></legend>`;
+    const image = qq.hasImage ? `<img class="quiz-image" src="/api/files/quiz-question/${esc(qq.id)}" alt="">` : '';
+    if (qq.kind === 'text') {
+      return `<fieldset class="quiz-question">${legend}${image}
+        <textarea class="quiz-text" data-text-question="${esc(qq.id)}" rows="4" maxlength="2000" placeholder="Cevabınızı yazın">${esc(qq.textAnswer || '')}</textarea>
+      </fieldset>`;
+    }
     const selected = qq.selected;
-    return `<fieldset class="quiz-question">
-      <legend><span class="qnum">${i + 1}</span> ${esc(qq.text)} <small class="muted">(${qq.points} puan)</small></legend>${qq.hasImage ? `<img class="quiz-image" src="/api/files/quiz-question/${esc(qq.id)}" alt="">` : ''}
+    return `<fieldset class="quiz-question">${legend}${image}
       <div class="quiz-options">${qq.options.map((option, j) => `<label class="quiz-option ${selected === j ? 'on' : ''}">
         <input type="radio" name="q-${esc(qq.id)}" value="${j}" data-question="${esc(qq.id)}" ${selected === j ? 'checked' : ''}>
         <span>${esc(option)}</span></label>`).join('')}</div>
@@ -1915,6 +1949,10 @@ function collectAnswers() {
   const answers = [];
   document.querySelectorAll('#quizForm input[type=radio]:checked').forEach(input => {
     answers.push({ questionId: input.dataset.question, selected: Number(input.value) });
+  });
+  document.querySelectorAll('#quizForm textarea[data-text-question]').forEach(area => {
+    const text = area.value.trim();
+    if (text) answers.push({ questionId: area.dataset.textQuestion, text });
   });
   return answers;
 }
@@ -1938,20 +1976,26 @@ function startTimer(deadline) {
   };
   tick();
   quizTimer = setInterval(tick, 1000);
+  const scheduleSave = () => {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(async () => {
+      const saved = document.querySelector('#quizSaved');
+      try {
+        await api(`/quiz-attempts/${attemptId}/answers`, { method: 'PUT', body: { answers: collectAnswers() } });
+        if (saved) saved.textContent = 'Cevaplar kaydedildi';
+      } catch (error) {
+        if (saved) saved.textContent = error.message;
+      }
+    }, 600);
+  };
   document.querySelectorAll('#quizForm input[type=radio]').forEach(input => {
     input.addEventListener('change', () => {
       input.closest('.quiz-options')?.querySelectorAll('.quiz-option').forEach(l => l.classList.toggle('on', l.querySelector('input').checked));
-      clearTimeout(saveTimer);
-      saveTimer = setTimeout(async () => {
-        const saved = document.querySelector('#quizSaved');
-        try {
-          await api(`/quiz-attempts/${attemptId}/answers`, { method: 'PUT', body: { answers: collectAnswers() } });
-          if (saved) saved.textContent = 'Cevaplar kaydedildi';
-        } catch (error) {
-          if (saved) saved.textContent = error.message;
-        }
-      }, 400);
+      scheduleSave();
     });
+  });
+  document.querySelectorAll('#quizForm textarea[data-text-question]').forEach(area => {
+    area.addEventListener('input', scheduleSave);
   });
 }
 
@@ -1962,8 +2006,12 @@ ACTIONS['quiz-start'] = async el => {
 
 FORMS['quiz-submit'] = async form => {
   clearQuizTimer();
+  clearTimeout(saveTimer);
+  await api(`/quiz-attempts/${form.dataset.id}/answers`, { method: 'PUT', body: { answers: collectAnswers() } }).catch(() => {});
   const result = await api(`/quiz-attempts/${form.dataset.id}/submit`, { method: 'POST', body: {} });
-  toast(`Sınavınız gönderildi: ${result.score} / ${result.maxScore}`);
+  toast(result.graded
+    ? `Sınavınız gönderildi: ${result.score} / ${result.maxScore}`
+    : 'Sınavınız gönderildi. Açık uçlu sorular öğretmeniniz puanlayınca sonucunuz görünür.');
   refresh();
 };
 
@@ -2248,7 +2296,7 @@ async function pageKarne(params) {
   const grades = data.grades.subjects.map(s => `<tr><td>${esc(s.subjectName)}</td><td>${s.count}</td><td><strong>${s.average}</strong></td></tr>`).join('');
   const attendance = data.attendance.subjects.map(s => `<tr><td>${esc(s.subjectName)}</td><td>${s.total}</td><td>${s.present}</td><td>${pct(s.present, s.total) === null ? '—' : `%${pct(s.present, s.total)}`}</td></tr>`).join('');
   const notes = data.notes.map(n => `<li><small class="muted">${esc(fmtDate(n.createdAt))} · ${esc(n.teacherName || '')}</small><p>${esc(n.body)}</p></li>`).join('');
-  return { html: `<div class="no-print print-bar"><a class="btn ghost" href="javascript:history.back()">← Geri</a><button class="btn primary" type="button" data-action="print">${icon('file')}<span>Yazdır / PDF olarak kaydet</span></button></div>
+  return { html: `<div class="no-print print-bar"><a class="btn ghost" href="javascript:history.back()">← Geri</a><a class="btn ghost" href="/api/reports/student/${esc(data.student.id)}/pdf" download>PDF indir</a><button class="btn primary" type="button" data-action="print">${icon('file')}<span>Yazdır / PDF olarak kaydet</span></button></div>
     <article class="report-sheet">
       <header class="report-head">
         <div><p class="eyebrow">Öğrenci karnesi</p><h1>${esc(data.student.name)}</h1><p class="muted">${esc(data.student.className || 'Sınıfsız')} · Okul no: ${esc(data.student.studentNo || '—')}</p></div>
@@ -2300,7 +2348,7 @@ function startLive(id, render) {
     }
   };
   ctx.tick();
-  every(ctx.tick, 1500);
+  every(ctx.tick, 2000);
   every(tickLiveTimers, 250);
 }
 
@@ -2463,6 +2511,585 @@ ACTIONS['notify-test'] = async () => {
   toast('Test bildirimi gönderildi');
 };
 
+// ---------- Güvenlik ve veri hakları (v20) ----------
+ACTIONS['forgot-open'] = () => openModal('Şifremi unuttum', `<form class="stack" data-form="forgot">
+    <p class="muted small">Hesabınıza kayıtlı e-posta adresini girin. Size 6 haneli bir sıfırlama kodu göndereceğiz.</p>
+    <label class="field"><span>E-posta</span><input name="email" type="email" required maxlength="120" autocomplete="email"></label>
+    <p class="form-error" data-error role="alert"></p>
+    <div class="form-actions"><button class="btn ghost" type="button" data-action="close-modal">Vazgeç</button><button class="btn primary" type="submit">Kod gönder</button></div>
+  </form>`);
+
+FORMS.forgot = async form => {
+  const email = val(form, 'email').trim();
+  await api('/password/forgot', { method: 'POST', body: { email } });
+  closeModal();
+  openResetModal(email);
+  toast('Kayıtlıysa e-postanıza kod gönderildi');
+};
+
+function openResetModal(email) {
+  openModal('Yeni şifre belirle', `<form class="stack" data-form="reset">
+    <label class="field"><span>E-posta</span><input name="email" type="email" required maxlength="120" value="${esc(email)}"></label>
+    <label class="field"><span>Doğrulama kodu</span><input name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required autocomplete="one-time-code"></label>
+    <label class="field"><span>Yeni şifre</span><input name="password" type="password" required minlength="8" maxlength="128" autocomplete="new-password"></label>
+    <p class="muted small">En az 8 karakter, harf ve rakam içermeli.</p>
+    <p class="form-error" data-error role="alert"></p>
+    <div class="form-actions"><button class="btn ghost" type="button" data-action="close-modal">Vazgeç</button><button class="btn primary" type="submit">Şifreyi değiştir</button></div>
+  </form>`);
+}
+
+FORMS.reset = async form => {
+  await api('/password/reset', { method: 'POST', body: { email: val(form, 'email').trim(), code: val(form, 'code').trim(), password: val(form, 'password') } });
+  closeModal();
+  toast('Şifreniz değiştirildi. Yeni şifrenizle giriş yapabilirsiniz.');
+};
+
+ACTIONS['email-open'] = () => openModal('E-posta adresi', `<form class="stack" data-form="email-save">
+    <p class="muted small">Şifre sıfırlama kodu bu adrese gönderilir. Boş bırakırsanız adres silinir.</p>
+    <label class="field"><span>E-posta</span><input name="email" type="email" maxlength="120" autocomplete="email"></label>
+    <p class="form-error" data-error role="alert"></p>
+    <div class="form-actions"><button class="btn ghost" type="button" data-action="close-modal">Vazgeç</button><button class="btn primary" type="submit">Kaydet</button></div>
+  </form>`);
+
+FORMS['email-save'] = async form => {
+  await api('/me/email', { method: 'POST', body: { email: val(form, 'email').trim() } });
+  closeModal();
+  toast('E-posta adresi kaydedildi');
+};
+
+ACTIONS['mfa-open'] = async () => {
+  if (!state.me.totpEnabled) {
+    try {
+      const { secret, uri } = await api('/me/2fa/setup', { method: 'POST', body: {} });
+      openModal('İki adımlı doğrulamayı aç', `<form class="stack" data-form="mfa-enable">
+        <p class="muted small">Google Authenticator, Microsoft Authenticator veya benzeri bir uygulamaya bu anahtarı ekleyin:</p>
+        <p><code>${esc(secret)}</code></p>
+        <p class="muted small">Uygulama kurulumunda adres olarak şunu da kullanabilirsiniz: <code>${esc(uri)}</code></p>
+        <label class="field"><span>Uygulamadaki 6 haneli kod</span><input name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required autocomplete="one-time-code"></label>
+        <p class="form-error" data-error role="alert"></p>
+        <div class="form-actions"><button class="btn ghost" type="button" data-action="close-modal">Vazgeç</button><button class="btn primary" type="submit">Etkinleştir</button></div>
+      </form>`);
+    } catch (error) {
+      toast(error.message, 'error');
+    }
+    return;
+  }
+  openModal('İki adımlı doğrulamayı kapat', `<form class="stack" data-form="mfa-disable">
+    <label class="field"><span>Şifreniz</span><input name="password" type="password" required autocomplete="current-password"></label>
+    <label class="field"><span>Uygulamadaki 6 haneli kod</span><input name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required autocomplete="one-time-code"></label>
+    <p class="form-error" data-error role="alert"></p>
+    <div class="form-actions"><button class="btn ghost" type="button" data-action="close-modal">Vazgeç</button><button class="btn primary" type="submit">Kapat</button></div>
+  </form>`);
+};
+
+FORMS['mfa-enable'] = async form => {
+  await api('/me/2fa/enable', { method: 'POST', body: { code: val(form, 'code').trim() } });
+  closeModal();
+  toast('İki adımlı doğrulama açıldı');
+};
+
+FORMS['mfa-disable'] = async form => {
+  await api('/me/2fa/disable', { method: 'POST', body: { password: val(form, 'password'), code: val(form, 'code').trim() } });
+  closeModal();
+  toast('İki adımlı doğrulama kapatıldı');
+};
+
+ACTIONS['calendar-link'] = async () => {
+  const { url } = await api('/me/calendar-link', { method: 'POST', body: {} });
+  openModal('Takvim bağlantısı', `<div class="stack">
+    <p class="muted small">Bu adresi Google Takvim, Apple Takvim veya Outlook'ta "URL ile takvim ekle" ya da "internetten takvim" seçeneğine yapıştırın. Bağlantıyı kimseyle paylaşmayın.</p>
+    <p><code>${esc(url)}</code></p>
+    <div class="form-actions"><button class="btn primary" type="button" data-action="close-modal">Tamam</button></div>
+  </div>`);
+};
+
+ACTIONS['delete-request'] = async () => {
+  const yes = await confirmDialog('Hesap silme talebi', 'Talebiniz okul müdürü tarafından onaylanınca hesabınız ve kişisel verileriniz kalıcı olarak anonimleştirilir. Bu işlem geri alınamaz.');
+  if (!yes) return;
+  await api('/me/delete-request', { method: 'POST', body: {} });
+  toast('Talebiniz müdüre iletildi');
+};
+
+ACTIONS['deletion-open'] = async () => {
+  const { requests } = await api('/deletion-requests');
+  openModal('Silme talepleri', `<div class="stack">${requests.length ? requests.map(r => `<div class="list-row">
+      <div class="list-main"><strong>${esc(r.userName)}</strong><small class="muted">${esc(fmtDate(r.createdAt))} · ${esc(r.status)}</small></div>
+      ${r.status === 'bekliyor' ? `<div class="row-actions">
+        <button class="btn ghost sm" type="button" data-action="deletion-decide" data-id="${esc(r.id)}" data-approve="0">Reddet</button>
+        <button class="btn primary sm" type="button" data-action="deletion-decide" data-id="${esc(r.id)}" data-approve="1">Onayla ve anonimleştir</button>
+      </div>` : ''}
+    </div>`).join('') : '<p class="muted">Bekleyen talep yok.</p>'}</div>`);
+};
+
+ACTIONS['deletion-decide'] = async el => {
+  const approve = el.dataset.approve === '1';
+  const yes = await confirmDialog(approve ? 'Hesabı anonimleştir' : 'Talebi reddet', approve
+    ? 'Hesap kalıcı olarak anonimleştirilecek: ad, kullanıcı adı ve e-posta silinecek, giriş yapılamayacak.'
+    : 'Talep reddedilecek ve hesap olduğu gibi kalacak.');
+  if (!yes) return;
+  await api(`/deletion-requests/${el.dataset.id}/decide`, { method: 'POST', body: { approve } });
+  toast('Karar kaydedildi');
+  ACTIONS['deletion-open']();
+};
+
+// KVKK: giriş sonrası aydınlatma metni onayı. Onaylanmadan veriler kullanılmaya devam etmez (istemci tarafı kapı).
+export async function ensureKvkk() {
+  const { notice, accepted } = await api('/kvkk');
+  if (accepted) return;
+  openModal(notice.title, `<form class="stack" data-form="kvkk" data-version="${esc(notice.version)}">
+    <p class="muted small">${esc(notice.intro)}</p>
+    <div class="kvkk-text">${notice.sections.map(s => `<h4>${esc(s.title)}</h4><p>${esc(s.text)}</p>`).join('')}</div>
+    <label class="switch switch-line"><input type="checkbox" name="accept"><span class="switch-ui" aria-hidden="true"></span>
+      <span><strong>Okudum, anladım.</strong><small>Kişisel verilerimin bu metne göre işlenmesini kabul ediyorum.</small></span></label>
+    <p class="form-error" data-error role="alert"></p>
+    <div class="form-actions"><button class="btn primary" type="submit">Devam et</button></div>
+  </form>`);
+}
+
+FORMS.kvkk = async form => {
+  if (!form.querySelector('[name=accept]').checked) throw new Error('Devam etmek için metni okuduğunuzu onaylayın.');
+  await api('/kvkk/accept', { method: 'POST', body: { version: form.dataset.version } });
+  closeModal();
+  toast('Teşekkürler. Verileriniz aydınlatma metnine göre işlenir.');
+};
+
+
+// ---------- Müdür analizi (v21) ----------
+async function pageAnaliz() {
+  const data = await api('/analytics/school');
+  const attendanceRows = data.classes.map(c => ({ label: c.name, value: c.attendanceRate ?? 0 }));
+  const quizRows = data.classes.filter(c => c.quizAverage != null).map(c => ({ label: c.name, value: c.quizAverage }));
+  const absentRows = data.topAbsent.map(a => `<li class="list-row">
+      <div class="list-main"><strong>${esc(a.studentName)}</strong><small class="muted">${esc(a.className)} · son 30 gün</small></div>
+      ${badge(`${a.absences} / ${a.total} ders`, 'danger')}
+    </li>`).join('');
+  return { html: `${head('Okul analizi', 'Son 30 günün devam ve sınav özeti. Tüm sınıflar.')}
+    <div class="stats">
+      ${stat('Okul devamı', data.schoolAttendanceRate == null ? '—' : `%${data.schoolAttendanceRate}`, 'Son 30 gün', 'check')}
+      ${stat('Sınıf', data.classes.length, 'Kayıtlı sınıf', 'school')}
+      ${stat('Öğrenci', data.classes.reduce((n, c) => n + c.students, 0), 'Tüm sınıflarda', 'users')}
+      ${stat('Devamsız öğrenci', data.topAbsent.length, 'En çok devamsızlık (ilk 10)', 'chart')}
+    </div>
+    <div class="two-col">
+      ${panel('Sınıflara göre devam', '%', `<div class="pad">${barRows(attendanceRows, { emptyText: 'Henüz yoklama yok' })}</div>`)}
+      ${panel('Sınıflara göre sınav ortalaması', '%', `<div class="pad">${barRows(quizRows, { emptyText: 'Henüz sınav sonucu yok' })}</div>`)}
+    </div>
+    ${panel('En çok devamsızlığı olan öğrenciler', '', absentRows ? `<ul class="list">${absentRows}</ul>` : empty('Devamsızlık yok', 'Son 30 günde kayıtlı devamsızlık bulunmuyor.'))}` };
+}
+
+ACTIONS['mail-test'] = async () => {
+  try {
+    const result = await api('/mail/test', { method: 'POST', body: {} });
+    toast(`Test e-postası gönderildi: ${result.to}`);
+  } catch (error) {
+    toast(error.message, 'error');
+  }
+};
+
+// ---------- Pansiyon: evci ve çarşı izni defteri (v25) ----------
+const LEAVE_KINDS = { evci: 'Evci izni', carsi: 'Çarşı izni' };
+const LEAVE_STATUS = { bekliyor: 'Bekliyor', onaylandi: 'Onaylı', reddedildi: 'Reddedildi', iptal: 'İptal', disarida: 'Dışarıda', tamamlandi: 'Döndü' };
+const LEAVE_TONE = { onaylandi: 'ok', reddedildi: 'danger', disarida: 'warn', tamamlandi: 'ok' };
+const SIGNER_LABEL = { ogrenci: 'Öğrenci', veli: 'Veli', diger: 'Diğer' };
+const localInput = date => new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+
+// E-imza alanı: dokunmatik ve fare ile çizim (pointer olayları)
+function initSignature() {
+  const canvas = document.querySelector('canvas[data-signature]');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  ctx.lineWidth = 2.6;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = '#11231d';
+  let drawing = false;
+  let last = null;
+  const point = event => {
+    const rect = canvas.getBoundingClientRect();
+    return { x: (event.clientX - rect.left) * (canvas.width / rect.width), y: (event.clientY - rect.top) * (canvas.height / rect.height) };
+  };
+  canvas.addEventListener('pointerdown', event => {
+    drawing = true;
+    last = point(event);
+    canvas.setPointerCapture(event.pointerId);
+  });
+  canvas.addEventListener('pointermove', event => {
+    if (!drawing) return;
+    const next = point(event);
+    ctx.beginPath();
+    ctx.moveTo(last.x, last.y);
+    ctx.lineTo(next.x, next.y);
+    ctx.stroke();
+    last = next;
+    canvas.dataset.dirty = '1';
+  });
+  const stop = () => { drawing = false; };
+  canvas.addEventListener('pointerup', stop);
+  canvas.addEventListener('pointercancel', stop);
+}
+
+async function pageIzin() {
+  const { enabled } = await api('/boarding');
+  const role = state.me.role;
+  const staff = role === 'principal' || role === 'teacher';
+  const admin = role === 'principal';
+  const canRequest = (role === 'student' || role === 'parent') && enabled;
+  const actions = [
+    canRequest ? `<button class="btn primary" type="button" data-action="leave-new">${icon('plus')}<span>Yeni izin talebi</span></button>` : '',
+    staff && enabled ? '<button class="btn ghost" type="button" data-action="gece-open">Gece yoklaması</button>' : '',
+    staff && enabled ? '<a class="btn ghost" href="/api/leaves/export" download>CSV indir</a>' : '',
+    admin ? `<button class="btn ghost" type="button" data-action="boarding-toggle" data-on="${enabled ? '0' : '1'}">${enabled ? 'Pansiyon modunu kapat' : 'Pansiyon modunu aç'}</button>` : '',
+  ].join('');
+  const header = head('İzin defteri', enabled ? 'Evci ve çarşı izinleri: talep, onay, çıkış ve dönüş e-imzası.' : 'Bu özellik pansiyonlu okullar içindir.', actions);
+  if (!enabled) {
+    return { html: `${header}${panel('Pansiyon modu kapalı', '', empty('Pansiyon modu kapalı', admin ? 'Okulunuz pansiyonluysa yukarıdaki düğmeyle açın.' : 'Okul yönetimi pansiyon modunu açtığında izin talepleri burada görünür.'))}` };
+  }
+  const { leaves } = await api('/leaves');
+  const groups = staff ? [
+    ['Onay bekleyen talepler', leaves.filter(l => l.canDecide)],
+    ['Çıkış imzası bekleyen (onaylı)', leaves.filter(l => l.canExit)],
+    ['Dışarıdaki öğrenciler (dönüş imzası bekliyor)', leaves.filter(l => l.canReturn)],
+  ] : [];
+  const sections = groups.filter(([, items]) => items.length)
+    .map(([title, items]) => panel(title, `${items.length} kayıt`, `<ul class="list">${items.map(leaveRowHtml).join('')}</ul>`)).join('');
+  const all = panel('Tüm kayıtlar', `${leaves.length} kayıt`, leaves.length
+    ? `<ul class="list">${leaves.map(leaveRowHtml).join('')}</ul>`
+    : empty('Kayıt yok', 'Talep oluşturulduğunda burada görünür.'));
+  return { html: `${header}${sections}${all}` };
+}
+
+function leaveRowHtml(l) {
+  const span = `${fmtDate(l.startsAt)} → ${fmtDate(l.endsAt)}`;
+  const signed = [
+    l.exitAt ? `Çıkış: ${fmtDate(l.exitAt)} · ${esc(l.exitName || '')} ${esc(l.exitSurname || '')} (${esc(SIGNER_LABEL[l.exitSigner] || '')})` : '',
+    l.returnAt ? `Dönüş: ${fmtDate(l.returnAt)} · ${esc(l.returnName || '')} ${esc(l.returnSurname || '')}` : '',
+  ].filter(Boolean).join(' · ');
+  const staffView = state.me.role === 'principal' || state.me.role === 'teacher';
+  const actions = [
+    l.canDecide ? `<button class="btn ghost sm" type="button" data-action="leave-decide" data-id="${esc(l.id)}" data-approve="0">Reddet</button><button class="btn primary sm" type="button" data-action="leave-decide" data-id="${esc(l.id)}" data-approve="1">Onayla</button>` : '',
+    l.canExit ? `<button class="btn primary sm" type="button" data-action="leave-sign" data-mode="exit" data-id="${esc(l.id)}">Çıkış imzası</button>` : '',
+    l.canReturn ? `<button class="btn primary sm" type="button" data-action="leave-sign" data-mode="return" data-id="${esc(l.id)}">Dönüş imzası</button>` : '',
+    l.canCancel ? `<button class="btn ghost sm" type="button" data-action="leave-cancel" data-id="${esc(l.id)}">İptal et</button>` : '',
+    staffView && (l.exitAt || l.returnAt) ? `<button class="btn ghost sm" type="button" data-action="leave-signatures" data-id="${esc(l.id)}">İmzalar</button>` : '',
+  ].join('');
+  return `<li class="list-row">
+    <div class="list-main"><strong>${esc(l.studentName)}${l.className ? ` · ${esc(l.className)}` : ''}</strong>
+      <small class="muted">${esc(LEAVE_KINDS[l.kind] || l.kind)} · ${esc(span)}${l.reason ? ` · ${esc(l.reason)}` : ''}</small>
+      ${signed ? `<small class="muted">${signed}</small>` : ''}</div>
+    <div class="row-actions">${badge(LEAVE_STATUS[l.status] || l.status, LEAVE_TONE[l.status] || '')}${actions}</div>
+  </li>`;
+}
+
+ACTIONS['boarding-toggle'] = async el => {
+  await api('/boarding', { method: 'PUT', body: { enabled: el.dataset.on === '1' } });
+  toast(el.dataset.on === '1' ? 'Pansiyon modu açıldı' : 'Pansiyon modu kapatıldı');
+  refresh();
+};
+
+ACTIONS['leave-decide'] = async el => {
+  await api(`/leaves/${el.dataset.id}/decide`, { method: 'POST', body: { approve: el.dataset.approve === '1' } });
+  toast('Karar kaydedildi');
+  refresh();
+};
+
+ACTIONS['leave-cancel'] = async el => {
+  const yes = await confirmDialog('İzin talebini iptal et', 'Talep iptal edilecek.');
+  if (!yes) return;
+  await api(`/leaves/${el.dataset.id}/cancel`, { method: 'POST', body: {} });
+  toast('Talep iptal edildi');
+  refresh();
+};
+
+ACTIONS['leave-new'] = async () => {
+  let students = '';
+  if (state.me.role === 'parent') {
+    const data = await api('/parent/children');
+    const children = Array.isArray(data) ? data : (data.children || []);
+    students = `<label class="field"><span>Öğrenci</span><select name="studentId">${children.map(c => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('')}</select></label>`;
+  }
+  const now = new Date();
+  openModal('Yeni izin talebi', `<form class="stack" data-form="leave-new">
+    ${students}
+    <label class="field"><span>İzin türü</span><select name="kind"><option value="evci">Evci izni</option><option value="carsi">Çarşı izni</option></select></label>
+    <div class="grid-2">
+      <label class="field"><span>Çıkış</span><input name="startsAt" type="datetime-local" required value="${localInput(new Date(now.getTime() + 3600e3))}"></label>
+      <label class="field"><span>Dönüş</span><input name="endsAt" type="datetime-local" required value="${localInput(new Date(now.getTime() + 2 * 864e5))}"></label>
+    </div>
+    <label class="field"><span>Açıklama (isteğe bağlı)</span><input name="reason" maxlength="300"></label>
+    <p class="form-error" data-error role="alert"></p>
+    <div class="form-actions"><button class="btn ghost" type="button" data-action="close-modal">Vazgeç</button><button class="btn primary" type="submit">Talep gönder</button></div>
+  </form>`);
+};
+
+FORMS['leave-new'] = async form => {
+  const body = {
+    kind: val(form, 'kind'),
+    startsAt: new Date(val(form, 'startsAt')).toISOString(),
+    endsAt: new Date(val(form, 'endsAt')).toISOString(),
+    reason: val(form, 'reason').trim(),
+  };
+  if (form.querySelector('[name=studentId]')) body.studentId = val(form, 'studentId');
+  await api('/leaves', { method: 'POST', body });
+  closeModal();
+  toast('İzin talebi gönderildi');
+  refresh();
+};
+
+ACTIONS['leave-sign'] = el => {
+  const mode = el.dataset.mode;
+  openModal(mode === 'exit' ? 'Çıkış imzası' : 'Dönüş imzası', `<form class="stack" data-form="leave-sign" data-id="${esc(el.dataset.id)}" data-mode="${mode}">
+    <p class="muted small">Çıkacak veya dönecek kişi bilgilerini yazıp ekrandaki alana imzasını atar.</p>
+    <label class="field"><span>İmzalayan</span><select name="signerRole"><option value="ogrenci">Öğrenci</option><option value="veli">Veli</option><option value="diger">Diğer</option></select></label>
+    <div class="grid-2">
+      <label class="field"><span>Ad</span><input name="name" required maxlength="60" autocomplete="off"></label>
+      <label class="field"><span>Soyad</span><input name="surname" required maxlength="60" autocomplete="off"></label>
+    </div>
+    <label class="field"><span>Öğrenci numarası (öğrenci imzalıyorsa zorunlu)</span><input name="studentNo" maxlength="20" autocomplete="off"></label>
+    <div class="sig-wrap">
+      <canvas class="sig-pad" data-signature width="640" height="220" aria-label="E-imza alanı"></canvas>
+      <button class="btn ghost sm" type="button" data-action="sig-clear">Temizle</button>
+    </div>
+    <p class="form-error" data-error role="alert"></p>
+    <div class="form-actions"><button class="btn ghost" type="button" data-action="close-modal">Vazgeç</button><button class="btn primary" type="submit">Kaydet ve imzala</button></div>
+  </form>`);
+  initSignature();
+};
+
+ACTIONS['sig-clear'] = () => {
+  const canvas = document.querySelector('canvas[data-signature]');
+  if (!canvas) return;
+  canvas.getContext('2d').clearRect(0, 0, canvas.width, canvas.height);
+  delete canvas.dataset.dirty;
+};
+
+FORMS['leave-sign'] = async form => {
+  const canvas = form.querySelector('canvas[data-signature]');
+  if (!canvas.dataset.dirty) throw new Error('Lütfen ekrana imzanızı atın.');
+  const mode = form.dataset.mode;
+  await api(`/leaves/${form.dataset.id}/${mode}`, { method: 'POST', body: {
+    signerRole: val(form, 'signerRole'),
+    name: val(form, 'name').trim(),
+    surname: val(form, 'surname').trim(),
+    studentNo: val(form, 'studentNo').trim(),
+    signature: canvas.toDataURL('image/png'),
+  } });
+  closeModal();
+  toast(mode === 'exit' ? 'Çıkış kaydedildi' : 'Dönüş kaydedildi');
+  refresh();
+};
+
+ACTIONS['leave-signatures'] = async el => {
+  const s = await api(`/leaves/${el.dataset.id}/signatures`);
+  const block = (label, signer, name, surname, no, at, img) => img
+    ? `<div class="stack"><strong>${esc(label)}</strong><small class="muted">${esc(fmtDate(at))} · ${esc(name || '')} ${esc(surname || '')} · ${esc(SIGNER_LABEL[signer] || '')}${no ? ` · No: ${esc(no)}` : ''}</small><img class="sig-img" alt="E-imza" src="${esc(img)}"></div>`
+    : '';
+  openModal('E-imzalar', `<div class="stack">${block('Çıkış', s.exitSigner, s.exitName, s.exitSurname, s.exitStudentNo, s.exitAt, s.exitSignature)}${block('Dönüş', s.returnSigner, s.returnName, s.returnSurname, s.returnStudentNo, s.returnAt, s.returnSignature)}</div>`);
+};
+
+// ---------- Pansiyon: gece yoklaması (v26) ----------
+const NIGHT_LABEL = { var: 'Yatıyor', yok: 'Yok', izinli: 'İzinli' };
+const istanbulToday = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Istanbul' }).format(new Date());
+
+async function pageGece(params) {
+  const staffClasses = state.me.role === 'teacher' ? teacherClasses() : state.classes;
+  if (!staffClasses.length) return { html: `${head('Gece yoklaması', 'Sınıf atandığında burada görünür.')}${panel('Sınıf yok', '', empty('Sınıf yok', 'Gece yoklaması için bir sınıfa atanmanız gerekir.'))}` };
+  const classId = staffClasses.some(c => c.id === params.classId) ? params.classId : staffClasses[0].id;
+  const date = params.date || istanbulToday();
+  const { students, date: shownDate } = await api(`/night-roll?classId=${encodeURIComponent(classId)}&date=${encodeURIComponent(date)}`);
+  const select = `<select data-change="classPick" data-page="gece" aria-label="Sınıf seç">${staffClasses.map(c => `<option value="${esc(c.id)}" ${c.id === classId ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select>`;
+  const dateInput = `<input type="date" value="${esc(shownDate)}" data-change="geceDate" aria-label="Gece tarihi">`;
+  const actions = `${dateInput}${select}<button class="btn primary" type="button" data-action="gece-save" data-class="${esc(classId)}" data-date="${esc(shownDate)}">Kaydet</button>`;
+  const rows = students.map(s => `<li class="list-row" data-student="${esc(s.id)}" data-status="${esc(s.status || '')}">
+      <div class="list-main"><strong>${esc(s.name)}</strong><small class="muted">${esc(s.studentNo || '')}${s.suggested ? ' · onaylı izin: izinli önerildi' : ''}</small></div>
+      <div class="row-actions">${Object.entries(NIGHT_LABEL).map(([value, label]) => `<button type="button" class="seg-btn ${value} ${s.status === value ? 'on' : ''}" data-action="gece-set" data-value="${value}" aria-pressed="${s.status === value}">${label}</button>`).join('')}</div>
+    </li>`).join('');
+  return { html: `${head('Gece yoklaması', 'Yatılı öğrencileri gece yoklayın. "Yok" işaretlenenlerin velisine bildirim gider.', actions)}
+    ${panel('Öğrenciler', `${students.length} öğrenci`, students.length ? `<ul class="list">${rows}</ul>` : empty('Öğrenci yok', 'Bu sınıfta kayıtlı öğrenci bulunmuyor.'))}` };
+}
+
+CHANGES.geceDate = el => setQuery('gece', { classId: document.querySelector('select[data-page=gece]')?.value || '', date: el.value });
+
+ACTIONS['gece-set'] = el => {
+  const row = el.closest('[data-student]');
+  row.dataset.status = el.dataset.value;
+  row.querySelectorAll('.seg-btn').forEach(button => {
+    const on = button === el;
+    button.classList.toggle('on', on);
+    button.setAttribute('aria-pressed', String(on));
+  });
+};
+
+ACTIONS['gece-save'] = async el => {
+  const records = {};
+  document.querySelectorAll('[data-student]').forEach(row => {
+    if (row.dataset.status) records[row.dataset.student] = row.dataset.status;
+  });
+  await api('/night-roll', { method: 'PUT', body: { classId: el.dataset.class, date: el.dataset.date, records } });
+  toast('Gece yoklaması kaydedildi');
+  refresh();
+};
+
+ACTIONS['gece-open'] = () => setQuery('gece', {});
+
+// ---------- Açık uçlu sorular: öğretmen puanlaması (v27) ----------
+CHANGES.quizKind = el => { el.closest('.quiz-q').dataset.kind = el.value; };
+
+ACTIONS['grade-open'] = async el => {
+  const data = await api(`/quizzes/${el.dataset.id}/grading`);
+  if (!data.questions.length) {
+    toast('Bu sınavda açık uçlu soru yok');
+    return;
+  }
+  const students = data.attempts.map(at => `<div class="grade-student">
+      <strong>${esc(at.studentName)}</strong><small class="muted">Teslim: ${esc(fmtDate(at.submittedAt))}</small>
+      ${data.questions.map(qq => {
+        const answer = at.answers.find(x => x.questionId === qq.id);
+        return `<div class="grade-answer">
+          <small class="muted">${esc(qq.text)} · en çok ${qq.points} puan</small>
+          <p class="grade-text">${answer?.textAnswer ? esc(answer.textAnswer) : '<span class="muted">Cevap yok</span>'}</p>
+          <label class="field grade-input"><span>Puan</span>
+            <input type="number" min="0" max="${qq.points}" step="1" data-attempt="${esc(at.attemptId)}" data-question="${esc(qq.id)}" value="${answer?.awarded ?? ''}"></label>
+        </div>`;
+      }).join('')}
+    </div>`).join('');
+  openModal('Açık uçlu soruların puanlanması', `<form class="stack" data-form="grade-save" data-id="${esc(el.dataset.id)}">
+    ${students || '<p class="muted">Teslim edilmiş deneme yok.</p>'}
+    <p class="form-error" data-error role="alert"></p>
+    <div class="form-actions"><button class="btn ghost" type="button" data-action="close-modal">Vazgeç</button><button class="btn primary" type="submit">Puanları kaydet</button></div>
+  </form>`);
+};
+
+FORMS['grade-save'] = async form => {
+  const grades = [];
+  form.querySelectorAll('input[data-attempt]').forEach(input => {
+    if (input.value === '') return;
+    grades.push({ attemptId: input.dataset.attempt, questionId: input.dataset.question, points: Number(input.value) });
+  });
+  if (!grades.length) throw new Error('Kaydedilecek puan yok.');
+  await api(`/quizzes/${form.dataset.id}/grade`, { method: 'POST', body: { grades } });
+  closeModal();
+  toast('Puanlar kaydedildi');
+  refresh();
+};
+
+// ---------- GeoGebra (v30): uygulama sayfanın içinde açılır ----------
+const GGB_APPS = [['graphing', 'Grafik', 'graphing'], ['calculator', 'Hesap makinesi', 'scientific'], ['geometry', 'Geometri', 'geometry'], ['3d', '3B', '3d'], ['classic', 'Klasik', 'classic'], ['cas', 'CAS', 'suite']];
+let ggbScriptPromise = null;
+
+function loadGeogebra() {
+  if (window.GGBApplet) return Promise.resolve();
+  if (!ggbScriptPromise) {
+    ggbScriptPromise = new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = 'https://www.geogebra.org/apps/deployggb.js';
+      script.async = true;
+      script.onload = () => resolve();
+      script.onerror = () => { ggbScriptPromise = null; reject(new Error('GeoGebra yüklenemedi')); };
+      document.head.appendChild(script);
+    });
+  }
+  return ggbScriptPromise;
+}
+
+// Uygulamayı sayfanın içine yerleştirir. options.material_id varsa paylaşılan materyali açar.
+async function ggbInject(options, fallbackUrl) {
+  const host = document.querySelector('#ggbApplet');
+  if (!host) return;
+  host.innerHTML = '<div class="ggb-loading">GeoGebra yükleniyor…</div>';
+  try {
+    await loadGeogebra();
+    host.innerHTML = '';
+    const width = Math.max(320, Math.floor(host.clientWidth) || 800);
+    const applet = new window.GGBApplet({ width, height: 560, showToolBar: true, showAlgebraInput: true, showMenuBar: false, language: 'tr', ...options }, true);
+    applet.inject('ggbApplet');
+  } catch (error) {
+    host.innerHTML = `<div class="ggb-fallback"><p>GeoGebra şu anda açılamadı. Bağlantınızı kontrol edip tekrar deneyin.</p>
+      <a class="btn primary" href="${esc(fallbackUrl || 'https://www.geogebra.org')}" target="_blank" rel="noopener">GeoGebra'yı yeni sekmede aç</a></div>`;
+  }
+}
+
+function setGgbName(text) {
+  const name = document.querySelector('#ggbName');
+  if (name) name.textContent = text;
+}
+
+async function pageGeogebra(params) {
+  const app = GGB_APPS.find(([key]) => key === params.app) || GGB_APPS[0];
+  const { materials } = await api('/geogebra/materials');
+  const canAdd = state.me.role === 'teacher' || state.me.role === 'principal';
+  const tabs = GGB_APPS.map(([key, label, appName]) => `<button type="button" class="seg-btn ${key === app[0] ? 'on' : ''}" data-action="ggb-app" data-app="${esc(appName)}" data-label="${esc(label)}" aria-pressed="${key === app[0]}">${esc(label)}</button>`).join('');
+  const list = materials.map(m => {
+    const match = /\/m\/([A-Za-z0-9]+)/.exec(m.url);
+    return `<li class="list-row">
+      <div class="list-main"><strong>${esc(m.title)}</strong><small class="muted">${esc(m.className)}</small></div>
+      <div class="row-actions">
+        <button class="btn ghost sm" type="button" data-action="ggb-open" data-url="${esc(m.url)}" data-material="${esc(match ? match[1] : '')}">Sayfada aç</button>
+        <a class="btn ghost sm" href="${esc(m.url)}" target="_blank" rel="noopener">Yeni sekmede</a>
+        ${m.canDelete ? `<button class="icon-btn sm" type="button" data-action="ggb-del" data-id="${esc(m.id)}" aria-label="Materyali sil">${icon('trash')}</button>` : ''}
+      </div>
+    </li>`;
+  }).join('');
+  const addButton = canAdd ? `<button class="btn primary" type="button" data-action="ggb-add">${icon('plus')}<span>Materyal ekle</span></button>` : '';
+  return {
+    html: `${head('GeoGebra', 'Grafik, geometri ve hesap uygulamaları sayfanın içinde açılır. Öğretmenler sınıfa materyal ekleyebilir.', addButton)}
+      ${panel('Uygulama', '', `<div class="pad stack">
+        <div class="row-actions ggb-tabs">${tabs}</div>
+        <div class="ggb-stage">
+          <div id="ggbApplet" class="ggb-host" aria-label="GeoGebra uygulaması"></div>
+          <span class="ggb-watermark" id="ggbName">GeoGebra · ${esc(app[1])}</span>
+        </div>
+      </div>`)}
+      ${panel('Sınıf materyalleri', `${materials.length} materyal`, materials.length
+        ? `<ul class="list">${list}</ul>`
+        : empty('Materyal yok', 'Öğretmeniniz sınıfa GeoGebra materyali eklediğinde burada görünür.'))}`,
+    after: () => ggbInject({ appName: app[2] }),
+  };
+}
+
+ACTIONS['ggb-app'] = el => {
+  document.querySelectorAll('.ggb-tabs .seg-btn').forEach(button => {
+    const on = button === el;
+    button.classList.toggle('on', on);
+    button.setAttribute('aria-pressed', String(on));
+  });
+  setGgbName(`GeoGebra · ${el.dataset.label}`);
+  ggbInject({ appName: el.dataset.app });
+};
+
+ACTIONS['ggb-open'] = el => {
+  const material = el.dataset.material;
+  setGgbName('GeoGebra · Materyal');
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  ggbInject(material ? { material_id: material } : { appName: 'graphing' }, el.dataset.url);
+};
+
+ACTIONS['ggb-add'] = () => {
+  const classes = state.me.role === 'teacher' ? teacherClasses() : state.classes;
+  openModal('GeoGebra materyali ekle', `<form class="stack" data-form="ggb-add">
+    <label class="field"><span>Sınıf</span><select name="classId">${classes.map(c => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('')}</select></label>
+    <label class="field"><span>Başlık</span><input name="title" required minlength="2" maxlength="120" placeholder="Örn. Üçgenin alanı"></label>
+    <label class="field"><span>GeoGebra bağlantısı</span><input name="url" type="url" required maxlength="500" placeholder="https://www.geogebra.org/m/..."></label>
+    <p class="muted small">Yalnızca geogebra.org bağlantıları kabul edilir. Materyali GeoGebra'da oluşturup paylaşım bağlantısını buraya yapıştırın.</p>
+    <p class="form-error" data-error role="alert"></p>
+    <div class="form-actions"><button class="btn ghost" type="button" data-action="close-modal">Vazgeç</button><button class="btn primary" type="submit">Ekle</button></div>
+  </form>`);
+};
+
+FORMS['ggb-add'] = async form => {
+  await api('/geogebra/materials', { method: 'POST', body: { classId: val(form, 'classId'), title: val(form, 'title').trim(), url: val(form, 'url').trim() } });
+  closeModal();
+  toast('Materyal eklendi');
+  refresh();
+};
+
+ACTIONS['ggb-del'] = async el => {
+  const yes = await confirmDialog('Materyali sil', 'Bu materyal sınıftan kaldırılacak.');
+  if (!yes) return;
+  await api(`/geogebra/materials/${el.dataset.id}`, { method: 'DELETE' });
+  toast('Materyal silindi');
+  refresh();
+};
+
 // ---------- Yönlendirme tablosu ----------
 const PAGES = {
   overview: pageOverview, classes: pageClasses, assignments: pageAssignments, attendance: pageAttendance,
@@ -2470,7 +3097,7 @@ const PAGES = {
   yardim: async () => ({ html: helpHtml() }),
   panolar: pagePanolar, pano: pageBoard, asistan: pageAsistan,
   cocuklar: pageCocuklar, sinavlar: pageSinavlar, sinav: pageSinav, notlar: pageNotlar,
-  davranis: pageDavranis, puanlarim: pagePuanlarim, program: pageProgram, takvim: pageTakvim, karne: pageKarne, canli: pageCanli,
+  davranis: pageDavranis, puanlarim: pagePuanlarim, program: pageProgram, takvim: pageTakvim, karne: pageKarne, canli: pageCanli, analiz: pageAnaliz, izin: pageIzin, gece: pageGece, geogebra: pageGeogebra,
 };
 export function renderView(page, params) {
   if (page === 'overview' && state.me.role === 'parent') return pageParentOverview();

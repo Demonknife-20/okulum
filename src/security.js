@@ -31,9 +31,18 @@ function verifyPassword(password, stored) {
   return expected.length === actual.length && crypto.timingSafeEqual(actual, expected);
 }
 
+async function verifyPasswordAsync(password, stored) {
+  const [alg, salt, hash] = String(stored || '').split('$');
+  if (alg !== 'scrypt' || !salt || !hash) return false;
+  const actual = await scryptAsync(String(password), salt, 64, SCRYPT);
+  const expected = Buffer.from(hash, 'hex');
+  return expected.length === actual.length && crypto.timingSafeEqual(actual, expected);
+}
+
 // Kullanıcı bulunamadığında da aynı süre harcansın diye (zamanlama saldırısına karşı).
 const DUMMY_HASH = hashPassword(crypto.randomBytes(12).toString('hex'));
 const burnTime = password => verifyPassword(password, DUMMY_HASH);
+const burnTimeAsync = password => verifyPasswordAsync(password, DUMMY_HASH);
 
 // ---- Oturum (imzalı çerez) ----
 const sign = data => crypto.createHmac('sha256', SECRET).update(data).digest('base64url');
@@ -129,7 +138,7 @@ function redact(text) {
 module.exports = {
   redact,
   createLimiter,
-  COOKIE, hashPassword, hashPasswordAsync, verifyPassword, burnTime, fingerprint,
+  COOKIE, hashPassword, hashPasswordAsync, verifyPassword, verifyPasswordAsync, burnTime, burnTimeAsync, fingerprint,
   readToken, setSessionCookie, clearSessionCookie, readCookie,
   isLimited, recordFailure, clearFailures,
 };

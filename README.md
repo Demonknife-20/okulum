@@ -350,3 +350,18 @@ Müdür tüm okulu, öğretmen kendi derslerini, öğrenci yalnızca kendi devam
 - Menü açıkken alt gezinme çubuğu ve bildirim kutusu gizlenir, böylece alt paneldeki "Hesabım" ve "Çıkış" düğmeleri her zaman dokunulabilir.
 - Alt panel menünün en altına sabitlenir (yapışkan). Menü uzunsa kendi içinde kaydırılır.
 - Düğmeler telefonda en az 50 piksel yüksekliğinde.
+
+## GeoGebra paneli (v29)
+
+- **Menü:** Tüm kullanıcılarda "GeoGebra". Grafik, hesap makinesi, geometri, 3B, klasik ve CAS uygulamaları sekmelerden açılır.
+- **Sınıf materyalleri:** Öğretmen (ve müdür) sınıfına GeoGebra bağlantısı ekler; öğrenci ve veli kendi sınıfının materyallerini açar. Materyali GeoGebra'da oluşturup paylaşım bağlantısını yapıştırın.
+- **Güvenlik:** Yalnızca `https` ve `geogebra.org` (ve alt alan adları) bağlantıları kabul edilir. Sayfa çerçevesi yalnızca GeoGebra alan adına izin verilir (CSP `frame-src`).
+- **Not:** Uygulamaların çerçeve içinde açılması GeoGebra'nın kendi ayarlarına bağlıdır. Açılmazsa "Yeni sekmede" bağlantısı kullanılabilir.
+
+## GeoGebra sayfa içinde (v30)
+
+- GeoGebra uygulaması artık sayfanın içinde açılır (resmi `deployggb.js` betiği ile). Sekmeler: Grafik, Hesap makinesi, Geometri, 3B, Klasik, CAS.
+- Uygulamanın üstünde "GeoGebra · <uygulama adı>" etiketi görünür.
+- Sınıf materyali "Sayfada aç" ile yüklenir (GeoGebra paylaşım kimliği üzerinden).
+- Uygulama yüklenemezse (ağ, reklam engelleyici, GeoGebra'nın erişilemezliği) bir yedek bağlantı gösterilir.
+- Gereksinim: `https://www.geogebra.org` erişilebilir olmalı. GeoGebra uygulamaları GeoGebra'nın sunucularından yüklenir; kendi sunucunuza kopyalanamaz.

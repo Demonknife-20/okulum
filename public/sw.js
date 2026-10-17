@@ -1,5 +1,32 @@
 // Okulum servis çalışanı: Web Push bildirimlerini gösterir ve tıklanınca ilgili sayfayı açar.
-self.addEventListener('install', () => self.skipWaiting());
+const SHELL_CACHE = 'okulum-shell-v1';
+self.addEventListener('install', event => {
+  event.waitUntil(caches.open(SHELL_CACHE).then(cache => cache.addAll(['/', '/icon.svg', '/manifest.webmanifest'])).catch(() => {}));
+  self.skipWaiting();
+});
+
+// Çevrimdışı kabuk: uygulama dosyaları ilk açılışta önbelleğe alınır, ağ yoksa oradan sunulur.
+// API istekleri asla önbelleğe alınmaz (veriler her zaman güncel olmalı).
+self.addEventListener('fetch', event => {
+  const req = event.request;
+  const url = new URL(req.url);
+  if (req.method !== 'GET' || url.origin !== self.location.origin || url.pathname.startsWith('/api/')) return;
+  event.respondWith((async () => {
+    const cache = await caches.open(SHELL_CACHE);
+    try {
+      const fresh = await fetch(req);
+      const cacheable = fresh.ok && (url.pathname === '/' || /\.[A-Za-z0-9]{8,}\.(js|css)$/.test(url.pathname)
+        || url.pathname.endsWith('.svg') || url.pathname.endsWith('.webmanifest'));
+      if (cacheable) cache.put(req, fresh.clone());
+      return fresh;
+    } catch {
+      return (await cache.match(req)) || (await cache.match('/')) || new Response('Çevrimdışısınız. Bağlantı gelince tekrar deneyin.', {
+        status: 503,
+        headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+      });
+    }
+  })());
+});
 self.addEventListener('activate', event => event.waitUntil(self.clients.claim()));
 
 self.addEventListener('push', event => {

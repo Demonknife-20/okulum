@@ -4,6 +4,13 @@ const sec = require('./security');
 const storage = require('./storage');
 const ai = require('./ai');
 const push = require('./push');
+const { runBackup, listBackups, readBackup } = require('./backup');
+const mail = require('./mail');
+const mfa = require('./mfa');
+const { KVKK_VERSION, KVKK_NOTICE } = require('./kvkk');
+const PDFDocument = require('pdfkit');
+const FONT_REGULAR = require.resolve('dejavu-fonts-ttf/ttf/DejaVuSans.ttf');
+const FONT_BOLD = require.resolve('dejavu-fonts-ttf/ttf/DejaVuSans-Bold.ttf');
 
 // ---------- Yardımcılar ----------
 class HttpError extends Error {
@@ -224,10 +231,10 @@ on('POST', '/api/login', async ({ req, res, body }) => {
   const pass = typeof body.password === 'string' ? body.password : '';
   const ipKey = `ip:${clientIp(req)}`, userKey = `user:${username}`;
   if (sec.isLimited(ipKey) || sec.isLimited(userKey)) fail(429, 'Çok fazla deneme yaptın. 15 dakika sonra tekrar dene.');
-  const { rows: [user] } = await q('select id, username, name, role, student_no, password_hash, session_version from users where username = $1', [username]);
+  const { rows: [user] } = await q('select id, username, name, role, student_no, password_hash, session_version, totp_enabled, totp_secret from users where username = $1', [username]);
   let valid = false;
-  if (user) valid = sec.verifyPassword(pass, user.password_hash);
-  else sec.burnTime(pass);
+  if (user) valid = await sec.verifyPasswordAsync(pass, user.password_hash);
+  else await sec.burnTimeAsync(pass);
   if (!valid) {
     await audit({ name: username || '?', role: 'anonymous' }, 'login_failed', username, { ip: clientIp(req) });
     sec.recordFailure(ipKey);
@@ -242,6 +249,14 @@ on('POST', '/api/login', async ({ req, res, body }) => {
   if (portal === 'member' && user.role === 'principal') {
     fail(403, 'Bu hesap müdür hesabı. Lütfen "Müdür girişi" sayfasını kullan.');
   }
+  if (user.role === 'principal' && user.totp_enabled) {
+    if (!body.totp) return ok({ mfaRequired: true });
+    if (!mfa.verifyTotp(mfa.openSecret(user.totp_secret), body.totp)) {
+      sec.recordFailure(ipKey);
+      sec.recordFailure(userKey);
+      fail(401, 'Doğrulama kodu hatalı.');
+    }
+  }
   await q('update users set last_login_at = now(), last_login_ip = $2 where id = $1', [user.id, clientIp(req)]);
   if (user.role === 'principal') await audit({ id: user.id, name: user.name, role: 'principal' }, 'login_success', user.username, { ip: clientIp(req) });
   sec.setSessionCookie(res, user);
@@ -255,7 +270,7 @@ on('POST', '/api/logout', async ({ res }) => {
 
 on('GET', '/api/me', async ({ user }) => {
   const school = (await q('select name, city, year from school where id = 1')).rows[0] || null;
-  const { rows: [login] } = await q('select last_login_at as "lastLoginAt", last_login_ip as "lastLoginIp" from users where id = $1', [user.id]);
+  const { rows: [login] } = await q('select last_login_at as "lastLoginAt", last_login_ip as "lastLoginIp", totp_enabled as "totpEnabled" from users where id = $1', [user.id]);
   let classId = null, className = null, teaching = [], classes = [], subjects = [];
   if (user.role === 'student') {
     const { rows: [row] } = await q(`select c.id, c.name from enrollments e join classes c on c.id = e.class_id where e.student_id = $1`, [user.id]);
@@ -270,12 +285,12 @@ on('GET', '/api/me', async ({ user }) => {
     classes = (await q('select id, name from classes order by length(name), name')).rows;
     subjects = (await q('select id, name from subjects order by name')).rows;
   }
-  return ok({ user: { ...publicUser(user), classId, className, lastLoginAt: login?.lastLoginAt ?? null, lastLoginIp: login?.lastLoginIp ?? null }, school, teaching, classes, subjects });
+  return ok({ user: { ...publicUser(user), classId, className, lastLoginAt: login?.lastLoginAt ?? null, lastLoginIp: login?.lastLoginIp ?? null, totpEnabled: login?.totpEnabled === true }, school, teaching, classes, subjects });
 });
 
 on('PUT', '/api/me/password', async ({ res, body, user }) => {
   const { rows: [row] } = await q('select password_hash, session_version from users where id = $1', [user.id]);
-  if (!sec.verifyPassword(typeof body.current === 'string' ? body.current : '', row.password_hash)) fail(401, 'Mevcut şifre hatalı.');
+  if (!(await sec.verifyPasswordAsync(typeof body.current === 'string' ? body.current : '', row.password_hash))) fail(401, 'Mevcut şifre hatalı.');
   const hash = sec.hashPassword(checkPassword(body.next));
   await q('update users set password_hash = $2 where id = $1', [user.id, hash]);
   await audit(user, 'password_changed', user.name);
@@ -351,6 +366,18 @@ on('GET', '/api/classes/:id/students', async ({ params, user }) => {
 }, { roles: STAFF });
 
 // ---------- Kişiler ----------
+// E-posta: küçük harfe çevrilir, biçimi denetlenir; boş bırakılırsa adres kaldırılır.
+const emailOf = value => {
+  const email = str(value, 120).toLowerCase();
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) fail(400, 'E-posta adresi geçersiz.');
+  return email || null;
+};
+async function assertEmailFree(email, exceptId = null) {
+  if (!email) return;
+  const { rowCount } = await q('select 1 from users where lower(email) = $1 and ($2::uuid is null or id <> $2)', [email, exceptId]);
+  if (rowCount) fail(409, 'Bu e-posta adresi başka bir hesapta kayıtlı.');
+}
+
 on('GET', '/api/users', async ({ user, query }) => {
   const scope = visibility(user);
   const params = [...scope.params];
@@ -366,7 +393,7 @@ on('GET', '/api/users', async ({ user, query }) => {
   const { page, size, offset } = pageOf(query);
   const { rows: [{ n }] } = await q(`select count(*)::int as n from users u where ${where}`, params);
   params.push(size, offset);
-  const { rows } = await q(`select u.id, u.name, u.role, u.username, u.student_no as "studentNo",
+  const { rows } = await q(`select u.id, u.name, u.role, u.username, u.email, u.student_no as "studentNo",
       (select c.id from enrollments e join classes c on c.id = e.class_id where e.student_id = u.id) as "classId",
       (select c.name from enrollments e join classes c on c.id = e.class_id where e.student_id = u.id) as "className",
       (select coalesce(json_agg(json_build_object('classId', t.class_id, 'subjectId', t.subject_id,
@@ -377,7 +404,7 @@ on('GET', '/api/users', async ({ user, query }) => {
     order by case u.role when 'principal' then 0 when 'teacher' then 1 else 2 end, u.name
     limit $${params.length - 1} offset $${params.length}`, params);
   // Kullanıcı adı ve ders atamaları yalnızca müdüre gösterilir.
-  const list = rows.map(row => user.role === 'principal' ? row : { ...row, username: undefined, teaching: undefined });
+  const list = rows.map(row => user.role === 'principal' ? row : { ...row, username: undefined, teaching: undefined, email: undefined });
   return ok({ users: list, total: n, page, size });
 });
 
@@ -389,14 +416,16 @@ on('POST', '/api/users', async ({ body, user }) => {
   const username = str(body.username, 32).toLowerCase();
   if (!USERNAME.test(username)) fail(400, 'Kullanıcı adı 3-32 karakter: harf, rakam, nokta, tire veya alt çizgi.');
   const pass = checkPassword(body.password);
+  const email = emailOf(body.email);
+  await assertEmailFree(email);
   const studentNo = role === 'student' ? str(body.studentNo, 20) : null;
   if (role === 'student' && !studentNo) fail(400, 'Öğrenci için okul numarası zorunlu.');
   const classId = role === 'student' && body.classId ? requireId(body.classId, 'sınıf') : null;
   const teaching = role === 'teacher' ? pairs(body.teaching) : [];
   const childIds = role === 'parent' ? await studentIdsOf(body.childIds, false) : [];
   const result = await tx(async client => {
-    const { rows: [u] } = await client.query(`insert into users (username, password_hash, name, role, student_no)
-      values ($1, $2, $3, $4, $5) returning id, username, name, role, student_no`, [username, sec.hashPassword(pass), name, role, studentNo]);
+    const { rows: [u] } = await client.query(`insert into users (username, password_hash, name, role, student_no, email)
+      values ($1, $2, $3, $4, $5, $6) returning id, username, name, role, student_no`, [username, sec.hashPassword(pass), name, role, studentNo, email]);
     if (classId) await client.query('insert into enrollments (student_id, class_id) values ($1, $2)', [u.id, classId]);
     for (const p of teaching) await client.query('insert into teaching (teacher_id, class_id, subject_id) values ($1, $2, $3)', [u.id, p.classId, p.subjectId]);
     for (const childId of childIds) await client.query('insert into parent_links (parent_id, student_id) values ($1, $2)', [u.id, childId]);
@@ -416,8 +445,11 @@ on('PATCH', '/api/users/:id', async ({ params, body, user }) => {
     ? (body.studentNo !== undefined ? str(body.studentNo, 20) : target.student_no)
     : null;
   if (target.role === 'student' && !studentNo) fail(400, 'Öğrenci için okul numarası zorunlu.');
+  const emailValue = body.email !== undefined ? emailOf(body.email) : undefined;
+  await assertEmailFree(emailValue, id);
   await tx(async client => {
     await client.query('update users set name = $2, student_no = $3 where id = $1', [id, name, studentNo]);
+    if (emailValue !== undefined) await client.query('update users set email = $2 where id = $1', [id, emailValue]);
     if (target.role === 'student' && body.classId !== undefined) {
       await client.query('delete from enrollments where student_id = $1', [id]);
       if (body.classId) await client.query('insert into enrollments (student_id, class_id) values ($1, $2)', [id, requireId(body.classId, 'sınıf')]);
@@ -505,6 +537,8 @@ on('POST', '/api/assignments', async ({ body, user }) => {
       [title, classId, subjectId, user.id, kind, instructions, dueAt, filePath,
         upload?.name ?? null, upload?.mime ?? null, upload?.buffer.length ?? null]);
     await audit(user, 'assignment_created', title, { kind, dueAt });
+    const { rows: classStudents } = await q('select student_id from enrollments where class_id = $1', [classId]);
+    push.notify(classStudents.map(s => s.student_id), { title: 'Yeni ödev', body: dueAt ? `${title} · son teslim ${new Date(dueAt).toLocaleDateString('tr-TR')}` : title, url: '/#/assignments', tag: `odev-${row.id}` }).catch(() => {});
   return created({ id: row.id });
   } catch (error) {
     if (filePath) await storage.remove(filePath);
@@ -613,11 +647,11 @@ on('GET', '/api/attendance/roster', async ({ query, user }) => {
   if (user.role === 'teacher' && !(await canTeach(user, classId, subjectId))) fail(403, 'Bu sınıf ve ders için yoklama yetkin yok.');
   const students = (await q(`select u.id, u.name, u.student_no as "studentNo" from enrollments e
     join users u on u.id = e.student_id where e.class_id = $1 order by u.name`, [classId])).rows;
-  const records = (await q(`select student_id, present from attendance
+  const records = (await q(`select student_id, present, excused from attendance
     where class_id = $1 and subject_id = $2 and lesson_date = $3`, [classId, subjectId, date])).rows;
   const totals = (await q(`select student_id, count(*)::int as total, count(*) filter (where present)::int as present
     from attendance where class_id = $1 and subject_id = $2 group by student_id`, [classId, subjectId])).rows;
-  const statusOf = new Map(records.map(r => [r.student_id, r.present ? 'present' : 'absent']));
+  const statusOf = new Map(records.map(r => [r.student_id, r.excused ? 'excused' : r.present ? 'present' : 'absent']));
   const totalOf = new Map(totals.map(t => [t.student_id, t]));
   return ok({
     date,
@@ -642,7 +676,7 @@ on('PUT', '/api/attendance', async ({ body, user }) => {
   const enrolled = new Set((await q('select student_id from enrollments where class_id = $1', [classId])).rows.map(r => r.student_id));
   for (const [studentId, value] of entries) {
     if (!isId(studentId) || !enrolled.has(studentId)) fail(400, 'Kayıtlardan biri bu sınıfa ait değil.');
-    if (![null, 'present', 'absent'].includes(value)) fail(400, 'Geçersiz yoklama değeri.');
+    if (![null, 'present', 'absent', 'excused'].includes(value)) fail(400, 'Geçersiz yoklama değeri.');
   }
   await tx(async client => {
     for (const [studentId, value] of entries) {
@@ -650,16 +684,24 @@ on('PUT', '/api/attendance', async ({ body, user }) => {
         await client.query('delete from attendance where class_id = $1 and subject_id = $2 and lesson_date = $3 and student_id = $4',
           [classId, subjectId, date, studentId]);
       } else {
-        await client.query(`insert into attendance (class_id, subject_id, lesson_date, student_id, present, recorded_by)
-          values ($1, $2, $3, $4, $5, $6)
+        await client.query(`insert into attendance (class_id, subject_id, lesson_date, student_id, present, excused, recorded_by)
+          values ($1, $2, $3, $4, $5, $6, $7)
           on conflict (class_id, subject_id, lesson_date, student_id)
-          do update set present = excluded.present, recorded_by = excluded.recorded_by`,
-          [classId, subjectId, date, studentId, value === 'present', user.id]);
+          do update set present = excluded.present, excused = excluded.excused, recorded_by = excluded.recorded_by`,
+          [classId, subjectId, date, studentId, value === 'present' || value === 'excused', value === 'excused', user.id]);
       }
     }
   });
   const { rows: [names] } = await q('select (select name from classes where id = $1) as c, (select name from subjects where id = $2) as s', [classId, subjectId]);
   await audit(user, 'attendance_saved', `${names.c} · ${names.s}`, { date, count: entries.length });
+  const absentIds = entries.filter(([, value]) => value === 'absent').map(([studentId]) => studentId);
+  if (absentIds.length) {
+    const { rows: guardians } = await q(`select pl.parent_id, pl.student_id, u.name as student from parent_links pl
+      join users u on u.id = pl.student_id where pl.student_id = any($1::uuid[])`, [absentIds]);
+    for (const guardian of guardians) {
+      push.notify([guardian.parent_id], { title: 'Devamsızlık bildirimi', body: `${guardian.student} · ${names.s} dersine katılmadı (${date})`, url: '/#/cocuklar', tag: `devamsiz-${guardian.student_id}-${date}-${subjectId}` }).catch(() => {});
+    }
+  }
   return ok({ saved: entries.length });
 }, { roles: TEACHER });
 
@@ -785,6 +827,8 @@ on('POST', '/api/conversations/:id/messages', async ({ params, body, user }) => 
   if (raw.length > 2000) fail(400, 'Mesaj en fazla 2000 karakter olabilir.');
   const { rows: [m] } = await q(`insert into messages (conversation_id, sender_id, body) values ($1, $2, $3)
     returning id, body, created_at as "createdAt", sender_id as "senderId"`, [c.id, user.id, raw]);
+  const { rows: recipients } = await q('select user_id from conversation_members where conversation_id = $1 and user_id <> $2', [c.id, user.id]);
+  push.notify(recipients.map(r => r.user_id), { title: `Yeni mesaj · ${user.name}`, body: raw.slice(0, 120), url: '/#/messages', tag: `mesaj-${c.id}` }).catch(() => {});
   return created({ message: { ...m, senderName: user.name } });
 });
 
@@ -1793,29 +1837,41 @@ function parseQuizQuestions(list) {
   return list.map((item, index) => {
     const text = str(item?.text, 1000);
     if (!text) fail(400, `${index + 1}. sorunun metni boş.`);
-    const options = Array.isArray(item?.options) ? item.options.map(v => str(v, 300)) : [];
-    if (options.length < 2 || options.length > 5 || options.some(v => !v)) fail(400, `${index + 1}. soruda 2-5 dolu seçenek olmalı.`);
-    const correctIndex = Number.isInteger(item?.correctIndex) ? item.correctIndex : -1;
-    if (correctIndex < 0 || correctIndex >= options.length) fail(400, `${index + 1}. sorunun doğru cevabı seçilmemiş.`);
     const points = Number.isInteger(item?.points) ? item.points : 1;
     if (points < 1 || points > 10) fail(400, `${index + 1}. sorunun puanı 1-10 arasında olmalı.`);
     const timeLimit = Number.isInteger(item?.timeLimit) ? item.timeLimit : 20;
     if (timeLimit < 5 || timeLimit > 120) fail(400, `${index + 1}. sorunun süresi 5-120 saniye arasında olmalı.`);
-    return { text, options, correctIndex, points, timeLimit, image: item?.image || null, position: index + 1 };
+    const image = item?.image || null;
+    if (item?.kind === 'text') {
+      return { kind: 'text', text, options: null, correctIndex: null, points, timeLimit, image, position: index + 1 };
+    }
+    const options = Array.isArray(item?.options) ? item.options.map(v => str(v, 300)) : [];
+    if (options.length < 2 || options.length > 5 || options.some(v => !v)) fail(400, `${index + 1}. soruda 2-5 dolu seçenek olmalı.`);
+    const correctIndex = Number.isInteger(item?.correctIndex) ? item.correctIndex : -1;
+    if (correctIndex < 0 || correctIndex >= options.length) fail(400, `${index + 1}. sorunun doğru cevabı seçilmemiş.`);
+    return { kind: 'choice', text, options, correctIndex, points, timeLimit, image, position: index + 1 };
   });
 }
 
 // Süresi dolan ve teslim edilmemiş denemeyi, kayıtlı cevaplarla otomatik teslim eder.
+// Puanı yeniden hesaplar: çoktan seçmeli sorular anında, açık uçlu sorular öğretmen puanladıkça eklenir.
+async function recalcAttempt(client, attemptId) {
+  const { rows } = await client.query(`select qq.points, qq.kind, qq.correct_index, a.selected, a.awarded
+    from quiz_attempts at join quiz_questions qq on qq.quiz_id = at.quiz_id
+    left join quiz_answers a on a.question_id = qq.id and a.attempt_id = at.id
+    where at.id = $1`, [attemptId]);
+  const maxScore = rows.reduce((sum, r) => sum + r.points, 0);
+  const score = rows.reduce((sum, r) => sum + (r.kind === 'text' ? (r.awarded ?? 0) : (r.selected === r.correct_index ? r.points : 0)), 0);
+  const graded = rows.every(r => r.kind !== 'text' || r.awarded !== null);
+  await client.query('update quiz_attempts set score = $2, max_score = $3, graded = $4 where id = $1', [attemptId, score, maxScore, graded]);
+}
+
 async function finalizeAttempt(attemptId) {
   await tx(async client => {
     const { rows: [attempt] } = await client.query('select id, quiz_id, submitted_at from quiz_attempts where id = $1 for update', [attemptId]);
     if (!attempt || attempt.submitted_at) return;
-    const { rows } = await client.query(`select qq.points, qq.correct_index, a.selected
-      from quiz_questions qq left join quiz_answers a on a.question_id = qq.id and a.attempt_id = $1
-      where qq.quiz_id = $2`, [attemptId, attempt.quiz_id]);
-    const maxScore = rows.reduce((sum, r) => sum + r.points, 0);
-    const score = rows.reduce((sum, r) => sum + (r.selected === r.correct_index ? r.points : 0), 0);
-    await client.query('update quiz_attempts set submitted_at = now(), score = $2, max_score = $3 where id = $1', [attemptId, score, maxScore]);
+    await client.query('update quiz_attempts set submitted_at = now() where id = $1', [attemptId]);
+    await recalcAttempt(client, attemptId);
   });
 }
 
@@ -1864,12 +1920,12 @@ on('POST', '/api/quizzes', async ({ body, user }) => {
       imagePaths.push(question.imagePath);
     }
     const quizId = await tx(async client => {
-      const { rows: [row] } = await client.query(`insert into quizzes (title, class_id, subject_id, created_by, opens_at, closes_at, time_limit_minutes, published)
-        values ($1, $2, $3, $4, $5, $6, $7, $8) returning id`, [title, classId, subjectId, user.id, opensAt.toISOString(), closesAt.toISOString(), timeLimit, body.published === true]);
+      const { rows: [row] } = await client.query(`insert into quizzes (title, class_id, subject_id, created_by, opens_at, closes_at, time_limit_minutes, published, shuffle_options)
+        values ($1, $2, $3, $4, $5, $6, $7, $8, $9) returning id`, [title, classId, subjectId, user.id, opensAt.toISOString(), closesAt.toISOString(), timeLimit, body.published === true, body.shuffleOptions === true]);
       for (const question of questions) {
-        await client.query(`insert into quiz_questions (quiz_id, position, text, options, correct_index, points, time_limit, image_path, image_mime, image_name)
-          values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`, [row.id, question.position, question.text, JSON.stringify(question.options), question.correctIndex,
-          question.points, question.timeLimit, question.imagePath || null, question.imageMime || null, question.imageName || null]);
+        await client.query(`insert into quiz_questions (quiz_id, position, text, options, correct_index, points, time_limit, image_path, image_mime, image_name, kind)
+          values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`, [row.id, question.position, question.text, question.options ? JSON.stringify(question.options) : null, question.correctIndex,
+          question.points, question.timeLimit, question.imagePath || null, question.imageMime || null, question.imageName || null, question.kind]);
       }
       return row.id;
     });
@@ -1907,18 +1963,20 @@ on('GET', '/api/quizzes/:id', async ({ params, user }) => {
   if (!access) fail(403, 'Bu sınavı görme yetkin yok.');
   if (access === 'student') await settleExpired(user.id, id);
   const { rows: questions } = await q(`select id, position, text, options, correct_index as "correctIndex", points, time_limit as "timeLimit",
-    (image_path is not null) as "hasImage" from quiz_questions where quiz_id = $1 order by position`, [id]);
+    (image_path is not null) as "hasImage", kind from quiz_questions where quiz_id = $1 order by position`, [id]);
   const detail = { id: quiz.id, title: quiz.title, classId: quiz.class_id, subjectId: quiz.subject_id, opensAt: quiz.opens_at, closesAt: quiz.closes_at, timeLimitMinutes: quiz.time_limit_minutes, published: quiz.published };
   if (access === 'full') return ok({ quiz: detail, questions });
   // Öğrenci: doğru cevaplar yalnızca kendi teslimi bittikten sonra görünür
-  const { rows: [attempt] } = await q('select id, deadline, submitted_at, score, max_score from quiz_attempts where quiz_id = $1 and student_id = $2', [id, user.id]);
+  const { rows: [attempt] } = await q('select id, deadline, submitted_at, score, max_score, option_order, graded from quiz_attempts where quiz_id = $1 and student_id = $2', [id, user.id]);
   const finished = Boolean(attempt?.submitted_at);
-  const answers = attempt ? (await q('select question_id, selected from quiz_answers where attempt_id = $1', [attempt.id])).rows : [];
+  const answers = attempt ? (await q('select question_id, selected, text_answer, awarded from quiz_answers where attempt_id = $1', [attempt.id])).rows : [];
   return ok({
     quiz: detail,
-    questions: questions.map(qq => ({ id: qq.id, position: qq.position, text: qq.text, options: qq.options, points: qq.points, timeLimit: qq.timeLimit, hasImage: qq.hasImage,
+    questions: questions.map(qq => ({ id: qq.id, position: qq.position, text: qq.text, kind: qq.kind, options: shownOptions(qq, attempt, finished), points: qq.points, timeLimit: qq.timeLimit, hasImage: qq.hasImage,
+      textAnswer: answers.find(a => a.question_id === qq.id)?.text_answer ?? null,
+      awarded: answers.find(a => a.question_id === qq.id)?.awarded ?? null,
       ...(finished ? { correctIndex: qq.correctIndex, selected: answers.find(a => a.question_id === qq.id)?.selected ?? null } : {}) })),
-    attempt: attempt ? { id: attempt.id, deadline: attempt.deadline, submittedAt: attempt.submitted_at, score: attempt.score, maxScore: attempt.max_score } : null,
+    attempt: attempt ? { id: attempt.id, deadline: attempt.deadline, submittedAt: attempt.submitted_at, graded: attempt.graded, score: attempt.graded ? attempt.score : null, maxScore: attempt.max_score } : null,
   });
 }, { auth: true });
 
@@ -1964,41 +2022,67 @@ on('POST', '/api/quizzes/:id/attempts', async ({ params, user }) => {
   if (now < new Date(quiz.opens_at).getTime()) fail(400, 'Sınav henüz açılmadı.');
   if (now > new Date(quiz.closes_at).getTime()) fail(400, 'Sınavın süresi doldu.');
   const deadline = new Date(Math.min(now + quiz.time_limit_minutes * 60 * 1000, new Date(quiz.closes_at).getTime()));
-  const { rows: [attempt] } = await q('insert into quiz_attempts (quiz_id, student_id, deadline) values ($1, $2, $3) returning id', [id, user.id, deadline.toISOString()]);
+  const order = quiz.shuffle_options ? await shuffledOrders(id) : null;
+  const { rows: [attempt] } = await q('insert into quiz_attempts (quiz_id, student_id, deadline, option_order) values ($1, $2, $3, $4) returning id', [id, user.id, deadline.toISOString(), order ? JSON.stringify(order) : null]);
   return created({ attemptId: attempt.id, deadline: deadline.toISOString(), resumed: false });
 }, { roles: STUDENT });
 
 on('PUT', '/api/quiz-attempts/:id/answers', async ({ params, body, user }) => {
   const id = requireId(params.id, 'deneme');
-  const { rows: [attempt] } = await q('select id, quiz_id, student_id, deadline, submitted_at from quiz_attempts where id = $1', [id]);
+  const { rows: [attempt] } = await q('select id, quiz_id, student_id, deadline, submitted_at, option_order from quiz_attempts where id = $1', [id]);
   if (!attempt || attempt.student_id !== user.id) fail(404, 'Deneme bulunamadı.');
   if (attempt.submitted_at) fail(400, 'Bu deneme zaten teslim edildi.');
   if (Date.now() > new Date(attempt.deadline).getTime() + QUIZ_GRACE_MS) { await finalizeAttempt(id); fail(400, 'Süreniz doldu, cevaplarınız teslim edildi.'); }
   const answers = Array.isArray(body.answers) ? body.answers.slice(0, 50) : fail(400, 'Cevap listesi geçersiz.');
-  const { rows: questions } = await q('select id, options from quiz_questions where quiz_id = $1', [attempt.quiz_id]);
-  const optionCount = new Map(questions.map(qq => [qq.id, qq.options.length]));
+  const { rows: questions } = await q('select id, options, kind from quiz_questions where quiz_id = $1', [attempt.quiz_id]);
+  const meta = new Map(questions.map(qq => [qq.id, { kind: qq.kind, options: qq.options?.length || 0 }]));
+  const stored = [];
   for (const answer of answers) {
     const questionId = requireId(answer?.questionId, 'soru');
-    const selected = answer?.selected;
-    if (!optionCount.has(questionId)) fail(400, 'Cevap bu sınavın sorusu değil.');
-    if (!Number.isInteger(selected) || selected < 0 || selected >= optionCount.get(questionId)) fail(400, 'Seçilen şık geçersiz.');
+    const info = meta.get(questionId);
+    if (!info) fail(400, 'Cevap bu sınavın sorusu değil.');
+    if (info.kind === 'text') {
+      const text = typeof answer.text === 'string' ? answer.text.trim() : '';
+      if (text.length > 2000) fail(400, 'Açık uçlu cevap en fazla 2000 karakter olabilir.');
+      if (text) stored.push({ questionId, text });
+    } else {
+      const selected = answer?.selected;
+      if (!Number.isInteger(selected) || selected < 0 || selected >= info.options) fail(400, 'Seçilen şık geçersiz.');
+      stored.push({ questionId, selected: originalIndex(attempt, questionId, selected) });
+    }
   }
   await tx(async client => {
-    for (const answer of answers) {
-      await client.query(`insert into quiz_answers (attempt_id, question_id, selected) values ($1, $2, $3)
-        on conflict (attempt_id, question_id) do update set selected = excluded.selected`, [id, answer.questionId, answer.selected]);
+    for (const answer of stored) {
+      if ('text' in answer) {
+        await client.query(`insert into quiz_answers (attempt_id, question_id, text_answer) values ($1, $2, $3)
+          on conflict (attempt_id, question_id) do update set text_answer = excluded.text_answer`, [id, answer.questionId, answer.text]);
+      } else {
+        await client.query(`insert into quiz_answers (attempt_id, question_id, selected) values ($1, $2, $3)
+          on conflict (attempt_id, question_id) do update set selected = excluded.selected`, [id, answer.questionId, answer.selected]);
+      }
     }
   });
-  return ok({ saved: answers.length });
+  return ok({ saved: stored.length });
 }, { roles: STUDENT });
 
 async function attemptResult(attemptId) {
-  const { rows: [attempt] } = await q('select id, quiz_id, score, max_score, submitted_at from quiz_attempts where id = $1', [attemptId]);
-  const { rows } = await q(`select qq.id, qq.position, qq.text, qq.options, qq.correct_index as "correctIndex", qq.points, a.selected
+  const { rows: [attempt] } = await q('select id, quiz_id, score, max_score, submitted_at, graded from quiz_attempts where id = $1', [attemptId]);
+  const { rows } = await q(`select qq.id, qq.position, qq.text, qq.options, qq.correct_index as "correctIndex", qq.points, qq.kind,
+      a.selected, a.text_answer as "textAnswer", a.awarded
     from quiz_questions qq left join quiz_answers a on a.question_id = qq.id and a.attempt_id = $1
     where qq.quiz_id = $2 order by qq.position`, [attemptId, attempt.quiz_id]);
-  return { score: attempt.score, maxScore: attempt.max_score, submittedAt: attempt.submitted_at,
-    questions: rows.map(r => ({ position: r.position, text: r.text, options: r.options, correctIndex: r.correctIndex, selected: r.selected, correct: r.selected === r.correctIndex, points: r.points })) };
+  return {
+    score: attempt.graded ? attempt.score : null,
+    maxScore: attempt.max_score,
+    submittedAt: attempt.submitted_at,
+    graded: attempt.graded,
+    questions: rows.map(r => ({
+      position: r.position, text: r.text, kind: r.kind, points: r.points,
+      options: r.options, correctIndex: r.correctIndex, selected: r.selected,
+      correct: r.kind === 'choice' && r.selected === r.correctIndex,
+      textAnswer: r.textAnswer, awarded: r.awarded,
+    })),
+  };
 }
 
 on('POST', '/api/quiz-attempts/:id/submit', async ({ params, user }) => {
@@ -2390,6 +2474,12 @@ async function liveState(g, user) {
   return state;
 }
 
+// Canlı durum önbelleği: aynı yarışmayı çok sayıda telefon yoklarken veritabanı yükünü 1 saniyeye indirir.
+const liveCache = new Map();
+function invalidateLive(gameId) {
+  for (const key of liveCache.keys()) if (key.startsWith(`${gameId}:`)) liveCache.delete(key);
+}
+
 // Yarışma başlatma: öğretmen (kendi sınavı) ya da müdür. Sınıfın öğrencilerine bildirim gider.
 on('POST', '/api/live', async ({ body, user }) => {
   const quizId = requireId(body.quizId, 'sınav');
@@ -2397,6 +2487,8 @@ on('POST', '/api/live', async ({ body, user }) => {
   if (!(await canTeach(user, quiz.class_id, quiz.subject_id))) fail(403, 'Bu sınav için yarışma başlatma yetkin yok.');
   const { rows: [{ n }] } = await q('select count(*)::int as n from quiz_questions where quiz_id = $1', [quizId]);
   if (!n) fail(400, 'Yarışma için en az bir soru olmalı.');
+  const { rows: [{ textCount }] } = await q("select count(*)::int as \"textCount\" from quiz_questions where quiz_id = $1 and kind = 'text'", [quizId]);
+  if (textCount) fail(400, 'Açık uçlu soru içeren sınavlar canlı yarışmada kullanılamaz.');
   const pin = await newLivePin();
   const { rows: [row] } = await q('insert into live_games (quiz_id, class_id, host_id, pin) values ($1, $2, $3, $4) returning id', [quizId, quiz.class_id, user.id, pin]);
   const { rows: students } = await q('select student_id from enrollments where class_id = $1', [quiz.class_id]);
@@ -2419,6 +2511,7 @@ on('POST', '/api/live/join', async ({ body, user }) => {
   if (!g) fail(404, 'Bu PIN ile açık bir yarışma yok.');
   if (!(await enrolledIn(user.id, g.class_id))) fail(403, 'Bu yarışma sizin sınıfınız için değil.');
   await q('insert into live_players (game_id, student_id) values ($1, $2) on conflict do nothing', [g.id, user.id]);
+  invalidateLive(g.id);
   return ok({ id: g.id });
 }, { roles: STUDENT });
 
@@ -2429,7 +2522,12 @@ on('GET', '/api/live/:id/state', async ({ params, user }) => {
     const { rowCount } = await q('select 1 from live_players where game_id = $1 and student_id = $2', [g.id, user.id]);
     if (!rowCount) fail(403, 'Bu yarışmaya katılmadınız.');
   }
-  return ok(await liveState(g, user));
+  const cacheKey = `${g.id}:${user.role === 'principal' || user.id === g.host_id ? 'host' : user.id}`;
+  const hit = liveCache.get(cacheKey);
+  if (hit && Date.now() - hit.at < 1000) return ok(hit.state);
+  const state = await liveState(g, user);
+  liveCache.set(cacheKey, { at: Date.now(), state });
+  return ok(state);
 });
 
 // Ekran denetimi: başlat, cevabı göster, sonraki soru, bitir
@@ -2439,6 +2537,7 @@ function liveHostAction(name, allowedStatuses, run) {
     requireLiveHost(user, g);
     if (!allowedStatuses.includes(g.status)) fail(400, 'Bu işlem şu anki aşamada yapılamaz.');
     await run(g);
+    invalidateLive(g.id);
     return ok(await liveState(await liveGame(g.id), user));
   }, { roles: STAFF });
 }
@@ -2481,6 +2580,7 @@ on('POST', '/api/live/:id/answer', async ({ params, body, user }) => {
     await client.query('update live_players set score = score + $3 where game_id = $1 and student_id = $2', [g.id, user.id, points]);
     return true;
   });
+  invalidateLive(g.id);
   if (!saved) fail(409, 'Bu soruya zaten cevap verdiniz.');
   return ok({ correct, points });
 }, { roles: STUDENT });
@@ -2521,6 +2621,864 @@ on('POST', '/api/push/test', async ({ user }) => {
   return ok({ sent: true });
 });
 
+// ---------- Yedekleme (v19): yalnızca müdür ----------
+on('GET', '/api/backups', async () => ok({ backups: await listBackups() }), { roles: ['principal'] });
+
+on('POST', '/api/backups/run', async ({ user }) => {
+  const backup = await runBackup('elle');
+  await audit(user, 'backup_created', backup.path, { sizeBytes: backup.sizeBytes, encrypted: backup.encrypted });
+  return created(backup);
+}, { roles: ['principal'] });
+
+on('GET', '/api/backups/:id/download', async ({ params }) => {
+  const backup = await readBackup(requireId(params.id, 'yedek'));
+  if (!backup) fail(404, 'Yedek bulunamadı.');
+  return { file: { buffer: backup.buffer, mime: 'application/octet-stream', name: backup.name } };
+}, { roles: ['principal'] });
+
+// ---------- Güvenlik ve veri hakları (v20) ----------
+const RESET_MINUTES = 15;
+const resetCodeHash = (code, userId) => crypto.createHmac('sha256', process.env.SESSION_SECRET || 'gelistirme-anahtari').update(`${userId}:${code}`).digest('hex');
+
+function requestOrigin(req) {
+  if (process.env.PUBLIC_URL) return process.env.PUBLIC_URL.replace(/\/$/, '');
+  const proto = req.headers['x-forwarded-proto'] || (req.socket.encrypted ? 'https' : 'http');
+  return `${proto}://${req.headers['x-forwarded-host'] || req.headers.host}`;
+}
+
+// Şifremi unuttum: e-posta adresi kayıtlıysa 15 dakika geçerli 6 haneli kod gönderilir. Yanıt her durumda aynıdır.
+on('POST', '/api/password/forgot', async ({ body }) => {
+  if (!mail.configured()) fail(503, 'E-posta ile şifre sıfırlama kapalı. Lütfen okul müdürünüze başvurun.');
+  const generic = { sent: true, message: 'Bu adresle kayıtlı bir hesap varsa sıfırlama kodu gönderildi.' };
+  const email = str(body.email, 120).toLowerCase();
+  if (!email) return ok(generic);
+  const { rows: [user] } = await q('select id, name from users where lower(email) = $1', [email]);
+  if (!user) return ok(generic);
+  const { rows: [{ recent }] } = await q(`select count(*)::int as recent from password_resets where user_id = $1 and created_at > now() - interval '15 minutes'`, [user.id]);
+  if (recent >= 3) return ok(generic);
+  const code = String(crypto.randomInt(100000, 1000000));
+  await tx(async client => {
+    await client.query('delete from password_resets where user_id = $1', [user.id]);
+    await client.query(`insert into password_resets (user_id, code_hash, expires_at) values ($1, $2, now() + interval '15 minutes')`, [user.id, resetCodeHash(code, user.id)]);
+  });
+  await mail.send({
+    to: email,
+    subject: 'Okulum şifre sıfırlama kodu',
+    text: `Merhaba ${user.name},\n\nŞifre sıfırlama kodunuz: ${code}\nKod ${RESET_MINUTES} dakika geçerlidir.\n\nBu isteği siz yapmadıysanız bu e-postayı yok sayın.`,
+  }).catch(error => console.error('E-posta gönderilemedi:', error.message));
+  return ok(generic);
+}, { auth: false });
+
+// Kodu doğrular (en fazla 5 deneme), yeni şifreyi kaydeder ve tüm eski oturumları düşürür.
+on('POST', '/api/password/reset', async ({ body }) => {
+  const email = str(body.email, 120).toLowerCase();
+  const code = String(body.code ?? '').trim();
+  const invalid = () => fail(400, 'Kod hatalı veya süresi dolmuş.');
+  const { rows: [user] } = await q('select id from users where lower(email) = $1', [email]);
+  if (!user) invalid();
+  const { rows: [reset] } = await q('select id, code_hash, attempts from password_resets where user_id = $1 and expires_at > now() order by created_at desc limit 1', [user.id]);
+  if (!reset) invalid();
+  if (reset.attempts >= 5) fail(429, 'Çok fazla hatalı deneme. Yeni kod isteyin.');
+  if (reset.code_hash !== resetCodeHash(code, user.id)) {
+    await q('update password_resets set attempts = attempts + 1 where id = $1', [reset.id]);
+    invalid();
+  }
+  const hash = await sec.hashPasswordAsync(checkPassword(body.password));
+  await tx(async client => {
+    await client.query('update users set password_hash = $2, session_version = session_version + 1 where id = $1', [user.id, hash]);
+    await client.query('delete from password_resets where user_id = $1', [user.id]);
+  });
+  await audit({ id: user.id, name: 'Şifre sıfırlama', role: 'system' }, 'password_reset', email, {});
+  return ok({ reset: true });
+}, { auth: false });
+
+on('POST', '/api/me/email', async ({ body, user }) => {
+  const email = str(body.email, 120).toLowerCase();
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) fail(400, 'E-posta adresi geçersiz.');
+  try {
+    await q('update users set email = $2 where id = $1', [user.id, email || null]);
+  } catch (error) {
+    if (error.code === '23505') fail(409, 'Bu e-posta adresi başka bir hesapta kayıtlı.');
+    throw error;
+  }
+  return ok({ email: email || null });
+});
+
+// İki adımlı doğrulama (yalnızca müdür hesapları)
+on('POST', '/api/me/2fa/setup', async ({ user }) => {
+  if (user.role !== 'principal') fail(403, 'İki adımlı doğrulama şimdilik müdür hesapları için.');
+  const { rows: [me] } = await q('select totp_enabled from users where id = $1', [user.id]);
+  if (me.totp_enabled) fail(409, 'İki adımlı doğrulama zaten açık. Önce kapatın.');
+  const secret = mfa.newSecret();
+  await q('update users set totp_secret = $2 where id = $1', [user.id, mfa.sealSecret(secret)]);
+  return ok({ secret, uri: mfa.otpauthUri(secret, user.username || user.name) });
+}, { roles: ['principal'] });
+
+on('POST', '/api/me/2fa/enable', async ({ body, user }) => {
+  const { rows: [me] } = await q('select totp_secret, totp_enabled from users where id = $1', [user.id]);
+  if (!me?.totp_secret) fail(400, 'Önce kurulumu başlatın.');
+  if (me.totp_enabled) fail(409, 'İki adımlı doğrulama zaten açık.');
+  if (!mfa.verifyTotp(mfa.openSecret(me.totp_secret), body.code)) fail(400, 'Doğrulama kodu hatalı.');
+  await q('update users set totp_enabled = true where id = $1', [user.id]);
+  await audit(user, 'mfa_enabled', user.username || user.name, {});
+  return ok({ enabled: true });
+}, { roles: ['principal'] });
+
+on('POST', '/api/me/2fa/disable', async ({ body, user }) => {
+  const { rows: [me] } = await q('select password_hash, totp_secret, totp_enabled from users where id = $1', [user.id]);
+  if (!me?.totp_enabled) fail(400, 'İki adımlı doğrulama açık değil.');
+  if (!(await sec.verifyPasswordAsync(typeof body.password === 'string' ? body.password : '', me.password_hash))) fail(401, 'Parola hatalı.');
+  if (!mfa.verifyTotp(mfa.openSecret(me.totp_secret), body.code)) fail(400, 'Doğrulama kodu hatalı.');
+  await q('update users set totp_enabled = false, totp_secret = null where id = $1', [user.id]);
+  await audit(user, 'mfa_disabled', user.username || user.name, {});
+  return ok({ enabled: false });
+}, { roles: ['principal'] });
+
+// KVKK aydınlatma metni: onay ve sürüm takibi
+on('GET', '/api/kvkk', async ({ user }) => {
+  const { rows: [row] } = await q('select 1 from kvkk_consents where user_id = $1 and version = $2', [user.id, KVKK_VERSION]);
+  return ok({ notice: KVKK_NOTICE, accepted: Boolean(row) });
+});
+
+on('POST', '/api/kvkk/accept', async ({ body, user }) => {
+  if (body.version !== KVKK_VERSION) fail(400, 'Aydınlatma metni sürümü güncel değil. Sayfayı yenileyin.');
+  await q('insert into kvkk_consents (user_id, version) values ($1, $2) on conflict do nothing', [user.id, KVKK_VERSION]);
+  return created({ accepted: true });
+});
+
+// Erişim hakkı: kişinin hakkındaki verilerin dökümü (JSON)
+on('GET', '/api/me/export', async ({ user }) => {
+  const id = user.id;
+  const data = {
+    exportedAt: new Date().toISOString(),
+    profile: (await q('select name, username, role, student_no as "studentNo", email, created_at as "createdAt" from users where id = $1', [id])).rows[0] || null,
+    classes: (await q('select c.name as "className" from enrollments e join classes c on c.id = e.class_id where e.student_id = $1', [id])).rows,
+    attendance: (await q('select sj.name as "subjectName", a.lesson_date as date, a.present from attendance a join subjects sj on sj.id = a.subject_id where a.student_id = $1 order by a.lesson_date', [id])).rows,
+    behaviorPoints: (await q('select points, reason, created_at as "createdAt" from behavior_points where student_id = $1', [id])).rows,
+    teacherNotes: (await q('select body, created_at as "createdAt" from student_notes where student_id = $1', [id])).rows,
+    quizResults: (await q('select qz.title, a.score, a.max_score as "maxScore", a.submitted_at as "submittedAt" from quiz_attempts a join quizzes qz on qz.id = a.quiz_id where a.student_id = $1', [id])).rows,
+    messagesSent: (await q('select body, created_at as "createdAt" from messages where sender_id = $1 order by created_at', [id])).rows,
+    assistantChats: (await q('select c.title, m.role, m.content, m.created_at as "createdAt" from ai_messages m join ai_conversations c on c.id = m.conversation_id where c.user_id = $1 order by m.created_at', [id])).rows,
+    consents: (await q('select version, accepted_at as "acceptedAt" from kvkk_consents where user_id = $1', [id])).rows,
+  };
+  await audit(user, 'data_exported', user.username || user.name, {});
+  return { file: { buffer: Buffer.from(JSON.stringify(data, null, 2), 'utf8'), mime: 'application/json; charset=utf-8', name: 'verilerim.json' } };
+});
+
+// Silme talebi: müdür onaylayınca hesap anonimleştirilir (kayıtlar kalır, kişi tanımlanamaz hâle gelir)
+async function anonymizeUser(userId) {
+  await tx(async client => {
+    await client.query('delete from push_subscriptions where user_id = $1', [userId]);
+    await client.query('delete from ai_messages where conversation_id in (select id from ai_conversations where user_id = $1)', [userId]);
+    await client.query('delete from ai_conversations where user_id = $1', [userId]);
+    await client.query('delete from ai_consents where user_id = $1', [userId]);
+    await client.query('delete from kvkk_consents where user_id = $1', [userId]);
+    await client.query('delete from parent_links where parent_id = $1 or student_id = $1', [userId]);
+    await client.query("update messages set body = '[silindi]' where sender_id = $1", [userId]);
+    const passwordHash = await sec.hashPasswordAsync(crypto.randomBytes(24).toString('hex'));
+    await client.query(`update users set name = 'Silinmiş kullanıcı', username = $2, password_hash = $3, email = null, student_no = null,
+      calendar_token = null, totp_enabled = false, totp_secret = null, session_version = session_version + 1 where id = $1`,
+    [userId, `silindi-${userId.slice(0, 8)}`, passwordHash]);
+  });
+}
+
+on('POST', '/api/me/delete-request', async ({ user }) => {
+  if (user.role === 'principal') fail(403, 'Müdür hesabı için silme talebini başka bir müdür değerlendirir. Lütfen okul yönetimiyle görüşün.');
+  const { rows: [pending] } = await q("select 1 from deletion_requests where user_id = $1 and status = 'bekliyor'", [user.id]);
+  if (pending) fail(409, 'Bekleyen bir silme talebiniz zaten var.');
+  await q('insert into deletion_requests (user_id, user_name) values ($1, $2)', [user.id, user.name]);
+  return created({ requested: true });
+});
+
+on('GET', '/api/deletion-requests', async () => {
+  const { rows } = await q('select id, user_name as "userName", status, created_at as "createdAt", decided_at as "decidedAt" from deletion_requests order by created_at desc limit 100');
+  return ok({ requests: rows });
+}, { roles: ['principal'] });
+
+on('POST', '/api/deletion-requests/:id/decide', async ({ params, body, user }) => {
+  const id = requireId(params.id, 'talep');
+  const { rows: [item] } = await q('select user_id, status from deletion_requests where id = $1', [id]);
+  if (!item || item.status !== 'bekliyor') fail(404, 'Bekleyen talep bulunamadı.');
+  if (item.user_id === user.id) fail(403, 'Kendi talebinizi değerlendiremezsiniz.');
+  const approve = body.approve === true;
+  if (approve && item.user_id) await anonymizeUser(item.user_id);
+  await q('update deletion_requests set status = $2, decided_at = now() where id = $1', [id, approve ? 'onaylandi' : 'reddedildi']);
+  await audit(user, approve ? 'deletion_approved' : 'deletion_rejected', id, {});
+  return ok({ status: approve ? 'onaylandi' : 'reddedildi' });
+}, { roles: ['principal'] });
+
+// Takvim bağlantısı (ICS): Google/Apple/Outlook takvimine abone olunabilen kişisel adres
+on('POST', '/api/me/calendar-link', async ({ user, req }) => {
+  const { rows: [row] } = await q('select calendar_token from users where id = $1', [user.id]);
+  let token = row.calendar_token;
+  if (!token) {
+    token = crypto.randomBytes(24).toString('hex');
+    await q('update users set calendar_token = $2 where id = $1', [user.id, token]);
+  }
+  return ok({ url: `${requestOrigin(req)}/api/calendar/feed/${token}.ics` });
+});
+
+async function feedItems(user) {
+  const from = new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10);
+  const to = new Date(Date.now() + 180 * 864e5).toISOString().slice(0, 10);
+  const classIds = await visibleClassIds(user);
+  const { rows: events } = await q(`select e.id, e.title, to_char(e.event_date, 'YYYY-MM-DD') as date, e.description from school_events e
+    where e.event_date between $1 and $2 and ($3::uuid[] is null or e.class_id is null or e.class_id = any($3::uuid[]))`, [from, to, classIds]);
+  const { rows: tasks } = await q(`select a.id, a.title, to_char((a.due_at at time zone 'Europe/Istanbul')::date, 'YYYY-MM-DD') as date from assignments a
+    where a.due_at is not null and (a.due_at at time zone 'Europe/Istanbul')::date between $1 and $2 and ($3::uuid[] is null or a.class_id = any($3::uuid[]))`, [from, to, classIds]);
+  return [
+    ...events.map(e => ({ uid: `e-${e.id}`, date: e.date, summary: e.title, description: e.description || '' })),
+    ...tasks.map(t => ({ uid: `o-${t.id}`, date: t.date, summary: `Ödev teslimi: ${t.title}`, description: '' })),
+  ];
+}
+
+function buildIcs(items) {
+  const escape = value => String(value).replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
+  const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+  const nextDay = date => new Date(Date.parse(date) + 864e5).toISOString().slice(0, 10).replace(/-/g, '');
+  const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Okulum//TR//TR', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH'];
+  for (const item of items) {
+    lines.push('BEGIN:VEVENT', `UID:${item.uid}@okulum`, `DTSTAMP:${stamp}`,
+      `DTSTART;VALUE=DATE:${item.date.replace(/-/g, '')}`, `DTEND;VALUE=DATE:${nextDay(item.date)}`,
+      `SUMMARY:${escape(item.summary)}`, `DESCRIPTION:${escape(item.description)}`, 'END:VEVENT');
+  }
+  lines.push('END:VCALENDAR');
+  return `${lines.join('\r\n')}\r\n`;
+}
+
+on('GET', '/api/calendar/feed/:file', async ({ params }) => {
+  const token = String(params.file || '').replace(/\.ics$/i, '');
+  if (!/^[a-f0-9]{48}$/.test(token)) fail(404, 'Takvim bulunamadı.');
+  const { rows: [owner] } = await q('select id, role from users where calendar_token = $1', [token]);
+  if (!owner) fail(404, 'Takvim bulunamadı.');
+  const ics = buildIcs(await feedItems(owner));
+  return { file: { buffer: Buffer.from(ics, 'utf8'), mime: 'text/calendar; charset=utf-8', name: 'okulum.ics', inline: true } };
+}, { auth: false });
+
+// Müdür analizi: sınıf bazında devam oranı, sınav ortalaması ve en çok devamsızlığı olan öğrenciler (son 30 gün)
+on('GET', '/api/analytics/school', async () => {
+  const { rows: classes } = await q(`select c.id, c.name, count(e.student_id)::int as students from classes c
+    left join enrollments e on e.class_id = c.id group by c.id, c.name order by length(c.name), c.name`);
+  const { rows: attendance } = await q(`select class_id as "classId", count(*)::int as total, count(*) filter (where present)::int as present
+    from attendance where lesson_date >= current_date - 30 group by class_id`);
+  const { rows: quizzes } = await q(`select qz.class_id as "classId", count(*)::int as attempts,
+    avg(100.0 * a.score / nullif(a.max_score, 0))::float as average from quiz_attempts a join quizzes qz on qz.id = a.quiz_id
+    where a.submitted_at is not null and a.graded group by qz.class_id`);
+  const { rows: topAbsent } = await q(`select u.name as "studentName", c.name as "className", count(*) filter (where not a.present)::int as absences,
+    count(*)::int as total from attendance a join users u on u.id = a.student_id join classes c on c.id = a.class_id
+    where a.lesson_date >= current_date - 30 group by u.name, c.name having count(*) filter (where not a.present) > 0
+    order by absences desc, u.name limit 10`);
+  const byClass = (rows, key) => Object.fromEntries(rows.map(r => [r[key], r]));
+  const att = byClass(attendance, 'classId');
+  const quiz = byClass(quizzes, 'classId');
+  const school = attendance.reduce((acc, r) => ({ total: acc.total + r.total, present: acc.present + r.present }), { total: 0, present: 0 });
+  return ok({
+    schoolAttendanceRate: school.total ? Math.round((school.present / school.total) * 100) : null,
+    classes: classes.map(c => ({
+      ...c,
+      attendanceRate: att[c.id]?.total ? Math.round((att[c.id].present / att[c.id].total) * 100) : null,
+      quizAverage: quiz[c.id]?.average != null ? Math.round(quiz[c.id].average) : null,
+    })),
+    topAbsent,
+  });
+}, { roles: ['principal'] });
+
+// ---------- Veli haftalık özeti (v21) ----------
+// Son 7 gün devam ve davranış, önümüzdeki 7 gün ödev durumu; her velinin cihazlarına push bildirimi olarak gider.
+async function sendWeeklyDigest() {
+  const { rows: links } = await q(`select pl.parent_id, pl.student_id, u.name as "studentName"
+    from parent_links pl join users u on u.id = pl.student_id`);
+  let sent = 0;
+  for (const link of links) {
+    const { rows: [att] } = await q(`select count(*)::int as total, count(*) filter (where not present)::int as absent
+      from attendance where student_id = $1 and lesson_date >= current_date - 7`, [link.student_id]);
+    const { rows: [beh] } = await q(`select coalesce(sum(points), 0)::int as points from behavior_points
+      where student_id = $1 and created_at >= now() - interval '7 days'`, [link.student_id]);
+    const { rows: [hw] } = await q(`select count(*)::int as due, count(*) filter (where s.id is null)::int as missing
+      from assignments a join enrollments e on e.class_id = a.class_id and e.student_id = $1
+      left join submissions s on s.assignment_id = a.id and s.student_id = $1
+      where a.due_at between now() and now() + interval '7 days'`, [link.student_id]);
+    const parts = [
+      att.total ? `devam ${att.total - att.absent}/${att.total} ders` : 'bu hafta yoklama yok',
+      `davranış ${beh.points > 0 ? '+' : ''}${beh.points} puan`,
+      hw.due ? `önümüzdeki hafta ${hw.due} ödev${hw.missing ? `, ${hw.missing} tanesi henüz teslim edilmedi` : ''}` : 'önümüzdeki hafta ödev yok',
+    ];
+    push.notify([link.parent_id], { title: `Haftalık özet · ${link.studentName}`, body: parts.join(' · '), url: '/#/cocuklar', tag: `ozet-${link.student_id}-${new Date().toISOString().slice(0, 10)}` }).catch(() => {});
+    sent += 1;
+  }
+  return sent;
+}
+
+// Her Pazar 17:00'den sonra (İstanbul saatiyle) bir kez gönderilir; saatte bir kontrol edilir.
+function istanbulNow(date) {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/Istanbul', weekday: 'short', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hour12: false })
+    .formatToParts(date).map(p => [p.type, p.value]));
+  return { weekday: parts.weekday, day: `${parts.year}-${parts.month}-${parts.day}`, hour: Number(parts.hour) };
+}
+
+function startDigestSchedule() {
+  const tick = async () => {
+    const now = istanbulNow(new Date());
+    if (now.weekday !== 'Sun' || now.hour < 17) return;
+    const { rows: [last] } = await q("select value from app_settings where key = 'digest_last'");
+    if (last?.value === now.day) return;
+    await q(`insert into app_settings (key, value) values ('digest_last', $1) on conflict (key) do update set value = excluded.value`, [now.day]);
+    await sendWeeklyDigest();
+  };
+  const safeTick = () => tick().catch(error => console.error('Haftalık özet hatası:', error.message));
+  setTimeout(safeTick, 2 * 60 * 1000).unref();
+  setInterval(safeTick, 30 * 60 * 1000).unref();
+}
+
+on('POST', '/api/digest/run', async () => ok({ sent: await sendWeeklyDigest() }), { roles: ['principal'] });
+
+// E-posta durumu ve test gönderimi (müdür). Test, müdürün kendi adresine gider.
+on('GET', '/api/mail/status', async () => ok({
+  configured: mail.configured(),
+  mode: process.env.MAIL_OUTBOX_FILE ? 'test' : (process.env.SMTP_HOST ? 'smtp' : 'kapalı'),
+}), { roles: ['principal'] });
+
+on('POST', '/api/mail/test', async ({ user }) => {
+  if (!mail.configured()) fail(503, 'E-posta gönderimi ayarlı değil. SMTP bilgilerini Render ortam değişkenlerine ekleyin.');
+  const { rows: [me] } = await q('select email from users where id = $1', [user.id]);
+  if (!me?.email) fail(400, 'Önce kendi hesabınıza bir e-posta adresi ekleyin.');
+  try {
+    await mail.send({ to: me.email, subject: 'Okulum test e-postası', text: 'Bu bir test e-postasıdır. E-posta gönderimi çalışıyor.' });
+  } catch (error) {
+    fail(502, `E-posta gönderilemedi (${error.code || 'bağlantı hatası'}). SMTP bilgilerini kontrol edin.`);
+  }
+  return ok({ sent: true, to: me.email });
+}, { roles: ['principal'] });
+
+// ---------- Karne PDF ve ödev hatırlatması (v23) ----------
+async function studentReportData(studentId) {
+  const { rows: [student] } = await q(`select u.id, u.name, u.student_no as "studentNo", c.name as "className"
+    from users u left join enrollments e on e.student_id = u.id left join classes c on c.id = e.class_id
+    where u.id = $1 and u.role = 'student'`, [studentId]);
+  if (!student) fail(404, 'Öğrenci bulunamadı.');
+  const behavior = await behaviorFor(studentId);
+  const { rows: notes } = await q(`select n.body, n.created_at as "createdAt", u.name as "teacherName"
+    from student_notes n left join users u on u.id = n.teacher_id where n.student_id = $1 and n.shared_with_parent
+    order by n.created_at desc limit 20`, [studentId]);
+  return {
+    student,
+    generatedAt: new Date().toISOString(),
+    grades: await gradeSummaryFor(studentId),
+    attendance: await attendanceSummaryFor(studentId),
+    behavior: { total: behavior.total, positive: behavior.positive, negative: behavior.negative, badges: behavior.badges },
+    notes,
+  };
+}
+
+function buildReportPdf(report) {
+  return new Promise(resolve => {
+    const doc = new PDFDocument({ size: 'A4', margin: 50, info: { Title: `Karne · ${report.student.name}`, Author: 'Okulum' } });
+    const chunks = [];
+    doc.on('data', chunk => chunks.push(chunk));
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+    doc.registerFont('regular', FONT_REGULAR).registerFont('bold', FONT_BOLD);
+    const ensureSpace = height => { if (doc.y + height > 770) doc.addPage(); };
+    const heading = title => {
+      ensureSpace(40);
+      doc.moveDown(0.6).font('bold').fontSize(12).fillColor('#1b6b50').text(title);
+      doc.moveTo(50, doc.y + 2).lineTo(545, doc.y + 2).lineWidth(0.6).strokeColor('#1b6b50').stroke();
+      doc.moveDown(0.6).fillColor('#000000');
+    };
+    const row = (cells, widths, bold = false) => {
+      ensureSpace(20);
+      const y = doc.y;
+      let x = 50;
+      doc.font(bold ? 'bold' : 'regular').fontSize(10);
+      cells.forEach((cell, i) => {
+        doc.text(String(cell ?? '—'), x + 4, y, { width: widths[i] - 8, lineBreak: false, ellipsis: true });
+        x += widths[i];
+      });
+      doc.y = y + 18;
+    };
+    const dateTr = value => new Date(value).toLocaleDateString('tr-TR', { timeZone: 'Europe/Istanbul' });
+    doc.font('bold').fontSize(18).fillColor('#1b6b50').text('Öğrenci Karnesi');
+    doc.font('regular').fontSize(11).fillColor('#000000').moveDown(0.3)
+      .text(`${report.student.name} · ${report.student.className || 'Sınıfsız'} · Okul no: ${report.student.studentNo || '—'}`);
+    doc.fontSize(9).fillColor('#555555').text(`Oluşturulma: ${new Date(report.generatedAt).toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' })}`);
+    doc.fillColor('#000000');
+    heading('Derslere göre başarı');
+    const gradeWidths = [250, 120, 125];
+    row(['Ders', 'Not sayısı', 'Ortalama'], gradeWidths, true);
+    if (!report.grades.subjects.length) doc.font('regular').fontSize(10).text('Henüz not yok.');
+    for (const s of report.grades.subjects) row([s.subjectName, s.count, s.average], gradeWidths);
+    heading('Devam');
+    const attWidths = [200, 110, 110, 90];
+    row(['Ders', 'Toplam ders', 'Geldi', 'Devam'], attWidths, true);
+    if (!report.attendance.subjects.length) doc.font('regular').fontSize(10).text('Henüz yoklama yok.');
+    for (const s of report.attendance.subjects) {
+      row([s.subjectName, s.total, s.present, s.total ? `%${Math.round((s.present / s.total) * 100)}` : '—'], attWidths);
+    }
+    heading('Davranış');
+    doc.font('regular').fontSize(10).text(`Toplam puan: ${report.behavior.total} · Olumlu: ${report.behavior.positive} · Olumsuz: ${report.behavior.negative}`);
+    doc.text(`Rozetler: ${report.behavior.badges.length ? report.behavior.badges.join(', ') : 'Henüz rozet yok'}`);
+    heading('Öğretmen notları (veliyle paylaşılan)');
+    if (!report.notes.length) doc.font('regular').fontSize(10).text('Paylaşılmış not yok.');
+    for (const note of report.notes) {
+      ensureSpace(40);
+      doc.font('bold').fontSize(9).fillColor('#555555').text(`${dateTr(note.createdAt)} · ${note.teacherName || ''}`);
+      doc.font('regular').fontSize(10).fillColor('#000000').text(note.body, { width: 495 }).moveDown(0.4);
+    }
+    doc.end();
+  });
+}
+
+on('GET', '/api/reports/student/:id/pdf', async ({ params, user }) => {
+  const studentId = requireId(params.id, 'öğrenci');
+  await requireStudentView(user, studentId);
+  const report = await studentReportData(studentId);
+  const buffer = await buildReportPdf(report);
+  await audit(user, 'report_pdf', report.student.name, {});
+  return { file: { buffer, mime: 'application/pdf', name: `karne-${studentId.slice(0, 8)}.pdf` } };
+});
+
+// Ödev teslim hatırlatması: 24 saat içinde son teslimi olan ve teslim etmemiş öğrencilere bildirim
+async function sendDueReminders() {
+  const { rows } = await q(`select a.title, e.student_id from assignments a
+    join enrollments e on e.class_id = a.class_id
+    left join submissions s on s.assignment_id = a.id and s.student_id = e.student_id
+    where a.due_at > now() and a.due_at <= now() + interval '24 hours' and s.id is null`);
+  const byStudent = new Map();
+  for (const row of rows) byStudent.set(row.student_id, [...(byStudent.get(row.student_id) || []), row.title]);
+  for (const [studentId, titles] of byStudent) {
+    push.notify([studentId], {
+      title: 'Teslim yaklaşıyor',
+      body: titles.length === 1 ? `${titles[0]} · son teslim 24 saat içinde` : `${titles.length} ödevin son teslimi 24 saat içinde`,
+      url: '/#/assignments',
+      tag: `hatirlatma-${studentId}`,
+    }).catch(() => {});
+  }
+  return byStudent.size;
+}
+
+// Her gün 18:00'den sonra (İstanbul) bir kez çalışır.
+function startReminderSchedule() {
+  const tick = async () => {
+    const now = istanbulNow(new Date());
+    if (now.hour < 18) return;
+    const { rows: [last] } = await q("select value from app_settings where key = 'reminder_last'");
+    if (last?.value === now.day) return;
+    await q(`insert into app_settings (key, value) values ('reminder_last', $1) on conflict (key) do update set value = excluded.value`, [now.day]);
+    await sendDueReminders();
+  };
+  const safeTick = () => tick().catch(error => console.error('Hatırlatma hatası:', error.message));
+  setTimeout(safeTick, 3 * 60 * 1000).unref();
+  setInterval(safeTick, 30 * 60 * 1000).unref();
+}
+
+on('POST', '/api/reminders/run', async () => ok({ students: await sendDueReminders() }), { roles: ['principal'] });
+
+// Seçenek karıştırma: her soru için öğrenciye gösterilen sıra (gösterilen dizin -> özgün dizin).
+async function shuffledOrders(quizId) {
+  const { rows } = await q('select id, options from quiz_questions where quiz_id = $1', [quizId]);
+  return Object.fromEntries(rows.map(question => {
+    const order = Array.from({ length: question.options.length }, (_, i) => i);
+    for (let i = order.length - 1; i > 0; i -= 1) {
+      const j = crypto.randomInt(i + 1);
+      [order[i], order[j]] = [order[j], order[i]];
+    }
+    return [question.id, order];
+  }));
+}
+// Teslimden önce öğrenci kendi sırasını görür; teslimden sonra özgün sıra gösterilir.
+const shownOptions = (question, attempt, finished) => {
+  const order = !finished && attempt?.option_order?.[question.id];
+  return order ? order.map(i => question.options[i]) : question.options;
+};
+const originalIndex = (attempt, questionId, shown) => {
+  const order = attempt?.option_order?.[questionId];
+  return order ? order[shown] : shown;
+};
+
+// ---------- Pansiyon: evci ve çarşı izni defteri (v25) ----------
+const LEAVE_KINDS = { evci: 'Evci izni', carsi: 'Çarşı izni' };
+const LEAVE_SIGNERS = ['ogrenci', 'veli', 'diger'];
+const SIGNER_LABEL = { ogrenci: 'Öğrenci', veli: 'Veli', diger: 'Diğer' };
+
+async function boardingOn() {
+  const { rows: [row] } = await q("select value from app_settings where key = 'boarding'");
+  return row?.value === 'true';
+}
+
+async function requireBoarding() {
+  if (!(await boardingOn())) fail(400, 'Okul pansiyonlu olarak ayarlanmamış. Müdür pansiyon modunu açabilir.');
+}
+
+// İzinleri yönetme yetkisi: müdür, ya da öğrencinin sınıfını okutan öğretmen
+async function requireStaffForStudent(user, studentId) {
+  if (user.role === 'principal') return;
+  if (user.role !== 'teacher') fail(403, 'Bu işlem için yetkin yok.');
+  const { rowCount } = await q('select 1 from enrollments e join teaching t on t.class_id = e.class_id where t.teacher_id = $1 and e.student_id = $2 limit 1', [user.id, studentId]);
+  if (!rowCount) fail(403, 'Bu öğrencinin izinlerini yönetme yetkin yok.');
+}
+
+async function leaveRow(id) {
+  const { rows: [row] } = await q(`select l.id, l.student_id, l.kind, l.starts_at, l.ends_at, l.status, l.requested_by,
+      u.name as student_name, u.student_no as student_no_value
+    from leave_requests l join users u on u.id = l.student_id where l.id = $1`, [id]);
+  if (!row) fail(404, 'İzin kaydı bulunamadı.');
+  return row;
+}
+
+// Bildirimler hiçbir zaman işlemi bozmaz: hata yalnızca günlüğe yazılır.
+async function notifyFamily(studentId, payload) {
+  try {
+    const { rows } = await q('select parent_id from parent_links where student_id = $1', [studentId]);
+    await push.notify([studentId, ...rows.map(r => r.parent_id)], payload);
+  } catch (error) {
+    console.error('İzin bildirimi gönderilemedi:', error.message);
+  }
+}
+
+async function notifyStaff(studentId, payload) {
+  try {
+    const { rows } = await q(`select distinct t.teacher_id as id from teaching t join enrollments e on e.class_id = t.class_id where e.student_id = $1
+      union select id from users where role = 'principal'`, [studentId]);
+    await push.notify(rows.map(r => r.id), payload);
+  } catch (error) {
+    console.error('İzin bildirimi gönderilemedi:', error.message);
+  }
+}
+
+// İmza kaydı: imzalayanın adı, soyadı ve e-imza (PNG). Öğrenci imzalıyorsa öğrenci numarası kayıtla eşleşmelidir.
+function signatureRecord(body, leave) {
+  const signer = LEAVE_SIGNERS.includes(body.signerRole) ? body.signerRole : fail(400, 'İmzalayan kişi türü geçersiz.');
+  const name = str(body.name, 60);
+  const surname = str(body.surname, 60);
+  if (!name || !surname) fail(400, 'İmzalayanın adı ve soyadı zorunlu.');
+  const studentNo = str(body.studentNo, 20);
+  if (signer === 'ogrenci' && (!studentNo || studentNo.toLowerCase() !== String(leave.student_no_value || '').toLowerCase())) {
+    fail(400, 'Öğrenci numarası kayıtla eşleşmiyor.');
+  }
+  const signature = body.signature;
+  if (typeof signature !== 'string' || !signature.startsWith('data:image/png;base64,') || signature.length > 150000) {
+    fail(400, 'Geçerli bir e-imza gerekli.');
+  }
+  return { signer, name, surname, studentNo: studentNo || null, signature };
+}
+
+on('GET', '/api/boarding', async () => ok({ enabled: await boardingOn() }));
+
+on('PUT', '/api/boarding', async ({ body, user }) => {
+  const enabled = body.enabled === true;
+  await q(`insert into app_settings (key, value) values ('boarding', $1) on conflict (key) do update set value = excluded.value`, [String(enabled)]);
+  await audit(user, 'boarding_changed', 'pansiyon', { enabled });
+  return ok({ enabled });
+}, { roles: ['principal'] });
+
+// Talep: öğrenci kendisi, veli bağlı çocuğu adına. Çıkış-dönüş en fazla 14 gün.
+on('POST', '/api/leaves', async ({ body, user }) => {
+  await requireBoarding();
+  const studentId = user.role === 'student' ? user.id : requireId(body.studentId, 'öğrenci');
+  if (user.role === 'parent') {
+    const { rowCount } = await q('select 1 from parent_links where parent_id = $1 and student_id = $2', [user.id, studentId]);
+    if (!rowCount) fail(403, 'Bu öğrenci için izin talep edemezsiniz.');
+  }
+  if (!Object.hasOwn(LEAVE_KINDS, body.kind)) fail(400, 'İzin türü geçersiz.');
+  const startsAt = new Date(body.startsAt);
+  const endsAt = new Date(body.endsAt);
+  if (Number.isNaN(startsAt.getTime()) || Number.isNaN(endsAt.getTime())) fail(400, 'Çıkış ve dönüş zamanı geçersiz.');
+  if (endsAt <= startsAt) fail(400, 'Dönüş zamanı çıkıştan sonra olmalı.');
+  if (endsAt - startsAt > 14 * 864e5) fail(400, 'Bir izin en fazla 14 gün olabilir.');
+  const reason = str(body.reason, 300);
+  const { rows: [row] } = await q(`insert into leave_requests (student_id, kind, starts_at, ends_at, reason, requested_by)
+    values ($1, $2, $3, $4, $5, $6) returning id`, [studentId, body.kind, startsAt.toISOString(), endsAt.toISOString(), reason, user.id]);
+  const { rows: [student] } = await q('select name from users where id = $1', [studentId]);
+  notifyStaff(studentId, { title: 'Yeni izin talebi', body: `${student.name} · ${LEAVE_KINDS[body.kind]} · onayınızı bekliyor`, url: '/#/izin', tag: `izin-talep-${row.id}` });
+  return created({ id: row.id });
+}, { roles: ['student', 'parent'] });
+
+// Liste: öğrenci ve veli kendi kayıtlarını, öğretmen sınıflarını, müdür hepsini görür.
+on('GET', '/api/leaves', async ({ query, user }) => {
+  const params = [];
+  const conditions = [];
+  if (user.role === 'student') {
+    params.push(user.id);
+    conditions.push(`l.student_id = $${params.length}`);
+  } else if (user.role === 'parent') {
+    params.push(user.id);
+    conditions.push(`l.student_id in (select student_id from parent_links where parent_id = $${params.length})`);
+  } else if (user.role === 'teacher') {
+    params.push(await visibleClassIds(user));
+    conditions.push(`exists (select 1 from enrollments en where en.student_id = l.student_id and en.class_id = any($${params.length}::uuid[]))`);
+  }
+  const status = query.get('status');
+  if (status) {
+    params.push(status);
+    conditions.push(`l.status = $${params.length}`);
+  }
+  const where = conditions.length ? conditions.join(' and ') : 'true';
+  const { rows } = await q(`select l.id, l.student_id as "studentId", u.name as "studentName", u.student_no as "studentNo", c.name as "className",
+      l.kind, l.starts_at as "startsAt", l.ends_at as "endsAt", l.reason, l.status, l.decision_note as "decisionNote", l.requested_by as "requestedBy",
+      l.exit_at as "exitAt", l.exit_signer as "exitSigner", l.exit_name as "exitName", l.exit_surname as "exitSurname",
+      l.return_at as "returnAt", l.return_signer as "returnSigner", l.return_name as "returnName", l.return_surname as "returnSurname"
+    from leave_requests l join users u on u.id = l.student_id
+    left join enrollments e on e.student_id = l.student_id left join classes c on c.id = e.class_id
+    where ${where} order by l.starts_at desc limit 300`, params);
+  const staff = user.role === 'principal' || user.role === 'teacher';
+  return ok({
+    leaves: rows.map(r => ({
+      ...r,
+      canDecide: staff && r.status === 'bekliyor',
+      canExit: staff && r.status === 'onaylandi',
+      canReturn: staff && r.status === 'disarida',
+      canCancel: r.status === 'bekliyor' && r.requestedBy === user.id,
+    })),
+  });
+});
+
+on('POST', '/api/leaves/:id/decide', async ({ params, body, user }) => {
+  const leave = await leaveRow(requireId(params.id, 'izin'));
+  await requireStaffForStudent(user, leave.student_id);
+  if (leave.status !== 'bekliyor') fail(400, 'Bu talep zaten karara bağlanmış.');
+  const approve = body.approve === true;
+  await q('update leave_requests set status = $2, decided_by = $3, decided_at = now(), decision_note = $4 where id = $1',
+    [leave.id, approve ? 'onaylandi' : 'reddedildi', user.id, str(body.note, 200)]);
+  await audit(user, approve ? 'leave_approved' : 'leave_rejected', leave.student_name, { kind: leave.kind });
+  notifyFamily(leave.student_id, { title: approve ? 'İzin onaylandı' : 'İzin reddedildi', body: `${leave.student_name} · ${LEAVE_KINDS[leave.kind]}`, url: '/#/izin', tag: `izin-karar-${leave.id}` });
+  return ok({ status: approve ? 'onaylandi' : 'reddedildi' });
+}, { roles: STAFF });
+
+on('POST', '/api/leaves/:id/cancel', async ({ params, user }) => {
+  const leave = await leaveRow(requireId(params.id, 'izin'));
+  if (leave.requested_by !== user.id) fail(403, 'Bu talebi iptal edemezsiniz.');
+  if (leave.status !== 'bekliyor') fail(400, 'Yalnızca bekleyen talep iptal edilebilir.');
+  await q("update leave_requests set status = 'iptal' where id = $1", [leave.id]);
+  return ok({ status: 'iptal' });
+}, { roles: ['student', 'parent'] });
+
+// Çıkış: onaylı izin, nöbetçi personel e-imzayı alır. Dönüş: dışarıdaki öğrenci için aynı işlem.
+on('POST', '/api/leaves/:id/exit', async ({ params, body, user }) => {
+  const leave = await leaveRow(requireId(params.id, 'izin'));
+  await requireStaffForStudent(user, leave.student_id);
+  if (leave.status !== 'onaylandi') fail(400, 'Çıkış kaydı yalnızca onaylı izin için alınabilir.');
+  const sig = signatureRecord(body, leave);
+  await q(`update leave_requests set status = 'disarida', exit_at = now(), exit_signer = $2, exit_name = $3, exit_surname = $4,
+    exit_student_no = $5, exit_signature = $6, exit_by = $7 where id = $1`, [leave.id, sig.signer, sig.name, sig.surname, sig.studentNo, sig.signature, user.id]);
+  await audit(user, 'leave_exit', leave.student_name, { kind: leave.kind, signer: sig.signer });
+  notifyFamily(leave.student_id, { title: 'Öğrenci izne çıktı', body: `${leave.student_name} · ${LEAVE_KINDS[leave.kind]} · imzalayan: ${sig.name} ${sig.surname}`, url: '/#/izin', tag: `izin-cikis-${leave.id}` });
+  return ok({ status: 'disarida' });
+}, { roles: STAFF });
+
+on('POST', '/api/leaves/:id/return', async ({ params, body, user }) => {
+  const leave = await leaveRow(requireId(params.id, 'izin'));
+  await requireStaffForStudent(user, leave.student_id);
+  if (leave.status !== 'disarida') fail(400, 'Dönüş kaydı yalnızca dışarıdaki öğrenci için alınabilir.');
+  const sig = signatureRecord(body, leave);
+  await q(`update leave_requests set status = 'tamamlandi', return_at = now(), return_signer = $2, return_name = $3, return_surname = $4,
+    return_student_no = $5, return_signature = $6, return_by = $7 where id = $1`, [leave.id, sig.signer, sig.name, sig.surname, sig.studentNo, sig.signature, user.id]);
+  await audit(user, 'leave_return', leave.student_name, { kind: leave.kind, signer: sig.signer });
+  notifyFamily(leave.student_id, { title: 'Öğrenci döndü', body: `${leave.student_name} · dönüş imzası: ${sig.name} ${sig.surname}`, url: '/#/izin', tag: `izin-donus-${leave.id}` });
+  return ok({ status: 'tamamlandi' });
+}, { roles: STAFF });
+
+// E-imzalar: yalnızca müdür ve ilgili öğretmen görür
+on('GET', '/api/leaves/:id/signatures', async ({ params, user }) => {
+  const leave = await leaveRow(requireId(params.id, 'izin'));
+  await requireStaffForStudent(user, leave.student_id);
+  const { rows: [s] } = await q(`select exit_signer as "exitSigner", exit_name as "exitName", exit_surname as "exitSurname",
+      exit_student_no as "exitStudentNo", exit_at as "exitAt", exit_signature as "exitSignature",
+      return_signer as "returnSigner", return_name as "returnName", return_surname as "returnSurname",
+      return_student_no as "returnStudentNo", return_at as "returnAt", return_signature as "returnSignature"
+    from leave_requests where id = $1`, [leave.id]);
+  return ok(s);
+}, { roles: STAFF });
+
+// Defter dışa aktarımı (CSV, Excel uyumlu)
+on('GET', '/api/leaves/export', async ({ query, user }) => {
+  const from = isoDateParam(query.get('from')) || new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10);
+  const to = isoDateParam(query.get('to')) || new Date().toISOString().slice(0, 10);
+  const classIds = await visibleClassIds(user);
+  const { rows } = await q(`select u.name as "studentName", u.student_no as "studentNo", c.name as "className", l.kind, l.status,
+      l.starts_at as "startsAt", l.exit_at as "exitAt", l.exit_signer as "exitSigner", l.exit_name as "exitName",
+      l.exit_surname as "exitSurname", l.exit_student_no as "exitStudentNo", l.return_at as "returnAt",
+      l.return_name as "returnName", l.return_surname as "returnSurname"
+    from leave_requests l join users u on u.id = l.student_id
+    left join enrollments e on e.student_id = l.student_id left join classes c on c.id = e.class_id
+    where l.starts_at::date between $1 and $2
+      and ($3::uuid[] is null or exists (select 1 from enrollments en where en.student_id = l.student_id and en.class_id = any($3::uuid[])))
+    order by l.starts_at`, [from, to, classIds]);
+  const cell = value => `"${String(value ?? '').replace(/"/g, '""')}"`;
+  const when = value => (value ? new Date(value).toLocaleString('tr-TR', { timeZone: 'Europe/Istanbul' }) : '');
+  const lines = ['Öğrenci,Okul no,Sınıf,İzin türü,Başlangıç,Durum,Çıkış zamanı,Çıkışı imzalayan,Çıkış okul no,Dönüş zamanı,Dönüşü imzalayan'];
+  for (const r of rows) {
+    lines.push([r.studentName, r.studentNo, r.className, LEAVE_KINDS[r.kind], when(r.startsAt), r.status, when(r.exitAt),
+      r.exitAt ? `${r.exitName} ${r.exitSurname} (${SIGNER_LABEL[r.exitSigner] || ''})` : '', r.exitStudentNo,
+      when(r.returnAt), r.returnAt ? `${r.returnName} ${r.returnSurname}` : ''].map(cell).join(','));
+  }
+  return { file: { buffer: Buffer.from(`\uFEFF${lines.join('\r\n')}\r\n`, 'utf8'), mime: 'text/csv; charset=utf-8', name: `izin-defteri-${from}-${to}.csv` } };
+}, { roles: STAFF });
+
+// ---------- Pansiyon: gece yoklaması (v26) ----------
+const NIGHT_STATUSES = ['var', 'yok', 'izinli'];
+
+// Gece yoklama penceresi: seçilen günün 21:00'i ile ertesi günün 07:00'si (İstanbul saati)
+on('GET', '/api/night-roll', async ({ query, user }) => {
+  await requireBoarding();
+  const classId = requireId(query.get('classId'), 'sınıf');
+  if (user.role !== 'principal' && !(await teachesClass(user, classId))) fail(403, 'Bu sınıfın gece yoklamasını görme yetkin yok.');
+  const date = isoDateParam(query.get('date')) || istanbulNow(new Date()).day;
+  const { rows: students } = await q(`select u.id, u.name, u.student_no as "studentNo" from enrollments e
+    join users u on u.id = e.student_id where e.class_id = $1 order by u.name`, [classId]);
+  const ids = students.map(s => s.id);
+  const { rows: saved } = await q('select student_id, status from night_roll where roll_date = $1 and student_id = any($2::uuid[])', [date, ids]);
+  const { rows: onLeave } = await q(`select distinct student_id from leave_requests
+    where status in ('onaylandi', 'disarida') and student_id = any($1::uuid[])
+      and starts_at <= (($2::date + time '07:00' + interval '1 day') at time zone 'Europe/Istanbul')
+      and ends_at >= (($2::date + time '21:00') at time zone 'Europe/Istanbul')`, [ids, date]);
+  const savedMap = new Map(saved.map(r => [r.student_id, r.status]));
+  const leaveSet = new Set(onLeave.map(r => r.student_id));
+  return ok({
+    date,
+    students: students.map(s => ({
+      ...s,
+      status: savedMap.get(s.id) || (leaveSet.has(s.id) ? 'izinli' : null),
+      saved: savedMap.has(s.id),
+      suggested: !savedMap.has(s.id) && leaveSet.has(s.id) ? 'izinli' : null,
+    })),
+  });
+});
+
+on('PUT', '/api/night-roll', async ({ body, user }) => {
+  await requireBoarding();
+  const classId = requireId(body.classId, 'sınıf');
+  if (user.role !== 'principal' && !(await teachesClass(user, classId))) fail(403, 'Bu sınıfın gece yoklamasını kaydetme yetkin yok.');
+  const date = isoDateParam(body.date);
+  if (!date) fail(400, 'Tarih geçersiz.');
+  if (date > istanbulNow(new Date()).day) fail(400, 'Gelecek bir gün için gece yoklaması alınamaz.');
+  const records = body.records && typeof body.records === 'object' ? body.records : {};
+  const { rows: enrolled } = await q(`select e.student_id, u.name from enrollments e join users u on u.id = e.student_id where e.class_id = $1`, [classId]);
+  const names = new Map(enrolled.map(r => [r.student_id, r.name]));
+  const entries = Object.entries(records);
+  for (const [studentId, status] of entries) {
+    if (!names.has(studentId)) fail(400, 'Seçilen öğrenci bu sınıfta değil.');
+    if (!NIGHT_STATUSES.includes(status)) fail(400, 'Geçersiz gece yoklama değeri.');
+  }
+  await tx(async client => {
+    for (const [studentId, status] of entries) {
+      await client.query(`insert into night_roll (student_id, roll_date, status, recorded_by) values ($1, $2, $3, $4)
+        on conflict (student_id, roll_date) do update set status = excluded.status, recorded_by = excluded.recorded_by, recorded_at = now()`,
+      [studentId, date, status, user.id]);
+    }
+  });
+  for (const [studentId, status] of entries) {
+    if (status === 'yok') notifyFamily(studentId, { title: 'Gece yoklaması', body: `${names.get(studentId)} gece yoklamasında yoklandı (${date})`, url: '/#/cocuklar', tag: `gece-${studentId}-${date}` });
+  }
+  await audit(user, 'night_roll_saved', date, { classId, count: entries.length });
+  return ok({ saved: entries.length });
+});
+
+// Açık uçlu sorular: öğretmen, sınavın tüm teslim edilmiş denemelerindeki metin cevaplarını görür ve puanlar
+on('GET', '/api/quizzes/:id/grading', async ({ params, user }) => {
+  const quiz = await loadQuiz(requireId(params.id, 'sınav'));
+  if ((await quizAccess(user, quiz)) !== 'full') fail(403, 'Bu sınavı değerlendirme yetkin yok.');
+  const { rows: questions } = await q("select id, position, text, points from quiz_questions where quiz_id = $1 and kind = 'text' order by position", [quiz.id]);
+  if (!questions.length) return ok({ questions: [], attempts: [] });
+  const { rows: attempts } = await q(`select at.id as "attemptId", u.name as "studentName", at.submitted_at as "submittedAt"
+    from quiz_attempts at join users u on u.id = at.student_id
+    where at.quiz_id = $1 and at.submitted_at is not null order by u.name`, [quiz.id]);
+  const { rows: answers } = await q(`select a.attempt_id as "attemptId", a.question_id as "questionId", a.text_answer as "textAnswer", a.awarded
+    from quiz_answers a join quiz_questions qq on qq.id = a.question_id where qq.quiz_id = $1 and qq.kind = 'text'`, [quiz.id]);
+  const byKey = new Map(answers.map(a => [`${a.attemptId}:${a.questionId}`, a]));
+  return ok({
+    questions,
+    attempts: attempts.map(at => ({
+      ...at,
+      answers: questions.map(qq => {
+        const a = byKey.get(`${at.attemptId}:${qq.id}`);
+        return { questionId: qq.id, textAnswer: a?.textAnswer ?? '', awarded: a?.awarded ?? null };
+      }),
+    })),
+  });
+});
+
+on('POST', '/api/quizzes/:id/grade', async ({ params, body, user }) => {
+  const quiz = await loadQuiz(requireId(params.id, 'sınav'));
+  if ((await quizAccess(user, quiz)) !== 'full') fail(403, 'Bu sınavı değerlendirme yetkin yok.');
+  const grades = Array.isArray(body.grades) ? body.grades.slice(0, 500) : fail(400, 'Puan listesi geçersiz.');
+  const { rows: questions } = await q("select id, points from quiz_questions where quiz_id = $1 and kind = 'text'", [quiz.id]);
+  const maxPoints = new Map(questions.map(qq => [qq.id, qq.points]));
+  const { rows: submitted } = await q('select id from quiz_attempts where quiz_id = $1 and submitted_at is not null', [quiz.id]);
+  const validAttempts = new Set(submitted.map(r => r.id));
+  for (const g of grades) {
+    const attemptId = requireId(g?.attemptId, 'deneme');
+    const questionId = requireId(g?.questionId, 'soru');
+    if (!validAttempts.has(attemptId)) fail(400, 'Deneme bu sınava ait değil ya da teslim edilmemiş.');
+    if (!maxPoints.has(questionId)) fail(400, 'Bu soru açık uçlu değil, elle puanlanamaz.');
+    if (!Number.isInteger(g.points) || g.points < 0 || g.points > maxPoints.get(questionId)) {
+      fail(400, `Puan 0 ile ${maxPoints.get(questionId)} arasında olmalı.`);
+    }
+  }
+  const touched = new Set();
+  await tx(async client => {
+    for (const g of grades) {
+      await client.query(`insert into quiz_answers (attempt_id, question_id, awarded) values ($1, $2, $3)
+        on conflict (attempt_id, question_id) do update set awarded = excluded.awarded`, [g.attemptId, g.questionId, g.points]);
+      touched.add(g.attemptId);
+    }
+    for (const attemptId of touched) await recalcAttempt(client, attemptId);
+  });
+  await audit(user, 'quiz_graded', quiz.title, { count: grades.length });
+  return ok({ graded: grades.length });
+}, { roles: STAFF });
+
+// ---------- GeoGebra paneli (v29) ----------
+const GEOGEBRA_APPS = { graphing: 'Grafik', calculator: 'Hesap makinesi', geometry: 'Geometri', '3d': '3B', classic: 'Klasik', cas: 'CAS' };
+
+// Yalnızca https ve geogebra.org (ya da alt alan adı) bağlantıları kabul edilir
+function geogebraUrl(value) {
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch {
+    fail(400, 'Bağlantı geçersiz.');
+  }
+  if (parsed.protocol !== 'https:' || !(parsed.hostname === 'geogebra.org' || parsed.hostname.endsWith('.geogebra.org'))) {
+    fail(400, 'Yalnızca geogebra.org bağlantıları eklenebilir.');
+  }
+  return parsed.toString();
+}
+
+on('GET', '/api/geogebra/apps', async () => ok({
+  apps: Object.entries(GEOGEBRA_APPS).map(([key, label]) => ({ key, label, url: `https://www.geogebra.org/${key}` })),
+}));
+
+on('GET', '/api/geogebra/materials', async ({ query, user }) => {
+  const classParam = query.get('classId') ? requireId(query.get('classId'), 'sınıf') : null;
+  const classIds = await visibleClassIds(user);
+  if (classParam && classIds !== null && !classIds.includes(classParam)) fail(403, 'Bu sınıfın materyallerini görme yetkin yok.');
+  const { rows } = await q(`select g.id, g.title, g.url, g.created_by as "createdBy", c.name as "className"
+    from geogebra_materials g join classes c on c.id = g.class_id
+    where ($1::uuid is null or g.class_id = $1) and ($2::uuid[] is null or g.class_id = any($2::uuid[]))
+    order by c.name, g.created_at desc limit 300`, [classParam, classIds]);
+  return ok({ materials: rows.map(r => ({ ...r, canDelete: user.role === 'principal' || r.createdBy === user.id })) });
+});
+
+on('POST', '/api/geogebra/materials', async ({ body, user }) => {
+  const classId = requireId(body.classId, 'sınıf');
+  if (user.role !== 'principal' && !(await teachesClass(user, classId))) fail(403, 'Bu sınıfa materyal ekleme yetkin yok.');
+  const title = str(body.title, 120);
+  if (title.length < 2) fail(400, 'Başlık en az 2 karakter olmalı.');
+  const url = geogebraUrl(str(body.url, 500));
+  const { rows: [row] } = await q('insert into geogebra_materials (class_id, title, url, created_by) values ($1, $2, $3, $4) returning id', [classId, title, url, user.id]);
+  const { rows: students } = await q('select student_id from enrollments where class_id = $1', [classId]);
+  push.notify(students.map(s => s.student_id), { title: 'Yeni GeoGebra materyali', body: title, url: '/#/geogebra', tag: `ggb-${row.id}` }).catch(() => {});
+  return created({ id: row.id });
+}, { roles: STAFF });
+
+on('DELETE', '/api/geogebra/materials/:id', async ({ params, user }) => {
+  const id = requireId(params.id, 'materyal');
+  const { rows: [row] } = await q('select created_by from geogebra_materials where id = $1', [id]);
+  if (!row) fail(404, 'Materyal bulunamadı.');
+  if (user.role !== 'principal' && row.created_by !== user.id) fail(403, 'Bu materyali silme yetkin yok.');
+  await q('delete from geogebra_materials where id = $1', [id]);
+  return ok({ deleted: true });
+}, { roles: STAFF });
+
 // ---------- Hata eşleme ----------
 function toHttpError(error) {
   if (error instanceof HttpError) return error;
@@ -2535,4 +3493,4 @@ function toHttpError(error) {
   }
 }
 
-module.exports = { handleApi, toHttpError, HttpError };
+module.exports = { handleApi, toHttpError, HttpError, startDigestSchedule, startReminderSchedule };

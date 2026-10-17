@@ -425,3 +425,49 @@ alter table live_players enable row level security;
 alter table live_answers enable row level security;
 alter table push_subscriptions enable row level security;
 alter table app_settings enable row level security;
+
+-- v19: yedek kayıtları
+create table if not exists backups (
+  id uuid primary key default gen_random_uuid(),
+  path text not null,
+  size_bytes integer not null,
+  encrypted boolean not null default false,
+  created_at timestamptz not null default now()
+);
+alter table backups enable row level security;
+
+-- v20: e-posta/parola sıfırlama, iki adımlı doğrulama, KVKK onayları, silme talepleri, takvim bağlantısı
+alter table users add column if not exists email text;
+alter table users add column if not exists calendar_token text;
+alter table users add column if not exists totp_secret text;
+alter table users add column if not exists totp_enabled boolean not null default false;
+create unique index if not exists users_email_unique on users (lower(email)) where email is not null;
+create table if not exists password_resets (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references users(id) on delete cascade,
+  code_hash text not null,
+  expires_at timestamptz not null,
+  attempts integer not null default 0,
+  created_at timestamptz not null default now()
+);
+create index if not exists password_resets_user on password_resets(user_id);
+create table if not exists kvkk_consents (
+  user_id uuid not null references users(id) on delete cascade,
+  version text not null,
+  accepted_at timestamptz not null default now(),
+  primary key (user_id, version)
+);
+create table if not exists deletion_requests (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references users(id) on delete set null,
+  user_name text not null,
+  status text not null default 'bekliyor' check (status in ('bekliyor', 'onaylandi', 'reddedildi')),
+  created_at timestamptz not null default now(),
+  decided_at timestamptz
+);
+alter table password_resets enable row level security;
+alter table kvkk_consents enable row level security;
+alter table deletion_requests enable row level security;
+
+-- v21: mazeretli yoklama işareti (devam sayılır, devamsızlık listelerinde görünmez)
+alter table attendance add column if not exists excused boolean not null default false;

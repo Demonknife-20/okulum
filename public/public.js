@@ -1,5 +1,5 @@
 // Giriş yapmamış ziyaretçinin gördüğü sayfalar: ana sayfa, iki ayrı giriş, kurulum ve kılavuz.
-import { api, val, esc, fmtDate, notFoundHtml } from './core.js';
+import { api, val, esc, fmtDate, notFoundHtml, toast } from './core.js';
 import { FORMS } from './views.js';
 import { helpHtml } from './help.js';
 
@@ -75,6 +75,7 @@ const loginView = portal => {
           <p class="form-error" data-error role="alert"></p>
           <button class="btn primary block lg" type="submit">Giriş yap</button>
         </form>
+        <p class="login-links"><button class="btn ghost sm" type="button" data-action="forgot-open">Şifremi unuttum</button></p>
         <p class="small muted switch-line">${principal
           ? 'Öğretmen veya öğrenciyseniz <a href="#/giris">Öğretmen / Öğrenci girişi</a>ni kullanın.'
           : 'Müdürseniz <a href="#/mudur-girisi">Müdür girişi</a>ni kullanın.'}</p>
@@ -136,7 +137,22 @@ export async function renderPublic(page) {
 
 // Giriş ve kurulum formları. Başarılıysa uygulama kabuğuna geçilmesi için olay yayınlanır.
 FORMS.login = async form => {
-  await api('/login', { method: 'POST', body: { username: val(form, 'username'), password: val(form, 'password'), portal: form.dataset.portal } });
+  const totpField = form.querySelector('[name=totp]');
+  const res = await api('/login', { method: 'POST', body: {
+    username: val(form, 'username'), password: val(form, 'password'), portal: form.dataset.portal,
+    totp: totpField ? val(form, 'totp').trim() : undefined,
+  } });
+  if (res.mfaRequired) {
+    if (!totpField) {
+      const field = document.createElement('label');
+      field.className = 'field';
+      field.innerHTML = '<span>Doğrulama kodu (kimlik uygulamanızdan)</span><input name="totp" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required>';
+      form.querySelector('[data-error]').before(field);
+    }
+    form.querySelector('[name=totp]').focus();
+    toast('Doğrulama kodunu girip tekrar giriş yapın');
+    return;
+  }
   window.dispatchEvent(new Event('okulum:login'));
 };
 
