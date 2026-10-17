@@ -1,12 +1,20 @@
-// Kendi grafik aracımız (GeoGebra benzeri): fonksiyon ve nokta çizimi. Harici betik kullanmaz, eval kullanmaz.
+// GeoGebra benzeri grafik aracı: nokta, doğru, ışın, parça, fonksiyon. Harici betik ve eval kullanmaz.
 
-const COLORS = ['#1b6b50', '#e5484d', '#3e7cf0', '#f5b93a', '#8b5cf6', '#e8590c'];
+const COLORS = ['#1b6b50', '#e5484d', '#3e7cf0', '#f5b93a', '#8b5cf6', '#e8590c', '#0d9488', '#be185d'];
 const FUNCS = {
   sin: Math.sin, cos: Math.cos, tan: Math.tan, asin: Math.asin, acos: Math.acos, atan: Math.atan,
   sqrt: Math.sqrt, abs: Math.abs, ln: Math.log, log: Math.log10, exp: Math.exp, floor: Math.floor, ceil: Math.ceil,
 };
 const CONSTANTS = { pi: Math.PI, e: Math.E };
+const COMMANDS = {
+  'doğru': 'line', dogru: 'line', line: 'line',
+  'ışın': 'ray', 'işin': 'ray', isin: 'ray', ray: 'ray',
+  'parça': 'segment', parca: 'segment', segment: 'segment',
+  'çember': 'circle', cember: 'circle', circle: 'circle',
+  'açı': 'angle', aci: 'angle', angle: 'angle',
+};
 
+// ---------- İfade ayrıştırıcı (eval yok) ----------
 function tokenize(source) {
   const text = String(source);
   const pattern = /\s*(?:(\d+(?:\.\d+)?)|([A-Za-z_]\w*)|(\*\*|[-+*/^(),]))/y;
@@ -25,7 +33,6 @@ function tokenize(source) {
   return tokens;
 }
 
-// Özyinelemeli iniş ayrıştırıcı: + - * / ^, parantez, örtük çarpma (2x, 3(x+1)), fonksiyonlar.
 function parseExpression(source) {
   const tokens = tokenize(source);
   let i = 0;
@@ -126,7 +133,6 @@ export function compileExpression(source) {
   return x => evaluate(root, x);
 }
 
-// Üst düzeyde virgül konumu (nokta değişmezi için)
 function topLevelComma(text) {
   let depth = 0;
   for (let k = 0; k < text.length; k += 1) {
@@ -151,18 +157,31 @@ function parsePointLiteral(rhs) {
   return parts;
 }
 
-// Bir satırı ayrıştırır: "f(x)=x^2", "y=2x+1", "A=(1,2)", "(3,4)", "sin(x)"
+// Komut satırı: "Doğru(A,B)", "l=Işın(A,B)", "s=Parça(A,B)"
+export function parseCommand(line) {
+  const match = /^\s*(?:([A-Za-z]\w*)\s*=\s*)?([A-Za-zÇĞİÖŞÜçğıöşü]+)\s*\(\s*([A-Za-z]\w*)\s*,\s*([A-Za-z]\w*)\s*(?:,\s*([A-Za-z]\w*)\s*)?\)\s*$/.exec(String(line));
+  if (!match) return null;
+  const kind = COMMANDS[match[2].toLocaleLowerCase('tr-TR')];
+  if (!kind) throw new Error(`Bilinmeyen komut: ${match[2]}`);
+  const hasThird = match[5] !== undefined;
+  if (kind === 'angle' && !hasThird) throw new Error('Açı için üç nokta gerekir: Açı(kenar, köşe, kenar)');
+  if (kind !== 'angle' && hasThird) throw new Error(`${match[2]} en fazla iki nokta alır`);
+  return { kind, name: match[1] || null, a: match[3], b: match[4], c: match[5] || null };
+}
+
+// Bir satırı ayrıştırır: nokta "A=(1,2)", fonksiyon "f(x)=x^2", komut "l=Doğru(A,B)"
 export function parseLine(line, fallbackName = 'f') {
   const text = String(line).trim();
   if (!text) return null;
+  const command = parseCommand(text);
+  if (command) return { type: 'cmd', ...command, text };
   let name = null;
   let rhs = text;
   const eq = text.indexOf('=');
   if (eq > 0) {
     const lhs = text.slice(0, eq).trim();
     rhs = text.slice(eq + 1).trim();
-    if (/^[A-Z]\w*$/.test(lhs)) name = lhs;
-    else if (/^[a-z]\w*$/.test(lhs)) name = lhs;
+    if (/^[A-Za-z]\w*$/.test(lhs)) name = lhs;
     else if (/^[a-z]\w*\(x\)$/.test(lhs)) name = lhs.replace(/\(x\)$/, '');
     else if (lhs === 'y') name = fallbackName;
     else throw new Error('Sol taraf geçersiz');
@@ -175,7 +194,69 @@ export function parseLine(line, fallbackName = 'f') {
   return { type: 'fn', name: name || fallbackName, expr: rhs, fn, text };
 }
 
-// Ekran ölçeğinde okunaklı ızgara adımı (1, 2, 5 × 10^k)
+// Satır listesinden nesne modeli: noktalar, doğrular, ışınlar, parçalar, fonksiyonlar
+export function buildModel(lines) {
+  const points = new Map();
+  const objects = [];
+  const errors = [];
+  let fnCount = 0;
+  lines.forEach((line, row) => {
+    try {
+      const result = parseLine(line, ['f', 'g', 'h', 'k'][fnCount % 4]);
+      if (!result) return;
+      if (result.type === 'pt') {
+        points.set(result.name, { kind: 'point', name: result.name, x: result.x, y: result.y, row });
+      } else if (result.type === 'cmd') {
+        objects.push({ kind: result.kind, name: result.name || `#${row}`, a: result.a, b: result.b, c: result.c, row });
+      } else {
+        fnCount += 1;
+        objects.push({ kind: 'fn', name: result.name, expr: result.expr, fn: result.fn, row });
+      }
+    } catch (error) {
+      errors[row] = error.message;
+    }
+  });
+  for (const object of objects) {
+    if (object.kind === 'fn') continue;
+    for (const key of ['a', 'b', 'c']) {
+      if (object[key] === null || object[key] === undefined) continue;
+      if (!points.has(object[key])) errors[object.row] = `Nokta tanımlı değil: ${object[key]}`;
+    }
+  }
+  return { points, objects, errors };
+}
+
+function formatCoord(value) {
+  const rounded = Math.abs(value) < 1e-9 ? 0 : Number(value.toFixed(2));
+  return String(rounded);
+}
+
+// Doğrunun denklemi: "y = 2x + 1" ya da dikey doğru için "x = 3"
+export function lineEquation(a, b) {
+  const dx = b[0] - a[0];
+  const dy = b[1] - a[1];
+  if (Math.abs(dx) < 1e-9) return `x = ${formatCoord(a[0])}`;
+  const m = dy / dx;
+  const c = a[1] - m * a[0];
+  if (Math.abs(m) < 1e-9) return `y = ${formatCoord(c)}`;
+  const slope = m === 1 ? 'x' : m === -1 ? '-x' : `${formatCoord(m)}x`;
+  const intercept = Math.abs(c) < 1e-9 ? '' : c > 0 ? ` + ${formatCoord(c)}` : ` - ${formatCoord(-c)}`;
+  return `y = ${slope}${intercept}`;
+}
+
+// B köşesindeki açı (derece)
+export function angleDegrees(a, b, c) {
+  const ux = a[0] - b[0];
+  const uy = a[1] - b[1];
+  const vx = c[0] - b[0];
+  const vy = c[1] - b[1];
+  const nu = Math.hypot(ux, uy);
+  const nv = Math.hypot(vx, vy);
+  if (nu < 1e-12 || nv < 1e-12) return NaN;
+  const cos = Math.min(1, Math.max(-1, (ux * vx + uy * vy) / (nu * nv)));
+  return Math.acos(cos) * 180 / Math.PI;
+}
+
 export function niceStep(unit) {
   const base = 10 ** Math.floor(Math.log10(unit));
   for (const multiple of [1, 2, 5, 10]) {
@@ -184,19 +265,44 @@ export function niceStep(unit) {
   return 10 * base;
 }
 
+// Ad üretimi: noktalar A..Z, doğrular a..z (kullanılmayanın ilki)
+function freeName(used, letters) {
+  for (const letter of letters) {
+    if (!used.has(letter)) return letter;
+  }
+  for (let n = 1; n < 1000; n += 1) {
+    for (const letter of letters) {
+      if (!used.has(`${letter}${n}`)) return `${letter}${n}`;
+    }
+  }
+  throw new Error('Ad kalmadı');
+}
+
+const POINT_LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+const LINE_LETTERS = 'abcdefghijklmnopqrstuvwxyz'.split('');
+
 export function mountGraph(root, initial = { lines: [] }, options = {}) {
   root.innerHTML = `<div class="gx">
     <div class="gx-side">
       <div class="gx-head"><strong>Cebir</strong><button type="button" class="btn ghost sm" data-gx="add">+ Satır</button></div>
       <div class="gx-rows" data-gx="rows"></div>
-      <p class="gx-help">Örnekler: <code>x^2-4</code>, <code>f(x)=sin(x)</code>, <code>A=(1,2)</code>, <code>2x+1</code>.</p>
+      <p class="gx-help">Örnekler: <code>A=(1,2)</code>, <code>B=(3,1)</code>, <code>d=Doğru(A,B)</code>, <code>s=Parça(A,B)</code>, <code>f(x)=x^2-4</code>.</p>
     </div>
     <div class="gx-main">
-      <div class="gx-tools">
-        <button type="button" class="btn ghost sm" data-gx="zoomin" aria-label="Yakınlaştır">+</button>
-        <button type="button" class="btn ghost sm" data-gx="zoomout" aria-label="Uzaklaştır">−</button>
-        <button type="button" class="btn ghost sm" data-gx="reset">Görünümü sıfırla</button>
-        <span class="gx-hint">Sürükleyerek kaydırın, tekerlekle yakınlaştırın</span>
+      <div class="gx-tools" role="toolbar" aria-label="Çizim araçları">
+        <button type="button" class="gx-tool on" data-tool="move" title="Taşı ve kaydır">Taşı</button>
+        <button type="button" class="gx-tool" data-tool="point" title="Nokta">Nokta</button>
+        <button type="button" class="gx-tool" data-tool="line" title="Doğru (iki nokta)">Doğru</button>
+        <button type="button" class="gx-tool" data-tool="ray" title="Işın (iki nokta)">Işın</button>
+        <button type="button" class="gx-tool" data-tool="segment" title="Parça (iki nokta)">Parça</button>
+        <button type="button" class="gx-tool" data-tool="circle" title="Çember (merkez, çevre noktası)">Çember</button>
+        <button type="button" class="gx-tool" data-tool="angle" title="Açı (kenar, köşe, kenar)">Açı</button>
+        <button type="button" class="gx-tool" data-tool="delete" title="Nesneyi sil">Sil</button>
+        <span class="gx-sep"></span>
+        <button type="button" class="gx-tool" data-gx="zoomin" aria-label="Yakınlaştır">+</button>
+        <button type="button" class="gx-tool" data-gx="zoomout" aria-label="Uzaklaştır">−</button>
+        <button type="button" class="gx-tool" data-gx="reset">Sıfırla</button>
+        <span class="gx-hint" data-gx="hint">Taşı: noktayı sürükleyin, boş alanı sürükleyerek kaydırın</span>
       </div>
       <div class="gx-canvas-wrap"><canvas data-gx="canvas" aria-label="Grafik alanı"></canvas></div>
     </div>
@@ -208,60 +314,181 @@ export function mountGraph(root, initial = { lines: [] }, options = {}) {
   const canvas = root.querySelector('[data-gx="canvas"]');
   const ctx = canvas.getContext('2d');
   const rowsEl = root.querySelector('[data-gx="rows"]');
-  let parsed = [];
+  const hintEl = root.querySelector('[data-gx="hint"]');
+  let model = buildModel(lines);
+  let tool = 'move';
+  let pending = [];     // çok noktalı araçlarda seçilen nokta adları
+  let cursor = null;    // dünya koordinatında imleç (önizleme için)
+  let drag = null;
   let drawQueued = false;
+  const colorOf = index => COLORS[index % COLORS.length];
+  const hints = {
+    move: 'Taşı: noktayı sürükleyin, boş alanı sürükleyerek kaydırın',
+    point: 'Nokta: istediğiniz yere tıklayın',
+    line: 'Doğru: iki nokta seçin (boş yere tıklarsanız yeni nokta oluşur)',
+    ray: 'Işın: başlangıç ve yön noktasını seçin',
+    segment: 'Parça: iki uç noktasını seçin',
+    circle: 'Çember: merkezi, sonra çevredeki bir noktayı seçin',
+    angle: 'Açı: bir kenar, köşe, diğer kenar noktasını sırayla seçin',
+    delete: 'Sil: silmek istediğiniz nesneye tıklayın',
+  };
 
   const emit = () => { if (options.onChange) options.onChange(lines.slice()); };
+  const scheduleDraw = () => {
+    if (drawQueued) return;
+    drawQueued = true;
+    requestAnimationFrame(draw);
+  };
+  const escapeHtml = value => String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-  function reparse() {
-    let fnCount = 0;
-    parsed = lines.map((line, index) => {
-      try {
-        const result = parseLine(line, `f${fnCount + 1}`);
-        if (result && result.type === 'fn') fnCount += 1;
-        return { line, result, error: null, index };
-      } catch (error) {
-        return { line, result: null, error: error.message, index };
+  function rebuild(fromInput) {
+    model = buildModel(lines);
+    if (fromInput) updateErrors(); else renderRows();
+    scheduleDraw();
+  }
+
+  function renderRows() {
+    rowsEl.innerHTML = lines.map((line, index) => `<div class="gx-row" data-index="${index}">
+        <span class="gx-dot" style="background:${colorOf(index)}"></span>
+        <input class="gx-input" value="${escapeHtml(line)}" ${readOnly ? 'readonly' : ''} aria-label="Satır ${index + 1}">
+        ${readOnly ? '' : '<button type="button" class="gx-del" data-gx="del" aria-label="Satırı sil">×</button>'}
+        ${model.errors[index] ? `<small class="gx-error">${escapeHtml(model.errors[index])}</small>` : ''}
+      </div>`).join('') || '<p class="gx-empty">Bir ifade ya da nokta yazın.</p>';
+  }
+
+  function updateErrors() {
+    rowsEl.querySelectorAll('.gx-row').forEach((row, index) => {
+      row.querySelector('.gx-error')?.remove();
+      if (model.errors[index]) {
+        const note = document.createElement('small');
+        note.className = 'gx-error';
+        note.textContent = model.errors[index];
+        row.appendChild(note);
       }
     });
   }
 
-  function renderRows() {
-    rowsEl.innerHTML = parsed.map((entry, index) => `<div class="gx-row" data-index="${index}">
-        <span class="gx-dot" style="background:${COLORS[index % COLORS.length]}"></span>
-        <input class="gx-input" value="${escapeAttr(entry.line)}" ${readOnly ? 'readonly' : ''} aria-label="Satır ${index + 1}">
-        ${readOnly ? '' : '<button type="button" class="gx-del" data-gx="del" aria-label="Satırı sil">×</button>'}
-        ${entry.error ? `<small class="gx-error">${escapeHtml(entry.error)}</small>` : ''}
-      </div>`).join('') || '<p class="gx-empty">Bir ifade ya da nokta yazın.</p>';
-  }
-
-  function escapeHtml(value) {
-    return String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  }
-  function escapeAttr(value) { return escapeHtml(value); }
-
-  function resize() {
-    const rect = canvas.parentElement.getBoundingClientRect();
+  // Dünya ↔ ekran dönüşümleri
+  const size = () => {
     const dpr = window.devicePixelRatio || 1;
-    canvas.width = Math.max(200, Math.floor(rect.width * dpr));
-    canvas.height = Math.max(200, Math.floor(rect.height * dpr));
-    canvas.style.width = `${rect.width}px`;
-    canvas.style.height = `${rect.height}px`;
-    scheduleDraw();
+    return { dpr, w: canvas.width / dpr, h: canvas.height / dpr };
+  };
+  const toScreen = (x, y, w, h) => [w / 2 + (x - view.cx) * view.scale, h / 2 - (y - view.cy) * view.scale];
+  const toWorld = (px, py, w, h) => [view.cx + (px - w / 2) / view.scale, view.cy - (py - h / 2) / view.scale];
+
+  function resolvePoint(name) {
+    const point = model.points.get(name);
+    return point ? [point.x, point.y] : null;
   }
 
-  function toScreen(x, y, w, h) {
-    return [w / 2 + (x - view.cx) * view.scale, h / 2 - (y - view.cy) * view.scale];
+  // Ekrandaki noktalara tıklama toleransı: 10 piksel
+  function hitPoint(px, py) {
+    const { w, h } = size();
+    let best = null;
+    let bestDistance = 10;
+    for (const point of model.points.values()) {
+      const [sx, sy] = toScreen(point.x, point.y, w, h);
+      const distance = Math.hypot(sx - px, sy - py);
+      if (distance <= bestDistance) { best = point; bestDistance = distance; }
+    }
+    return best;
+  }
+
+  function hitObject(px, py) {
+    const { w, h } = size();
+    const point = hitPoint(px, py);
+    if (point) return { kind: 'point', name: point.name, row: point.row };
+    let best = null;
+    let bestDistance = 8;
+    for (const object of model.objects) {
+      if (object.kind === 'fn') {
+        const wx = toWorld(px, py, w, h)[0];
+        try {
+          const y = object.fn(wx);
+          if (!Number.isFinite(y)) continue;
+          const [, sy] = toScreen(wx, y, w, h);
+          const distance = Math.abs(sy - py);
+          if (distance < bestDistance) { best = object; bestDistance = distance; }
+        } catch { /* yok say */ }
+        continue;
+      }
+      if (object.kind === 'circle') {
+        const center = resolvePoint(object.a);
+        const through = resolvePoint(object.b);
+        if (!center || !through) continue;
+        const [ccx, ccy] = toScreen(center[0], center[1], w, h);
+        const [ctx2, cty] = toScreen(through[0], through[1], w, h);
+        const radius = Math.hypot(ctx2 - ccx, cty - ccy);
+        const distance = Math.abs(Math.hypot(px - ccx, py - ccy) - radius);
+        if (distance < bestDistance) { best = object; bestDistance = distance; }
+        continue;
+      }
+      if (object.kind === 'angle') continue;
+      const a = resolvePoint(object.a);
+      const b = resolvePoint(object.b);
+      if (!a || !b) continue;
+      const [ax, ay] = toScreen(a[0], a[1], w, h);
+      const [bx, by] = toScreen(b[0], b[1], w, h);
+      const distance = distanceToSegmentOrLine(px, py, ax, ay, bx, by, object.kind);
+      if (distance < bestDistance) { best = object; bestDistance = distance; }
+    }
+    return best;
+  }
+
+  function distanceToSegmentOrLine(px, py, ax, ay, bx, by, kind) {
+    const dx = bx - ax;
+    const dy = by - ay;
+    const len2 = dx * dx + dy * dy || 1;
+    let t = ((px - ax) * dx + (py - ay) * dy) / len2;
+    if (kind === 'segment') t = Math.min(1, Math.max(0, t));
+    else if (kind === 'ray') t = Math.max(0, t);
+    return Math.hypot(ax + t * dx - px, ay + t * dy - py);
+  }
+
+  // Sonsuz doğru/ışın uçlarını görünür alanın dışına taşır
+  function lineEndpoints(kind, a, b, w, h) {
+    const dx = b[0] - a[0];
+    const dy = b[1] - a[1];
+    const length = Math.hypot(dx, dy);
+    if (length < 1e-12) return null;
+    const ux = dx / length;
+    const uy = dy / length;
+    const reach = (Math.hypot(w, h) / view.scale) * 2 + Math.hypot(a[0] - view.cx, a[1] - view.cy) + 1;
+    if (kind === 'segment') return [a, b];
+    if (kind === 'ray') return [a, [a[0] + ux * reach, a[1] + uy * reach]];
+    return [[a[0] - ux * reach, a[1] - uy * reach], [a[0] + ux * reach, a[1] + uy * reach]];
   }
 
   function draw() {
     drawQueued = false;
-    const dpr = window.devicePixelRatio || 1;
-    const w = canvas.width / dpr;
-    const h = canvas.height / dpr;
+    const { dpr, w, h } = size();
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, w, h);
+    drawGrid(w, h);
+    model.objects.forEach((object, index) => {
+      const color = colorOf(object.row ?? index);
+      if (object.kind === 'fn') drawFunction(object, color, w, h);
+      else if (object.kind === 'circle') drawCircle(object, color, w, h);
+      else if (object.kind === 'angle') drawAngle(object, color, w, h);
+      else drawLine(object, color, w, h);
+    });
+    if (pending.length && cursor && tool !== 'move' && tool !== 'delete' && tool !== 'point') {
+      const from = resolvePoint(pending[pending.length - 1]);
+      if (from) {
+        const [ax, ay] = toScreen(from[0], from[1], w, h);
+        const [cx, cy] = toScreen(cursor[0], cursor[1], w, h);
+        ctx.setLineDash([6, 5]);
+        ctx.strokeStyle = '#6b7f76';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(cx, cy); ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    }
+    for (const point of model.points.values()) drawPoint(point, w, h);
+  }
+
+  function drawGrid(w, h) {
     const left = view.cx - w / 2 / view.scale;
     const right = view.cx + w / 2 / view.scale;
     const bottom = view.cy - h / 2 / view.scale;
@@ -276,7 +503,7 @@ export function mountGraph(root, initial = { lines: [] }, options = {}) {
       if (Math.abs(gx) > step / 2) {
         const [, sy] = toScreen(0, 0, w, h);
         ctx.fillStyle = '#6b7f76';
-        ctx.fillText(formatTick(gx), sx + 4, Math.min(Math.max(sy + 14, 12), h - 4));
+        ctx.fillText(formatCoord(gx), sx + 4, Math.min(Math.max(sy + 14, 12), h - 4));
       }
     }
     for (let gy = Math.ceil(bottom / step) * step; gy <= top; gy += step) {
@@ -286,18 +513,12 @@ export function mountGraph(root, initial = { lines: [] }, options = {}) {
       if (Math.abs(gy) > step / 2) {
         const [sx] = toScreen(0, 0, w, h);
         ctx.fillStyle = '#6b7f76';
-        ctx.fillText(formatTick(gy), Math.min(Math.max(sx + 4, 4), w - 40), sy - 4);
+        ctx.fillText(formatCoord(gy), Math.min(Math.max(sx + 4, 4), w - 40), sy - 4);
       }
     }
-    parsed.forEach((entry, index) => {
-      if (!entry.result) return;
-      const color = COLORS[index % COLORS.length];
-      if (entry.result.type === 'fn') drawFunction(entry.result.fn, color, w, h);
-      else drawPoint(entry.result, color, w, h);
-    });
   }
 
-  function drawFunction(fn, color, w, h) {
+  function drawFunction(object, color, w, h) {
     ctx.strokeStyle = color;
     ctx.lineWidth = 2.2;
     ctx.beginPath();
@@ -306,54 +527,171 @@ export function mountGraph(root, initial = { lines: [] }, options = {}) {
     for (let px = 0; px <= w; px += 1) {
       const x = view.cx + (px - w / 2) / view.scale;
       let y;
-      try { y = fn(x); } catch { y = NaN; }
+      try { y = object.fn(x); } catch { y = NaN; }
       if (!Number.isFinite(y)) { started = false; previous = null; continue; }
       const [sx, sy] = toScreen(x, y, w, h);
-      if (previous !== null && Math.abs(sy - previous) > h) { started = false; }
+      if (previous !== null && Math.abs(sy - previous) > h) started = false;
       if (!started) { ctx.moveTo(sx, sy); started = true; } else { ctx.lineTo(sx, sy); }
       previous = sy;
     }
     ctx.stroke();
+    // Ad etiketi: eğri üzerinde ekranın dörtte üçünde
+    const labelX = view.cx + (w * 0.25 - w / 2) / view.scale;
+    const labelY = object.fn(labelX);
+    if (Number.isFinite(labelY)) {
+      const [lx, ly] = toScreen(labelX, labelY, w, h);
+      if (ly > 14 && ly < h - 4) labelAt(`${object.name}(x)=${object.expr}`, lx + 8, ly - 8, color);
+    }
   }
 
-  function drawPoint(point, color, w, h) {
+  function drawLine(object, color, w, h) {
+    const a = resolvePoint(object.a);
+    const b = resolvePoint(object.b);
+    if (!a || !b) return;
+    const ends = lineEndpoints(object.kind, a, b, w, h);
+    if (!ends) return;
+    const [sa, sb] = ends.map(([x, y]) => toScreen(x, y, w, h));
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2.2;
+    ctx.beginPath(); ctx.moveTo(sa[0], sa[1]); ctx.lineTo(sb[0], sb[1]); ctx.stroke();
+    // Ad: görünür kısmın orta noktasına yakın, doğru/ışın üzerinde
+    const labelPoint = object.kind === 'segment'
+      ? [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]
+      : nearestOnLine(object.kind, a, b, [view.cx, view.cy]);
+    const [lx, ly] = toScreen(labelPoint[0], labelPoint[1], w, h);
+    if (lx > 0 && lx < w && ly > 0 && ly < h) labelAt(`${object.name}: ${lineEquation(a, b)}`, lx + 8, ly - 8, color);
+  }
+
+  function drawCircle(object, color, w, h) {
+    const center = resolvePoint(object.a);
+    const through = resolvePoint(object.b);
+    if (!center || !through) return;
+    const [cx, cy] = toScreen(center[0], center[1], w, h);
+    const [tx, ty] = toScreen(through[0], through[1], w, h);
+    const radius = Math.hypot(tx - cx, ty - cy);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2.2;
+    ctx.beginPath(); ctx.arc(cx, cy, radius, 0, Math.PI * 2); ctx.stroke();
+    const worldRadius = Math.hypot(through[0] - center[0], through[1] - center[1]);
+    const angle = -Math.PI / 4;
+    labelAt(`${object.name}: r = ${formatCoord(worldRadius)}`, cx + Math.cos(angle) * radius + 6, cy + Math.sin(angle) * radius - 6, color);
+  }
+
+  function drawAngle(object, color, w, h) {
+    const a = resolvePoint(object.a);
+    const b = resolvePoint(object.b);
+    const c = resolvePoint(object.c);
+    if (!a || !b || !c) return;
+    const [ax, ay] = toScreen(a[0], a[1], w, h);
+    const [bx, by] = toScreen(b[0], b[1], w, h);
+    const [cx, cy] = toScreen(c[0], c[1], w, h);
+    const start = Math.atan2(ay - by, ax - bx);
+    const end = Math.atan2(cy - by, cx - bx);
+    let diff = end - start;
+    while (diff <= -Math.PI) diff += 2 * Math.PI;
+    while (diff > Math.PI) diff -= 2 * Math.PI;
+    const radius = 34;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(bx, by, radius, start, start + diff, diff < 0); ctx.stroke();
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(ax, ay); ctx.moveTo(bx, by); ctx.lineTo(cx, cy); ctx.stroke();
+    ctx.setLineDash([]);
+    const degrees = angleDegrees(a, b, c);
+    const mid = start + diff / 2;
+    labelAt(`${object.name}: ${formatCoord(degrees)}°`, bx + Math.cos(mid) * (radius + 20), by + Math.sin(mid) * (radius + 20), color);
+  }
+
+  function nearestOnLine(kind, a, b, target) {
+    const dx = b[0] - a[0];
+    const dy = b[1] - a[1];
+    const len2 = dx * dx + dy * dy || 1;
+    let t = ((target[0] - a[0]) * dx + (target[1] - a[1]) * dy) / len2;
+    if (kind === 'ray') t = Math.max(0, t);
+    return [a[0] + t * dx, a[1] + t * dy];
+  }
+
+  function drawPoint(point, w, h) {
+    const index = point.row ?? 0;
     const [sx, sy] = toScreen(point.x, point.y, w, h);
-    ctx.fillStyle = color;
+    ctx.fillStyle = colorOf(index);
     ctx.beginPath(); ctx.arc(sx, sy, 5, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#11231d';
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    labelAt(point.name, sx + 8, sy - 8, '#11231d');
+  }
+
+  function labelAt(text, x, y, color) {
     ctx.font = '600 13px system-ui, sans-serif';
-    ctx.fillText(`${point.name}(${formatTick(point.x)}, ${formatTick(point.y)})`, sx + 8, sy - 8);
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    const width = ctx.measureText(text).width;
+    ctx.fillRect(x - 3, y - 13, width + 6, 17);
+    ctx.fillStyle = color;
+    ctx.fillText(text, x, y);
   }
 
-  function formatTick(value) {
-    const rounded = Math.abs(value) < 1e-9 ? 0 : Number(value.toPrecision(6));
-    return String(rounded);
+  function setTool(next) {
+    tool = next;
+    pending = [];
+    cursor = null;
+    root.querySelectorAll('[data-tool]').forEach(button => button.classList.toggle('on', button.dataset.tool === next));
+    hintEl.textContent = hints[next] || '';
+    scheduleDraw();
   }
 
-  function scheduleDraw() {
-    if (drawQueued) return;
-    drawQueued = true;
-    requestAnimationFrame(draw);
+  function nextPointName() {
+    return freeName(new Set(model.points.keys()), POINT_LETTERS);
   }
 
-  // Yazarken satırları yeniden oluşturmadan yalnızca hata metinlerini günceller (imleç kaybolmaz)
-  function updateErrors() {
-    rowsEl.querySelectorAll('.gx-row').forEach((row, index) => {
-      const entry = parsed[index];
-      row.querySelector('.gx-error')?.remove();
-      if (entry && entry.error) {
-        const note = document.createElement('small');
-        note.className = 'gx-error';
-        note.textContent = entry.error;
-        row.appendChild(note);
-      }
-    });
+  function nextLineName() {
+    const used = new Set(model.objects.map(o => o.name));
+    return freeName(used, LINE_LETTERS);
   }
 
-  function refresh(fromInput = false) {
-    reparse();
-    if (fromInput) updateErrors();
-    else renderRows();
+  // Yeni nokta satırı ekler (fare ile tıklanan yere)
+  function addPointAt(wx, wy) {
+    const name = nextPointName();
+    lines.push(`${name}=(${formatCoord(wx)},${formatCoord(wy)})`);
+    rebuild(false);
+    emit();
+    return name;
+  }
+
+  // Tıklanan yerde nokta varsa onu, yoksa yeni noktayı döndürür
+  function pointUnder(px, py) {
+    const point = hitPoint(px, py);
+    if (point) return point.name;
+    const { w, h } = size();
+    const [wx, wy] = toWorld(px, py, w, h);
+    return addPointAt(wx, wy);
+  }
+
+  function addObject(kind, names) {
+    const name = nextLineName();
+    const keyword = { line: 'Doğru', ray: 'Işın', segment: 'Parça', circle: 'Çember', angle: 'Açı' }[kind];
+    lines.push(`${name}=${keyword}(${names.join(',')})`);
+    rebuild(false);
+    emit();
+  }
+
+  function deleteRow(row) {
+    if (row === undefined || readOnly) return;
+    lines.splice(row, 1);
+    if (!lines.length) lines = [''];
+    rebuild(false);
+    emit();
+  }
+
+  // Serbest noktanın satırını yeni koordinatlarla günceller (cebir paneli de güncellenir)
+  function moveFreePoint(name, wx, wy) {
+    const point = model.points.get(name);
+    if (!point) return;
+    lines[point.row] = `${name}=(${formatCoord(wx)},${formatCoord(wy)})`;
+    model = buildModel(lines);
+    const input = rowsEl.querySelector(`.gx-row[data-index="${point.row}"] .gx-input`);
+    if (input) input.value = lines[point.row];
     scheduleDraw();
   }
 
@@ -362,32 +700,30 @@ export function mountGraph(root, initial = { lines: [] }, options = {}) {
     if (!input) return;
     const index = Number(input.closest('.gx-row').dataset.index);
     lines[index] = input.value;
-    refresh(true);
+    rebuild(true);
     emit();
   });
   rowsEl.addEventListener('click', event => {
     const del = event.target.closest('[data-gx="del"]');
     if (!del) return;
-    const index = Number(del.closest('.gx-row').dataset.index);
-    lines.splice(index, 1);
-    refresh();
-    emit();
+    deleteRow(Number(del.closest('.gx-row').dataset.index));
   });
   root.querySelector('[data-gx="add"]').addEventListener('click', () => {
     if (readOnly) return;
     lines.push('');
-    refresh();
+    rebuild(false);
     const inputs = rowsEl.querySelectorAll('.gx-input');
     inputs[inputs.length - 1]?.focus();
     emit();
   });
 
+  root.querySelectorAll('[data-tool]').forEach(button => {
+    button.addEventListener('click', () => setTool(button.dataset.tool));
+  });
+
   const zoomAt = (factor, px, py) => {
-    const dpr = window.devicePixelRatio || 1;
-    const w = canvas.width / dpr;
-    const h = canvas.height / dpr;
-    const wx = view.cx + (px - w / 2) / view.scale;
-    const wy = view.cy - (py - h / 2) / view.scale;
+    const { w, h } = size();
+    const [wx, wy] = toWorld(px, py, w, h);
     view.scale = Math.min(2000, Math.max(4, view.scale * factor));
     view.cx = wx - (px - w / 2) / view.scale;
     view.cy = wy + (py - h / 2) / view.scale;
@@ -405,33 +741,111 @@ export function mountGraph(root, initial = { lines: [] }, options = {}) {
     zoomAt(event.deltaY < 0 ? 1.1 : 0.9, event.clientX - rect.left, event.clientY - rect.top);
   }, { passive: false });
 
-  let drag = null;
+  const localPoint = event => {
+    const rect = canvas.getBoundingClientRect();
+    return [event.clientX - rect.left, event.clientY - rect.top];
+  };
+
   canvas.addEventListener('pointerdown', event => {
-    drag = { x: event.clientX, y: event.clientY, cx: view.cx, cy: view.cy };
+    const [px, py] = localPoint(event);
     canvas.setPointerCapture(event.pointerId);
-  });
-  canvas.addEventListener('pointermove', event => {
-    if (!drag) return;
-    view.cx = drag.cx - (event.clientX - drag.x) / view.scale;
-    view.cy = drag.cy + (event.clientY - drag.y) / view.scale;
+    const { w, h } = size();
+    const [wx, wy] = toWorld(px, py, w, h);
+    if (tool === 'move') {
+      const point = hitPoint(px, py);
+      if (point && !readOnly && isFreePoint(point)) {
+        drag = { kind: 'point', name: point.name, moved: false };
+      } else {
+        drag = { kind: 'pan', x: px, y: py, cx: view.cx, cy: view.cy, moved: false };
+      }
+      return;
+    }
+    if (readOnly) { drag = { kind: 'pan', x: px, y: py, cx: view.cx, cy: view.cy, moved: false }; return; }
+    if (tool === 'delete') {
+      const target = hitObject(px, py);
+      if (target) deleteRow(target.row);
+      return;
+    }
+    if (tool === 'point') {
+      addPointAt(wx, wy);
+      return;
+    }
+    // Doğru, ışın, parça, çember, açı: gerekli sayıda nokta
+    const name = pointUnder(px, py);
+    const need = tool === 'angle' ? 3 : 2;
+    if (pending.length && pending[pending.length - 1] === name) return;
+    pending = [...pending, name];
+    cursor = [wx, wy];
+    if (pending.length === need) {
+      addObject(tool, pending);
+      pending = [];
+      hintEl.textContent = hints[tool];
+    } else {
+      hintEl.textContent = `${pending.join(', ')} seçildi: ${need - pending.length} nokta daha seçin`;
+    }
     scheduleDraw();
   });
-  const endDrag = () => { drag = null; };
+
+  canvas.addEventListener('pointermove', event => {
+    const [px, py] = localPoint(event);
+    const { w, h } = size();
+    if (pending.length) {
+      cursor = toWorld(px, py, w, h);
+      scheduleDraw();
+    }
+    if (!drag) return;
+    drag.moved = true;
+    if (drag.kind === 'pan') {
+      view.cx = drag.cx - (px - drag.x) / view.scale;
+      view.cy = drag.cy + (py - drag.y) / view.scale;
+      scheduleDraw();
+    } else if (drag.kind === 'point') {
+      const [wx, wy] = toWorld(px, py, w, h);
+      moveFreePoint(drag.name, wx, wy);
+    }
+  });
+
+  const endDrag = () => {
+    if (drag && drag.kind === 'point' && drag.moved) emit();
+    drag = null;
+  };
   canvas.addEventListener('pointerup', endDrag);
   canvas.addEventListener('pointercancel', endDrag);
 
-  if (typeof ResizeObserver !== 'undefined') new ResizeObserver(resize).observe(canvas.parentElement);
-  else window.addEventListener('resize', resize);
+  function isFreePoint(point) {
+    const text = lines[point.row] || '';
+    return /^\s*[A-Za-z]\w*\s*=\s*\(/.test(text);
+  }
 
-  reparse();
+  if (typeof ResizeObserver !== 'undefined') {
+    new ResizeObserver(() => resize()).observe(canvas.parentElement);
+  } else {
+    window.addEventListener('resize', resize);
+  }
+
+  function resize() {
+    const rect = canvas.parentElement.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    const width = Math.max(200, Math.floor(rect.width));
+    const height = Math.max(200, Math.floor(rect.height));
+    if (canvas.width !== Math.floor(width * dpr) || canvas.height !== Math.floor(height * dpr)) {
+      canvas.width = Math.floor(width * dpr);
+      canvas.height = Math.floor(height * dpr);
+      canvas.style.width = `${width}px`;
+      canvas.style.height = `${height}px`;
+    }
+    scheduleDraw();
+  }
+
   renderRows();
   resize();
+  setTool('move');
 
   return {
     getLines: () => lines.slice(),
     setLines: next => {
-      lines = (next || []).map(line => String(line));
-      refresh();
+      lines = (next && next.length ? next : ['']).map(line => String(line));
+      rebuild(false);
       emit();
     },
   };

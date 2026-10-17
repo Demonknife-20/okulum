@@ -51,3 +51,54 @@ test('ızgara adımı okunaklı değerler üretir', () => {
   assert.equal(niceStep(1.6), 2);
   assert.equal(niceStep(40), 50);
 });
+
+import { parseCommand, buildModel } from '../public/graph.js';
+
+test('komutlar: doğru, ışın, parça; Türkçe ve İngilizce adlar, isteğe bağlı ad', () => {
+  assert.deepEqual(parseCommand('d=Doğru(A,B)'), { kind: 'line', name: 'd', a: 'A', b: 'B', c: null });
+  assert.deepEqual(parseCommand('Işın(A,B)'), { kind: 'ray', name: null, a: 'A', b: 'B', c: null });
+  assert.deepEqual(parseCommand('s=Parça(P,Q)'), { kind: 'segment', name: 's', a: 'P', b: 'Q', c: null });
+  assert.deepEqual(parseCommand('l=line(A,B)'), { kind: 'line', name: 'l', a: 'A', b: 'B', c: null });
+  assert.equal(parseCommand('A=(1,2)'), null, 'nokta komut değildir');
+  assert.throws(() => parseCommand('Elips(A,B)'), /Bilinmeyen komut/);
+});
+
+test('nesne modeli: noktalar, doğrular, tanımsız nokta hatası, fonksiyonlar', () => {
+  const model = buildModel(['A=(0,0)', 'B=(2,1)', 'd=Doğru(A,B)', 's=Parça(A,Z)', 'f(x)=x^2', '']);
+  assert.deepEqual([...model.points.keys()], ['A', 'B']);
+  assert.deepEqual(model.objects.map(o => `${o.kind}:${o.name}`), ['line:d', 'segment:s', 'fn:f']);
+  assert.equal(model.errors[3], 'Nokta tanımlı değil: Z');
+  assert.equal(model.objects[0].row, 2);
+});
+
+test('nesne modeli: noktayı taşımak doğru satırı günceller (bağımlı nesneler sonra yeniden hesaplanır)', () => {
+  const lines = ['A=(0,0)', 'B=(2,1)', 'd=Doğru(A,B)'];
+  const moved = lines.map((line, i) => (i === 1 ? 'B=(3,4)' : line));
+  const model = buildModel(moved);
+  assert.deepEqual([model.points.get('B').x, model.points.get('B').y], [3, 4]);
+  assert.equal(model.objects[0].b, 'B', 'doğru hâlâ B noktasına bağlı');
+});
+
+import { lineEquation, angleDegrees } from '../public/graph.js';
+
+test('denklem etiketi: eğik, yatay, dikey ve eksenden geçen doğrular', () => {
+  assert.equal(lineEquation([0, 1], [1, 3]), 'y = 2x + 1');
+  assert.equal(lineEquation([0, 2], [1, 2]), 'y = 2');
+  assert.equal(lineEquation([3, 0], [3, 5]), 'x = 3');
+  assert.equal(lineEquation([0, 0], [1, -1]), 'y = -x');
+  assert.equal(lineEquation([0, 0], [2, -3]), 'y = -1.5x');
+});
+
+test('açı: dik, düz ve sıfır açı', () => {
+  assert.ok(Math.abs(angleDegrees([1, 0], [0, 0], [0, 1]) - 90) < 1e-9);
+  assert.ok(Math.abs(angleDegrees([1, 0], [0, 0], [-1, 0]) - 180) < 1e-9);
+  assert.ok(Math.abs(angleDegrees([2, 0], [0, 0], [5, 0])) < 1e-9);
+  assert.ok(Number.isNaN(angleDegrees([0, 0], [0, 0], [1, 1])));
+});
+
+test('çember ve açı komutları: doğru argüman sayısı', () => {
+  assert.deepEqual(parseCommand('c=Çember(A,B)'), { kind: 'circle', name: 'c', a: 'A', b: 'B', c: null });
+  assert.deepEqual(parseCommand('Açı(A,B,C)'), { kind: 'angle', name: null, a: 'A', b: 'B', c: 'C' });
+  assert.throws(() => parseCommand('Açı(A,B)'), /üç nokta/);
+  assert.throws(() => parseCommand('Doğru(A,B,C)'), /en fazla iki/);
+});

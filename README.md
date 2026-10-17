@@ -379,3 +379,18 @@ Müdür tüm okulu, öğretmen kendi derslerini, öğrenci yalnızca kendi devam
 - Hatalı ifadeler satır altında açıklanır; ifade değerlendirmesi `eval` kullanmadan yapılır.
 - Öğretmen/müdür çalışmayı "Sınıfa kaydet" ile kaydeder; öğrenci ve veli "Çalışmayı aç" ile satırları yükler. Yalnızca harf, rakam ve matematik işaretleri kabul edilir (en fazla 60 satır).
 - Birim testleri: `npm run test:graph`. Tüm testler: `npm test`.
+
+## GeoGebra benzeri çizim (v33)
+
+- Fare araçları: **Taşı** (noktayı sürükle, boş alanı kaydır), **Nokta** (tıkla), **Doğru**, **Işın**, **Parça** (iki nokta seç; boş yere tıklarsan yeni nokta oluşur), **Sil** (nesneye tıkla). Yakınlaştırma: tekerlek ve +/− düğmeleri.
+- Her nesne cebir paneline satır olarak yazılır: `A=(1,2)`, `d=Doğru(A,B)`, `s=Parça(A,B)`, `b=Işın(B,C)`, `f(x)=x^2-4`. Bir noktayı sürüklediğinde satırı güncellenir ve ona bağlı doğru/ışın/parça yeniden hesaplanır.
+- Nesnelerin üzerinde adları yazılır (noktalar A, B, C…; doğru/ışın/parça a, b, c…; fonksiyon eğrisinde f(x)=…).
+- Komutlar Türkçe ve İngilizce: `Doğru` / `line`, `Işın` / `ray`, `Parça` / `segment`.
+
+## Grafik: denklem etiketleri, çember, açı, dokunmatik (v34)
+
+- Doğru, ışın ve parçanın yanında denklem yazılır: `a: y = 2x + 1`, dikey doğru için `x = 3`.
+- **Çember** aracı: merkez, sonra çevredeki bir nokta (`b=Çember(C,D)`), etiketi yarıçap.
+- **Açı** aracı: kenar, köşe, diğer kenar (`Açı(B,A,D)`), derece cinsinden etiket.
+- Dokunmatik ekranda nokta, doğru ve çember koyma ve parmakla nokta taşıma test edildi (telefon boyutu, gerçek dokunuş olayları).
+- Açı aracı birim testlerinde doğrulandı; tarayıcıda dokunmatik olarak henüz denenmedi.

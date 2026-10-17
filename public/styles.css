@@ -1298,7 +1298,7 @@ html{scrollbar-width:thin;scrollbar-color:var(--line-2) transparent}
 .gx-main{display:grid;gap:10px;min-width:0}
 .gx-tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .gx-hint{font-size:12.5px;color:var(--muted);margin-left:auto}
-.gx-canvas-wrap{position:relative;height:clamp(380px,66vh,660px);border-radius:18px;overflow:hidden;border:1px solid var(--line);background:#ffffff;box-shadow:var(--sh-2)}
+.gx-canvas-wrap{position:relative;height:clamp(360px,56vh,560px);border-radius:18px;overflow:hidden;border:1px solid var(--line);background:#ffffff;box-shadow:var(--sh-2)}
 .gx-canvas-wrap canvas{position:absolute;inset:0;display:block;touch-action:none;cursor:grab;width:100%;height:100%}
 .gx-host{width:100%}
 @media (max-width:760px){
@@ -1306,4 +1306,16 @@ html{scrollbar-width:thin;scrollbar-color:var(--line-2) transparent}
   .gx-side{max-height:260px}
   .gx-canvas-wrap{height:clamp(320px,56vh,460px)}
   .gx-hint{display:none}
+}
+
+/* v33: GeoGebra benzeri araç çubuğu */
+.gx-tools{gap:6px}
+.gx-tool{min-height:38px;padding:0 12px;border-radius:12px;border:1px solid var(--line-2);background:var(--surface);color:var(--ink);font:700 13px/1 var(--f-body);cursor:pointer;transition:background .2s,border-color .2s,color .2s}
+.gx-tool:hover{border-color:var(--brand)}
+.gx-tool.on{background:var(--brand-soft);border-color:var(--brand);color:var(--brand)}
+.gx-sep{width:1px;height:26px;background:var(--line);margin:0 4px}
+.gx-canvas-wrap{user-select:none;-webkit-user-select:none}
+@media (max-width:760px){
+  .gx-tools{overflow-x:auto;flex-wrap:nowrap;padding-bottom:4px}
+  .gx-tool{flex:0 0 auto;min-height:40px}
 }
