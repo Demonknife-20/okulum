@@ -370,3 +370,12 @@ Müdür tüm okulu, öğretmen kendi derslerini, öğrenci yalnızca kendi devam
 
 - `esbuild` derleme aracı üretim bağımlılıklarına taşındı. Render `NODE_ENV=production` ile kurduğunda geliştirme bağımlılıkları atlanır; bu yüzden derleme `esbuild` bulamıyordu.
 - Derleme komutu: `npm install && npm run build` (değişmedi).
+
+## Kendi grafik aracımız (v32)
+
+- GeoGebra'nın yerleştirilmiş kopyası yerine sistemin kendi grafik aracı. Harici betik, iframe ya da üçüncü taraf kaynak kullanmaz; CSP yalnızca `'self'`.
+- Fonksiyon (`f(x)=x^2-4`, `y=2x+1`, `sin(x)`), nokta (`A=(2, 0)`), örtük çarpma (`2x`, `3(x+1)`), `^` ve `**` üssü, `pi`, `e`, `sqrt`, `abs`, `ln`, `log`, `exp`, `floor`, `ceil`.
+- Kaydırma (sürükle), tekerlekle yakınlaştırma, +/− düğmeleri, görünümü sıfırlama, uyarlanabilir ızgara ve eksen etiketleri.
+- Hatalı ifadeler satır altında açıklanır; ifade değerlendirmesi `eval` kullanmadan yapılır.
+- Öğretmen/müdür çalışmayı "Sınıfa kaydet" ile kaydeder; öğrenci ve veli "Çalışmayı aç" ile satırları yükler. Yalnızca harf, rakam ve matematik işaretleri kabul edilir (en fazla 60 satır).
+- Birim testleri: `npm run test:graph`. Tüm testler: `npm test`.

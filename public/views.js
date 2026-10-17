@@ -1,5 +1,6 @@
 import { renderMarkdown } from './markdown.js';
 import { enablePush, disablePush, isSubscribed } from './push.js';
+import { mountGraph } from './graph.js';
 import { helpHtml } from './help.js';
 import { state, api, $, $$, esc, ROLE, icon, fmtDate, todayIso, pct, initials, tone, readFile, toast, openModal, closeModal, confirmDialog, refreshMe, refresh, val, setBusy, setQuery, parseHash, paintWidths, refreshBadges } from './core.js';
 
@@ -2972,95 +2973,62 @@ FORMS['grade-save'] = async form => {
   refresh();
 };
 
-// ---------- GeoGebra (v30): uygulama sayfanın içinde açılır ----------
-const GGB_APPS = [['graphing', 'Grafik', 'graphing'], ['calculator', 'Hesap makinesi', 'scientific'], ['geometry', 'Geometri', 'geometry'], ['3d', '3B', '3d'], ['classic', 'Klasik', 'classic'], ['cas', 'CAS', 'suite']];
-let ggbScriptPromise = null;
+// ---------- GeoGebra (v32): kendi grafik aracımız, sınıf çalışmaları ----------
+let ggbCurrent = null;
 
-function loadGeogebra() {
-  if (window.GGBApplet) return Promise.resolve();
-  if (!ggbScriptPromise) {
-    ggbScriptPromise = new Promise((resolve, reject) => {
-      const script = document.createElement('script');
-      script.src = 'https://www.geogebra.org/apps/deployggb.js';
-      script.async = true;
-      script.onload = () => resolve();
-      script.onerror = () => { ggbScriptPromise = null; reject(new Error('GeoGebra yüklenemedi')); };
-      document.head.appendChild(script);
-    });
-  }
-  return ggbScriptPromise;
-}
-
-// Uygulamayı sayfanın içine yerleştirir. options.material_id varsa paylaşılan materyali açar.
-async function ggbInject(options, fallbackUrl) {
-  const host = document.querySelector('#ggbApplet');
-  if (!host) return;
-  host.innerHTML = '<div class="ggb-loading">GeoGebra yükleniyor…</div>';
-  try {
-    await loadGeogebra();
-    host.innerHTML = '';
-    const width = Math.max(320, Math.floor(host.clientWidth) || 800);
-    const applet = new window.GGBApplet({ width, height: 560, showToolBar: true, showAlgebraInput: true, showMenuBar: false, language: 'tr', ...options }, true);
-    applet.inject('ggbApplet');
-  } catch (error) {
-    host.innerHTML = `<div class="ggb-fallback"><p>GeoGebra şu anda açılamadı. Bağlantınızı kontrol edip tekrar deneyin.</p>
-      <a class="btn primary" href="${esc(fallbackUrl || 'https://www.geogebra.org')}" target="_blank" rel="noopener">GeoGebra'yı yeni sekmede aç</a></div>`;
-  }
-}
-
-function setGgbName(text) {
-  const name = document.querySelector('#ggbName');
-  if (name) name.textContent = text;
-}
-
-async function pageGeogebra(params) {
-  const app = GGB_APPS.find(([key]) => key === params.app) || GGB_APPS[0];
+async function pageGeogebra() {
   const { materials } = await api('/geogebra/materials');
-  const canAdd = state.me.role === 'teacher' || state.me.role === 'principal';
-  const tabs = GGB_APPS.map(([key, label, appName]) => `<button type="button" class="seg-btn ${key === app[0] ? 'on' : ''}" data-action="ggb-app" data-app="${esc(appName)}" data-label="${esc(label)}" aria-pressed="${key === app[0]}">${esc(label)}</button>`).join('');
-  const list = materials.map(m => {
-    const match = /\/m\/([A-Za-z0-9]+)/.exec(m.url);
-    return `<li class="list-row">
-      <div class="list-main"><strong>${esc(m.title)}</strong><small class="muted">${esc(m.className)}</small></div>
-      <div class="row-actions">
-        <button class="btn ghost sm" type="button" data-action="ggb-open" data-url="${esc(m.url)}" data-material="${esc(match ? match[1] : '')}">Sayfada aç</button>
-        <a class="btn ghost sm" href="${esc(m.url)}" target="_blank" rel="noopener">Yeni sekmede</a>
-        ${m.canDelete ? `<button class="icon-btn sm" type="button" data-action="ggb-del" data-id="${esc(m.id)}" aria-label="Materyali sil">${icon('trash')}</button>` : ''}
-      </div>
-    </li>`;
-  }).join('');
-  const addButton = canAdd ? `<button class="btn primary" type="button" data-action="ggb-add">${icon('plus')}<span>Materyal ekle</span></button>` : '';
+  const staff = state.me.role === 'teacher' || state.me.role === 'principal';
+  const saveButton = staff ? `<button class="btn primary" type="button" data-action="ggb-save">${icon('plus')}<span>Sınıfa kaydet</span></button>` : '';
+  const del = m => (m.canDelete ? `<button class="icon-btn sm" type="button" data-action="ggb-del" data-id="${esc(m.id)}" aria-label="Materyali sil">${icon('trash')}</button>` : '');
+  const list = materials.map(m => (m.kind === 'worksheet'
+    ? `<li class="list-row"><div class="list-main"><strong>${esc(m.title)}</strong><small class="muted">${esc(m.className)} · çalışma · ${(m.content?.lines || []).length} satır</small></div>
+        <div class="row-actions"><button class="btn ghost sm" type="button" data-action="ggb-load" data-content="${esc(JSON.stringify(m.content || { lines: [] }))}">Çalışmayı aç</button>${del(m)}</div></li>`
+    : `<li class="list-row"><div class="list-main"><strong>${esc(m.title)}</strong><small class="muted">${esc(m.className)} · bağlantı</small></div>
+        <div class="row-actions"><a class="btn ghost sm" href="${esc(m.url)}" target="_blank" rel="noopener">GeoGebra'da aç</a>${del(m)}</div></li>`)).join('');
   return {
-    html: `${head('GeoGebra', 'Grafik, geometri ve hesap uygulamaları sayfanın içinde açılır. Öğretmenler sınıfa materyal ekleyebilir.', addButton)}
-      ${panel('Uygulama', '', `<div class="pad stack">
-        <div class="row-actions ggb-tabs">${tabs}</div>
-        <div class="ggb-stage">
-          <div id="ggbApplet" class="ggb-host" aria-label="GeoGebra uygulaması"></div>
-          <span class="ggb-watermark" id="ggbName">GeoGebra · ${esc(app[1])}</span>
-        </div>
-      </div>`)}
-      ${panel('Sınıf materyalleri', `${materials.length} materyal`, materials.length
+    html: `${head('GeoGebra', 'Fonksiyon ve nokta çizin, sınıf çalışmalarını kaydedin. Öğrenciler çalışmayı açıp kendi denemelerini yapabilir.', saveButton)}
+      ${panel('Grafik', '', '<div class="pad"><div id="graphHost" class="gx-host"></div></div>')}
+      ${panel('Sınıf çalışmaları', `${materials.length} kayıt`, materials.length
         ? `<ul class="list">${list}</ul>`
-        : empty('Materyal yok', 'Öğretmeniniz sınıfa GeoGebra materyali eklediğinde burada görünür.'))}`,
-    after: () => ggbInject({ appName: app[2] }),
+        : empty('Çalışma yok', 'Öğretmeniniz çalışma kaydettiğinde burada görünür.'))}`,
+    after: () => {
+      const host = document.querySelector('#graphHost');
+      if (host) ggbCurrent = mountGraph(host, { lines: [] }, {});
+    },
   };
 }
 
-ACTIONS['ggb-app'] = el => {
-  document.querySelectorAll('.ggb-tabs .seg-btn').forEach(button => {
-    const on = button === el;
-    button.classList.toggle('on', on);
-    button.setAttribute('aria-pressed', String(on));
-  });
-  setGgbName(`GeoGebra · ${el.dataset.label}`);
-  ggbInject({ appName: el.dataset.app });
+ACTIONS['ggb-load'] = el => {
+  if (!ggbCurrent) return;
+  const content = JSON.parse(el.dataset.content || '{"lines":[]}');
+  ggbCurrent.setLines(content.lines || []);
+  toast('Çalışma yüklendi');
+  document.querySelector('#graphHost')?.scrollIntoView({ behavior: 'smooth' });
 };
 
-ACTIONS['ggb-open'] = el => {
-  const material = el.dataset.material;
-  setGgbName('GeoGebra · Materyal');
-  window.scrollTo({ top: 0, behavior: 'smooth' });
-  ggbInject(material ? { material_id: material } : { appName: 'graphing' }, el.dataset.url);
+ACTIONS['ggb-save'] = () => {
+  const lines = ggbCurrent ? ggbCurrent.getLines().filter(Boolean) : [];
+  if (!lines.length) {
+    toast('Kaydetmek için en az bir satır yazın', 'error');
+    return;
+  }
+  const classes = state.me.role === 'teacher' ? teacherClasses() : state.classes;
+  openModal('Çalışmayı sınıfa kaydet', `<form class="stack" data-form="ggb-save">
+    <label class="field"><span>Sınıf</span><select name="classId">${classes.map(c => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('')}</select></label>
+    <label class="field"><span>Çalışma adı</span><input name="title" required minlength="2" maxlength="120" placeholder="Örn. Parabol ve kökler"></label>
+    <p class="muted small">${lines.length} satır kaydedilecek. Öğrenciler çalışmayı açıp kendi denemelerini yapabilir.</p>
+    <p class="form-error" data-error role="alert"></p>
+    <div class="form-actions"><button class="btn ghost" type="button" data-action="close-modal">Vazgeç</button><button class="btn primary" type="submit">Kaydet</button></div>
+  </form>`);
+};
+
+FORMS['ggb-save'] = async form => {
+  const lines = ggbCurrent ? ggbCurrent.getLines().filter(Boolean) : [];
+  await api('/geogebra/worksheets', { method: 'POST', body: { classId: val(form, 'classId'), title: val(form, 'title').trim(), lines } });
+  closeModal();
+  toast('Çalışma sınıfa kaydedildi');
+  refresh();
 };
 
 ACTIONS['ggb-add'] = () => {

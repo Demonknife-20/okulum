@@ -3451,7 +3451,7 @@ on('GET', '/api/geogebra/materials', async ({ query, user }) => {
   const classParam = query.get('classId') ? requireId(query.get('classId'), 'sınıf') : null;
   const classIds = await visibleClassIds(user);
   if (classParam && classIds !== null && !classIds.includes(classParam)) fail(403, 'Bu sınıfın materyallerini görme yetkin yok.');
-  const { rows } = await q(`select g.id, g.title, g.url, g.created_by as "createdBy", c.name as "className"
+  const { rows } = await q(`select g.id, g.title, g.url, g.kind, g.content, g.created_by as "createdBy", c.name as "className"
     from geogebra_materials g join classes c on c.id = g.class_id
     where ($1::uuid is null or g.class_id = $1) and ($2::uuid[] is null or g.class_id = any($2::uuid[]))
     order by c.name, g.created_at desc limit 300`, [classParam, classIds]);
@@ -3477,6 +3477,29 @@ on('DELETE', '/api/geogebra/materials/:id', async ({ params, user }) => {
   if (user.role !== 'principal' && row.created_by !== user.id) fail(403, 'Bu materyali silme yetkin yok.');
   await q('delete from geogebra_materials where id = $1', [id]);
   return ok({ deleted: true });
+}, { roles: STAFF });
+
+// Çalışma kaydı: yalnızca grafik aracının satırları (harf, rakam ve matematik işaretleri)
+const WORKSHEET_LINE = /^[A-Za-z0-9\s+\-*/^().,=_]{1,200}$/;
+
+on('POST', '/api/geogebra/worksheets', async ({ body, user }) => {
+  const classId = requireId(body.classId, 'sınıf');
+  if (user.role !== 'principal' && !(await teachesClass(user, classId))) fail(403, 'Bu sınıfa çalışma ekleme yetkin yok.');
+  const title = str(body.title, 120);
+  if (title.length < 2) fail(400, 'Başlık en az 2 karakter olmalı.');
+  if (!Array.isArray(body.lines)) fail(400, 'Çalışma satırları geçersiz.');
+  if (body.lines.length > 60) fail(400, 'Bir çalışmada en fazla 60 satır olabilir.');
+  const lines = body.lines.map(line => {
+    if (typeof line !== 'string') fail(400, 'Her satır metin olmalı.');
+    const text = line.trim();
+    if (text && !WORKSHEET_LINE.test(text)) fail(400, `Satırda izin verilmeyen karakter var: "${text.slice(0, 40)}"`);
+    return text;
+  }).filter(Boolean);
+  const { rows: [row] } = await q(`insert into geogebra_materials (class_id, title, kind, content, created_by)
+    values ($1, $2, 'worksheet', $3, $4) returning id`, [classId, title, JSON.stringify({ lines }), user.id]);
+  const { rows: students } = await q('select student_id from enrollments where class_id = $1', [classId]);
+  push.notify(students.map(s => s.student_id), { title: 'Yeni grafik çalışması', body: title, url: '/#/geogebra', tag: `ggb-ws-${row.id}` }).catch(() => {});
+  return created({ id: row.id, lines: lines.length });
 }, { roles: STAFF });
 
 // ---------- Hata eşleme ----------

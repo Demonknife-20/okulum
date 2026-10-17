@@ -1505,8 +1505,8 @@ test('GeoGebra paneli: uygulamalar, sınıf materyalleri, güvenli bağlantı zo
   assert.equal(apps.status, 200);
   assert.ok(apps.data.apps.some(a => a.key === 'graphing' && a.url === 'https://www.geogebra.org/graphing'));
   const page = await fetch(`${BASE}/`);
-  assert.match(page.headers.get('content-security-policy'), /frame-src https:\/\/www\.geogebra\.org/);
-  assert.match(page.headers.get('content-security-policy'), /script-src 'self' https:\/\/www\.geogebra\.org/);
+  assert.doesNotMatch(page.headers.get('content-security-policy'), /geogebra/);
+
   const added = await call('POST', '/api/geogebra/materials', { cookie: state.ayse, body: { classId: state.class6A, title: 'Üçgen alanı', url: 'https://www.geogebra.org/m/abc123' } });
   assert.equal(added.status, 201, JSON.stringify(added.data));
   for (const bad of ['http://www.geogebra.org/m/x', 'https://example.com/m/x', 'javascript:alert(1)', 'https://geogebra.org.evil.com/m/x']) {
@@ -1519,6 +1519,31 @@ test('GeoGebra paneli: uygulamalar, sınıf materyalleri, güvenli bağlantı zo
   assert.equal((await call('GET', `/api/geogebra/materials?classId=${state.class6A}`, { cookie: state.can })).status, 403, 'sınıfı olmayan öğrenci göremez');
   assert.equal((await call('DELETE', `/api/geogebra/materials/${added.data.id}`, { cookie: state.ali })).status, 403);
   assert.equal((await call('DELETE', `/api/geogebra/materials/${added.data.id}`, { cookie: state.ayse })).status, 200);
+});
+
+test('çalışma kaydı: öğretmen kaydeder, öğrenci görür, güvenli olmayan satır reddedilir', async () => {
+  const ok = await call('POST', '/api/geogebra/worksheets', { cookie: state.ayse, body: { classId: state.class6A, title: 'Parabol çalışması', lines: ['f(x)=x^2-4', 'A=(2, 0)', '  '] } });
+  assert.equal(ok.status, 201, JSON.stringify(ok.data));
+  assert.equal(ok.data.lines, 2, 'boş satırlar atılır');
+  assert.equal((await call('POST', '/api/geogebra/worksheets', { cookie: state.ayse, body: { classId: state.class6A, title: 'Kötü', lines: ['<script>alert(1)</script>'] } })).status, 400, 'izinsiz karakter');
+  assert.equal((await call('POST', '/api/geogebra/worksheets', { cookie: state.ayse, body: { classId: state.class6A, title: 'Çok', lines: Array(61).fill('x') } })).status, 400, 'en fazla 60 satır');
+  assert.equal((await call('POST', '/api/geogebra/worksheets', { cookie: state.ayse, body: { classId: state.class6A, title: 'Yanlış', lines: 'x' } })).status, 400);
+  assert.equal((await call('POST', '/api/geogebra/worksheets', { cookie: state.ece, body: { classId: state.class6A, title: 'Öğrenci', lines: ['x'] } })).status, 403, 'öğrenci kaydedemez');
+  assert.equal((await call('POST', '/api/geogebra/worksheets', { cookie: state.ali, body: { classId: state.class6A, title: 'Yabancı', lines: ['x'] } })).status, 403, 'sınıfı olmayan öğretmen kaydedemez');
+  const list = await call('GET', `/api/geogebra/materials?classId=${state.class6A}`, { cookie: state.ece });
+  const item = list.data.materials.find(m => m.title === 'Parabol çalışması');
+  assert.ok(item, 'öğrenci çalışmayı görür');
+  assert.equal(item.kind, 'worksheet');
+  assert.deepEqual(item.content.lines, ['f(x)=x^2-4', 'A=(2, 0)']);
+  assert.equal((await call('DELETE', `/api/geogebra/materials/${ok.data.id}`, { cookie: state.ali })).status, 403);
+  assert.equal((await call('DELETE', `/api/geogebra/materials/${ok.data.id}`, { cookie: state.ayse })).status, 200);
+});
+
+test('güvenlik başlıkları: harici GeoGebra betiği ya da çerçevesi yok', async () => {
+  const page = await fetch(`${BASE}/`);
+  const csp = page.headers.get('content-security-policy');
+  assert.match(csp, /script-src 'self'(;|$)/);
+  assert.doesNotMatch(csp, /geogebra/);
 });
 
 test('hız sınırı: çok sayıda başarısız girişten sonra 429', async () => {

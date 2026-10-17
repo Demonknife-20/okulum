@@ -1280,3 +1280,30 @@ html{scrollbar-width:thin;scrollbar-color:var(--line-2) transparent}
   .ggb-host,.ggb-loading,.ggb-fallback{min-height:360px}
   .ggb-watermark{top:8px;left:8px;font-size:11.5px}
 }
+
+/* v32: kendi grafik aracımız */
+.gx{display:grid;grid-template-columns:minmax(220px,300px) minmax(0,1fr);gap:14px;min-height:520px}
+.gx-side{display:grid;align-content:start;gap:10px;padding:12px;border-radius:16px;background:var(--surface-2);border:1px solid var(--line);max-height:620px;overflow:auto}
+.gx-head{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.gx-rows{display:grid;gap:8px}
+.gx-row{display:grid;grid-template-columns:12px minmax(0,1fr) auto;gap:8px;align-items:center}
+.gx-row .gx-error{grid-column:2 / 4;color:var(--danger);font-size:12px}
+.gx-dot{width:12px;height:12px;border-radius:50%}
+.gx-input{min-height:40px;font:600 14px/1.2 var(--f-body);padding:8px 10px;border-radius:12px;border:1px solid var(--line-2);background:var(--surface);color:var(--ink);width:100%;min-width:0}
+.gx-input:focus{outline:2px solid var(--brand);outline-offset:1px}
+.gx-del{width:32px;height:32px;border-radius:10px;border:1px solid var(--line-2);background:var(--surface);color:var(--muted);font-size:18px;cursor:pointer}
+.gx-help{margin:4px 0 0;font-size:12.5px;color:var(--muted);line-height:1.5}
+.gx-help code{font-size:12px}
+.gx-empty{color:var(--muted);font-size:13px;margin:0}
+.gx-main{display:grid;gap:10px;min-width:0}
+.gx-tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.gx-hint{font-size:12.5px;color:var(--muted);margin-left:auto}
+.gx-canvas-wrap{position:relative;height:clamp(380px,66vh,660px);border-radius:18px;overflow:hidden;border:1px solid var(--line);background:#ffffff;box-shadow:var(--sh-2)}
+.gx-canvas-wrap canvas{position:absolute;inset:0;display:block;touch-action:none;cursor:grab;width:100%;height:100%}
+.gx-host{width:100%}
+@media (max-width:760px){
+  .gx{grid-template-columns:1fr;min-height:0}
+  .gx-side{max-height:260px}
+  .gx-canvas-wrap{height:clamp(320px,56vh,460px)}
+  .gx-hint{display:none}
+}
