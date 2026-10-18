@@ -375,6 +375,7 @@ export function mountGraph(root, initial = { lines: [] }, options = {}) {
         <button type="button" class="gx-tool" data-tool="distance" title="Uzaklık: iki nokta seçin, ölçüm yazılır">Uzaklık</button>
         <span class="gx-sep"></span>
         <button type="button" class="gx-tool on" data-gx="axes" aria-pressed="true">Eksenler</button>
+        <button type="button" class="gx-tool" data-gx="coords" aria-pressed="false">Koordinat</button>
         <button type="button" class="gx-tool" data-gx="png">PNG indir</button>
         <span class="gx-sep"></span>
         <button type="button" class="gx-tool" data-gx="zoomin" aria-label="Yakınlaştır">+</button>
@@ -400,6 +401,7 @@ export function mountGraph(root, initial = { lines: [] }, options = {}) {
   let drag = null;
   let drawQueued = false;
   let showAxes = true;
+  let showCoords = false;
   const colorOf = index => COLORS[index % COLORS.length];
   const hints = {
     move: 'Taşı: noktayı sürükleyin, boş alanı sürükleyerek kaydırın',
@@ -719,7 +721,7 @@ export function mountGraph(root, initial = { lines: [] }, options = {}) {
     ctx.strokeStyle = '#ffffff';
     ctx.lineWidth = 1.5;
     ctx.stroke();
-    labelAt(point.name, sx + 8, sy - 8, '#11231d');
+    labelAt(showCoords ? `${point.name} (${formatCoord(point.x)}, ${formatCoord(point.y)})` : point.name, sx + 8, sy - 8, '#11231d');
   }
 
   function labelAt(text, x, y, color) {
@@ -833,6 +835,12 @@ export function mountGraph(root, initial = { lines: [] }, options = {}) {
     showAxes = !showAxes;
     event.currentTarget.classList.toggle('on', showAxes);
     event.currentTarget.setAttribute('aria-pressed', String(showAxes));
+    scheduleDraw();
+  });
+  root.querySelector('[data-gx="coords"]').addEventListener('click', event => {
+    showCoords = !showCoords;
+    event.currentTarget.classList.toggle('on', showCoords);
+    event.currentTarget.setAttribute('aria-pressed', String(showCoords));
     scheduleDraw();
   });
   root.querySelector('[data-gx="png"]').addEventListener('click', () => {

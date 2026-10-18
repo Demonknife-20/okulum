@@ -1394,7 +1394,17 @@ body{
 .expand-img{width:100%;height:auto;max-height:60vh;object-fit:contain;border-radius:12px;background:rgba(0,0,0,.04)}
 .expand-pdf{width:100%;height:60vh;border:1px solid var(--line);border-radius:12px;background:#fff}
 
-/* v46: uygulama kurulum şeridi */
-.install-pill{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 16px);z-index:60;display:flex;align-items:center;gap:10px;max-width:min(92vw,460px);padding:10px 10px 10px 16px;border-radius:999px;background:var(--surface);border:1px solid var(--line);box-shadow:var(--sh-3);font:600 13.5px/1.35 var(--f-body);color:var(--ink)}
-.install-text{flex:1;min-width:0}
+/* v47: uygulama kurulum kartı */
+.install-pill{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(env(safe-area-inset-bottom,0px) + 18px);z-index:60;display:flex;align-items:center;gap:12px;width:min(calc(100vw - 24px),440px);padding:12px 12px 12px 12px;border-radius:18px;background:var(--surface);border:1px solid var(--line);box-shadow:var(--sh-3);color:var(--ink);animation:install-in .35s var(--ease) both}
+.install-logo{width:44px;height:44px;border-radius:12px;flex:0 0 auto;background:#fff;object-fit:contain}
+.install-body{flex:1;min-width:0;display:grid;gap:2px}
+.install-title{font:700 14.5px/1.2 var(--f-body);color:var(--ink)}
+.install-text{font:500 12.5px/1.4 var(--f-body);color:var(--muted)}
+.install-actions{display:flex;align-items:center;gap:6px;flex:0 0 auto}
+.install-go{border-radius:12px}
+@keyframes install-in{from{opacity:0;transform:translate(-50%,12px)}to{opacity:1;transform:translate(-50%,0)}}
 @media (max-width:760px){.install-pill{bottom:calc(env(safe-area-inset-bottom,0px) + 92px)}}
+@media (prefers-reduced-motion:reduce){.install-pill{animation:none}}
+
+/* v47: pano sabit notları */
+.pin-badge{background:var(--brand-soft,#e3f1ea);color:var(--brand,#1b6b50);margin-bottom:6px}

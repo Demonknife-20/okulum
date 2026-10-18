@@ -1307,16 +1307,16 @@ on('GET', '/api/boards/:id/notes', async ({ params, user }) => {
   const rights = await studentCanPost(user, board, base);
   // Onay bekleyen notları yalnızca yöneticiler ve yazarın kendisi görür.
   const { rows } = await q(`select n.id, n.title, n.body, n.link, n.color, n.file_name as "fileName", n.file_mime as "fileMime",
-      (n.file_path is not null) as "hasFile", n.approved, n.created_at as "createdAt", n.author_id as "authorId",
+      (n.file_path is not null) as "hasFile", n.approved, n.pinned, n.created_at as "createdAt", n.author_id as "authorId",
       u.name as "authorName", u.role as "authorRole", n.pos_x as "posX", n.pos_y as "posY",
       (select count(*)::int from board_note_likes l where l.note_id = n.id) as "likeCount",
       exists(select 1 from board_note_likes l where l.note_id = n.id and l.user_id = $2) as "likedByMe",
       (select count(*)::int from board_note_comments c where c.note_id = n.id and c.approved) as "commentCount"
     from board_notes n left join users u on u.id = n.author_id
     where n.board_id = $1 and (${rights.moderate ? 'true' : 'n.approved or n.author_id = $2'})
-    order by n.created_at desc limit 300`, [id, user.id]);
+    order by n.pinned desc, n.created_at desc limit 300`, [id, user.id]);
   const pendingCount = rights.moderate ? rows.filter(n => !n.approved).length : 0;
-  const notes = rows.map(n => ({ ...n, canDelete: rights.moderate || n.authorId === user.id, canApprove: rights.moderate && !n.approved, canMove: rights.moderate || n.authorId === user.id }));
+  const notes = rows.map(n => ({ ...n, canDelete: rights.moderate || n.authorId === user.id, canApprove: rights.moderate && !n.approved, canMove: rights.moderate || n.authorId === user.id, canPin: rights.moderate }));
   return ok({ board: { ...board, rights: { ...rights, pendingCount } }, notes });
 });
 
@@ -1438,6 +1438,15 @@ on('PATCH', '/api/board-notes/:id/position', async ({ params, body, user }) => {
 });
 
 // Beğeni: aynı kullanıcı tekrar basarsa geri alır
+// Sabitleme: yalnızca pano yöneticisi notu üstte tutabilir
+on('PATCH', '/api/board-notes/:id/pin', async ({ params, body, user }) => {
+  const { note, rights } = await noteAccess(params.id, user);
+  if (!rights.moderate) fail(403, 'Notu sabitleme yetkin yok.');
+  if (typeof body.pinned !== 'boolean') fail(400, 'Sabitleme durumu geçersiz.');
+  await q('update board_notes set pinned = $2 where id = $1', [note.id, body.pinned]);
+  return ok({ pinned: body.pinned });
+});
+
 on('POST', '/api/board-notes/:id/like', async ({ params, user }) => {
   const { note } = await noteAccess(params.id, user);
   const { rows: [existing] } = await q('select 1 from board_note_likes where note_id = $1 and user_id = $2', [note.id, user.id]);

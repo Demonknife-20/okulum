@@ -438,3 +438,9 @@ Müdür tüm okulu, öğretmen kendi derslerini, öğrenci yalnızca kendi devam
 - `u=Uzaklık(A,B)`: iki nokta arasındaki uzaklık çizgi üzerinde etiketlenir. Araç çubuğunda **Uzaklık** aracı da var.
 - **Eksenler** düğmesi sıfır çizgilerini gösterip gizler.
 - **PNG indir** düğmesi mevcut grafiği `matematik-laboratuvari.png` olarak indirir.
+
+## Sürüm 47
+
+- **Kurulum kartı:** Yuvarlatılmış, logolu kart; Android'de Yükle, iPhone'da ekleme yönergesi.
+- **Pano sabitleme:** Yönetici notu üste sabitleyebilir (`0010_pinned_notes.sql`).
+- **Grafik koordinatları:** "Koordinat" düğmesiyle noktaların koordinatları etiketlerde gösterilir.

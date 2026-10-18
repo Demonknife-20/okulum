@@ -1297,6 +1297,7 @@ async function pageBoard(params) {
   const cards = notes.map((n, index) => `
     <article class="pin pin-${esc(n.color)}${n.approved === false ? ' pin-pending' : ''}${layout === 'wall' && n.canMove ? ' pin-movable' : ''}" data-note="${esc(n.id)}"${cardPos(n, index)}>
       ${n.hasFile && isImage(n) ? `<img class="pin-img" src="/api/files/board-note/${esc(n.id)}?inline=1" alt="${esc(n.fileName || 'Pano resmi')}" loading="lazy" decoding="async">` : ''}
+      ${n.pinned ? '<span class="badge pin-badge">Sabit</span>' : ''}
       ${n.title ? `<h3>${esc(n.title)}</h3>` : ''}
       ${n.body ? `<p>${esc(n.body)}</p>` : ''}
       ${n.link ? `<span class="badge media-badge">${esc(platformOf(n.link))}</span>` : ''}
@@ -1307,6 +1308,7 @@ async function pageBoard(params) {
       <footer class="note-foot">
         <span>${esc(n.authorName || 'Silinmiş kullanıcı')} · ${esc(ROLE[n.authorRole] || '')} · ${esc(fmtDate(n.createdAt))}</span>
         <span class="note-actions">
+          ${n.canPin ? `<button class="btn ghost sm" type="button" data-action="note-pin" data-id="${esc(n.id)}" data-pinned="${n.pinned ? '1' : '0'}">${n.pinned ? 'Sabiti kaldır' : 'Sabitle'}</button>` : ''}
           <button class="btn ghost sm" type="button" data-action="note-expand" data-id="${esc(n.id)}">Büyüt</button>
           <button class="pin-like${n.likedByMe ? ' on' : ''}" type="button" data-action="note-like" data-id="${esc(n.id)}" aria-pressed="${n.likedByMe ? 'true' : 'false'}" aria-label="Beğen">♥ <b>${n.likeCount}</b></button>
           <button class="pin-comments" type="button" data-action="pin-comments-open" data-id="${esc(n.id)}">Yorum <b>${n.commentCount}</b></button>
@@ -1400,6 +1402,13 @@ function platformOf(url) {
     return 'Bağlantı';
   }
 }
+
+ACTIONS['note-pin'] = async el => {
+  const pinned = el.dataset.pinned !== '1';
+  await api(`/board-notes/${el.dataset.id}/pin`, { method: 'PATCH', body: { pinned } });
+  toast(pinned ? 'Not sabitlendi' : 'Sabit kaldırıldı');
+  refresh();
+};
 
 ACTIONS['note-expand'] = el => {
   const note = currentNotes.find(n => n.id === el.dataset.id);

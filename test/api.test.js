@@ -1638,3 +1638,20 @@ test('android: dijital varlık bağlantısı yalnızca parmak izi tanımlıyken 
   const response = await fetch(`${BASE}/.well-known/assetlinks.json`);
   assert.equal(response.status, 404, 'ANDROID_SHA256 tanımlı değilken 404 döner');
 });
+
+test('pano sabitleme: yalnızca yönetici sabitler, sabitli not listede üstte görünür', async () => {
+  const created = await call('POST', '/api/boards', { cookie: state.ayse, body: { title: 'Sabit panosu', scope: 'class', classId: state.class6A } });
+  const boardId = created.data.id;
+  const first = await call('POST', `/api/boards/${boardId}/notes`, { cookie: state.ayse, body: { title: 'Eski', body: 'x' } });
+  await new Promise(r => setTimeout(r, 15));
+  const second = await call('POST', `/api/boards/${boardId}/notes`, { cookie: state.ayse, body: { title: 'Yeni', body: 'y' } });
+  assert.equal((await call('PATCH', `/api/board-notes/${first.data.id}/pin`, { cookie: state.ece, body: { pinned: true } })).status, 403, 'öğrenci sabitleyemez');
+  assert.equal((await call('PATCH', `/api/board-notes/${first.data.id}/pin`, { cookie: state.ayse, body: { pinned: 'evet' } })).status, 400);
+  assert.equal((await call('PATCH', `/api/board-notes/${first.data.id}/pin`, { cookie: state.ayse, body: { pinned: true } })).status, 200);
+  const list = await call('GET', `/api/boards/${boardId}/notes`, { cookie: state.ayse });
+  assert.equal(list.data.notes[0].id, first.data.id, 'sabitli not en üstte');
+  assert.equal(list.data.notes[0].pinned, true);
+  assert.equal(list.data.notes[1].id, second.data.id);
+  assert.equal(list.data.notes[0].canPin, true);
+  await call('DELETE', `/api/boards/${boardId}`, { cookie: state.ayse });
+});

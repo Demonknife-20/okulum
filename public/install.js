@@ -14,7 +14,7 @@ function showPill(label, onClick) {
     pill.setAttribute('aria-label', 'Uygulamayı yükle');
     document.body.appendChild(pill);
   }
-  pill.innerHTML = `<span class="install-text"></span><button type="button" class="btn primary sm install-go"></button><button type="button" class="icon-btn sm install-close" aria-label="Kapat">×</button>`;
+  pill.innerHTML = `<img class="install-logo" src="/icon-192.png" alt="" width="40" height="40"><div class="install-body"><strong class="install-title">Okulum uygulaması</strong><span class="install-text"></span></div><div class="install-actions"><button type="button" class="btn primary sm install-go"></button><button type="button" class="icon-btn sm install-close" aria-label="Kapat">×</button></div>`;
   pill.querySelector('.install-text').textContent = label.text;
   const go = pill.querySelector('.install-go');
   go.textContent = label.button;
