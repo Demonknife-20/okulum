@@ -1353,3 +1353,32 @@ html{scrollbar-width:thin;scrollbar-color:var(--line-2) transparent}
 .splash-mark::before,.splash-mark::after{display:none!important}
 .splash-mark img{width:88px;height:88px;object-fit:contain;display:block}
 @media (max-width:760px){.splash-mark img{width:68px;height:68px}}
+
+/* v40: arka plan ve yüzey iyileştirmeleri (açık ve koyu tema) */
+body{
+  background:
+    radial-gradient(circle at 1px 1px,color-mix(in srgb,var(--brand) 10%,transparent) 1px,transparent 0) 0 0/22px 22px,
+    radial-gradient(1100px 620px at 100% -10%,rgba(239,126,98,.14),transparent 60%),
+    radial-gradient(950px 560px at -10% -8%,rgba(27,107,80,.13),transparent 60%),
+    radial-gradient(800px 500px at 60% 115%,rgba(72,179,138,.11),transparent 65%),
+    linear-gradient(180deg,var(--bg) 0%,var(--bg-2) 100%);
+  background-attachment:fixed;
+}
+[data-theme=dark] body{
+  background:
+    radial-gradient(circle at 1px 1px,color-mix(in srgb,var(--brand) 16%,transparent) 1px,transparent 0) 0 0/22px 22px,
+    radial-gradient(1100px 620px at 100% -10%,rgba(243,147,120,.11),transparent 60%),
+    radial-gradient(950px 560px at -10% -8%,rgba(82,196,155,.11),transparent 60%),
+    radial-gradient(800px 500px at 60% 115%,rgba(55,152,122,.12),transparent 65%),
+    linear-gradient(180deg,var(--bg) 0%,var(--bg-2) 100%);
+  background-attachment:fixed;
+}
+* {scrollbar-width:thin;scrollbar-color:color-mix(in srgb,var(--brand) 35%,transparent) transparent}
+.topbar{backdrop-filter:saturate(1.4) blur(14px);-webkit-backdrop-filter:saturate(1.4) blur(14px)}
+.panel:hover{border-color:color-mix(in srgb,var(--brand) 18%,var(--line))}
+.list-row:hover{background:color-mix(in srgb,var(--brand) 4%,transparent)}
+.btn:active{transform:translateY(1px)}
+.btn:not(:disabled){transition:transform .15s var(--ease),box-shadow .25s,background .25s,color .25s}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}
+}

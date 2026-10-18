@@ -408,3 +408,8 @@ Müdür tüm okulu, öğretmen kendi derslerini, öğrenci yalnızca kendi devam
 - **Yorumlar:** Kartın yorum penceresinde yazılır; yorumu yazan kişi ya da pano yöneticisi siler.
 - Konumu yalnızca notu yazan kişi ya da pano yöneticisi değiştirebilir.
 - Migrasyon: `0008_padlet.sql`. Tarayıcı testi: `test/e2e/pano_duvar.py`.
+
+## Düzeltme ve arayüz (v40)
+
+- **Veli bağlantısı:** Müdür kişiler listesinde velilerin bağlı olduğu öğrenciler artık görünüyor (`childIds` kullanıcı listesinde sunuluyordu). Öğretmenler ve öğrenciler bu bilgiyi görmez. Testi: `test/api.test.js`.
+- **Arayüz:** Nokta ızgaralı ve üç ışımalı arka plan (açık ve koyu tema), cam efektli üst çubuk, liste satırı vurgusu, ince kaydırma çubukları, düğme basma geri bildirimi, hareket azaltma desteği.

@@ -819,6 +819,11 @@ test('veli hesabı: çocuğunu görür, başka öğrenciyi göremez, yalnızca �
   const created = await call('POST', '/api/users', { cookie: state.principal, body: { role: 'parent', name: 'Ece Annesi', username: 'ece.veli', password: 'veli-sifre-1', childIds: [state.eceId] } });
   assert.equal(created.status, 201);
   state.parentCookie = await login('ece.veli', 'veli-sifre-1');
+  const parentList = await call('GET', '/api/users?role=parent', { cookie: state.principal });
+  const parentRow = parentList.data.users.find(u => u.username === 'ece.veli');
+  assert.ok(parentRow && parentRow.childIds.includes(state.eceId), 'müdür veli listesinde bağlı öğrenciyi görür');
+  const teacherView = await call('GET', '/api/users?role=parent', { cookie: state.ayse });
+  assert.equal(teacherView.data.users.find(u => u.username === undefined || u.username === 'ece.veli')?.childIds, undefined, 'öğretmen bağlantı bilgisini görmez');
   const kids = await call('GET', '/api/parent/children', { cookie: state.parentCookie });
   assert.equal(kids.data.children.length, 1);
   assert.equal(kids.data.children[0].name, 'Ece Yılmaz');

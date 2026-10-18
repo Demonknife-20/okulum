@@ -404,12 +404,13 @@ on('GET', '/api/users', async ({ user, query }) => {
       (select coalesce(json_agg(json_build_object('classId', t.class_id, 'subjectId', t.subject_id,
           'className', c.name, 'subjectName', s.name) order by c.name, s.name), '[]'::json)
         from teaching t join classes c on c.id = t.class_id join subjects s on s.id = t.subject_id
-        where t.teacher_id = u.id) as teaching
+        where t.teacher_id = u.id) as teaching,
+      (select coalesce(json_agg(pl.student_id order by pl.student_id), '[]'::json) from parent_links pl where pl.parent_id = u.id) as "childIds"
     from users u where ${where}
     order by case u.role when 'principal' then 0 when 'teacher' then 1 else 2 end, u.name
     limit $${params.length - 1} offset $${params.length}`, params);
   // Kullanıcı adı ve ders atamaları yalnızca müdüre gösterilir.
-  const list = rows.map(row => user.role === 'principal' ? row : { ...row, username: undefined, teaching: undefined, email: undefined });
+  const list = rows.map(row => user.role === 'principal' ? row : { ...row, username: undefined, teaching: undefined, email: undefined, childIds: undefined });
   return ok({ users: list, total: n, page, size });
 });
 
