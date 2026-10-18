@@ -12,7 +12,10 @@ const COMMANDS = {
   'parça': 'segment', parca: 'segment', segment: 'segment',
   'çember': 'circle', cember: 'circle', circle: 'circle',
   'açı': 'angle', aci: 'angle', angle: 'angle',
+  'orta': 'midpoint', midpoint: 'midpoint',
+  'kesişim': 'intersect', kesisim: 'intersect', intersect: 'intersect',
 };
+const LINE_KINDS = ['line', 'ray', 'segment'];
 
 // ---------- İfade ayrıştırıcı (eval yok) ----------
 function tokenize(source) {
@@ -194,6 +197,32 @@ export function parseLine(line, fallbackName = 'f') {
   return { type: 'fn', name: name || fallbackName, expr: rhs, fn, text };
 }
 
+// Türetilmiş noktanın koordinatı: Orta(A,B) ya da Kesişim(a,b)
+export function derivedPoint(command, points, objects) {
+  if (command.kind === 'midpoint') {
+    const a = points.get(command.a);
+    const b = points.get(command.b);
+    if (!a || !b) throw new Error(`Nokta tanımlı değil: ${!a ? command.a : command.b}`);
+    return [(a.x + b.x) / 2, (a.y + b.y) / 2];
+  }
+  const first = objects.find(o => o.name === command.a && LINE_KINDS.includes(o.kind));
+  const second = objects.find(o => o.name === command.b && LINE_KINDS.includes(o.kind));
+  if (!first || !second) throw new Error('Kesişim için iki doğru, ışın ya da parça seçin');
+  const p1 = points.get(first.a);
+  const p2 = points.get(first.b);
+  const p3 = points.get(second.a);
+  const p4 = points.get(second.b);
+  if (!p1 || !p2 || !p3 || !p4) throw new Error('Doğruların nokta tanımları eksik');
+  const d1x = p2.x - p1.x;
+  const d1y = p2.y - p1.y;
+  const d2x = p4.x - p3.x;
+  const d2y = p4.y - p3.y;
+  const denom = d1x * d2y - d1y * d2x;
+  if (Math.abs(denom) < 1e-12) throw new Error('Paralel doğrular kesişmez');
+  const t = ((p3.x - p1.x) * d2y - (p3.y - p1.y) * d2x) / denom;
+  return [p1.x + t * d1x, p1.y + t * d1y];
+}
+
 // Satır listesinden nesne modeli: noktalar, doğrular, ışınlar, parçalar, fonksiyonlar
 export function buildModel(lines) {
   const points = new Map();
@@ -206,6 +235,10 @@ export function buildModel(lines) {
       if (!result) return;
       if (result.type === 'pt') {
         points.set(result.name, { kind: 'point', name: result.name, x: result.x, y: result.y, row });
+      } else if (result.type === 'cmd' && (result.kind === 'midpoint' || result.kind === 'intersect')) {
+        if (!result.name) throw new Error(`${result.kind === 'midpoint' ? 'Orta' : 'Kesişim'} için bir ad verin (ör. M=...)`);
+        const [dx, dy] = derivedPoint(result, points, objects);
+        points.set(result.name, { kind: 'point', name: result.name, x: dx, y: dy, row, derived: true });
       } else if (result.type === 'cmd') {
         objects.push({ kind: result.kind, name: result.name || `#${row}`, a: result.a, b: result.b, c: result.c, row });
       } else {
@@ -297,6 +330,7 @@ export function mountGraph(root, initial = { lines: [] }, options = {}) {
         <button type="button" class="gx-tool" data-tool="segment" title="Parça (iki nokta)">Parça</button>
         <button type="button" class="gx-tool" data-tool="circle" title="Çember (merkez, çevre noktası)">Çember</button>
         <button type="button" class="gx-tool" data-tool="angle" title="Açı (kenar, köşe, kenar)">Açı</button>
+        <button type="button" class="gx-tool" data-tool="midpoint" title="Orta nokta (iki nokta)">Orta</button>
         <button type="button" class="gx-tool" data-tool="delete" title="Nesneyi sil">Sil</button>
         <span class="gx-sep"></span>
         <button type="button" class="gx-tool" data-gx="zoomin" aria-label="Yakınlaştır">+</button>
@@ -330,6 +364,7 @@ export function mountGraph(root, initial = { lines: [] }, options = {}) {
     segment: 'Parça: iki uç noktasını seçin',
     circle: 'Çember: merkezi, sonra çevredeki bir noktayı seçin',
     angle: 'Açı: bir kenar, köşe, diğer kenar noktasını sırayla seçin',
+    midpoint: 'Orta nokta: iki nokta seçin, ortalarına yeni nokta oluşur',
     delete: 'Sil: silmek istediğiniz nesneye tıklayın',
   };
 
@@ -670,8 +705,9 @@ export function mountGraph(root, initial = { lines: [] }, options = {}) {
 
   function addObject(kind, names) {
     const name = nextLineName();
-    const keyword = { line: 'Doğru', ray: 'Işın', segment: 'Parça', circle: 'Çember', angle: 'Açı' }[kind];
-    lines.push(`${name}=${keyword}(${names.join(',')})`);
+    const keyword = { line: 'Doğru', ray: 'Işın', segment: 'Parça', circle: 'Çember', angle: 'Açı', midpoint: 'Orta' }[kind];
+    const label = kind === 'midpoint' ? nextPointName() : name;
+    lines.push(`${label}=${keyword}(${names.join(',')})`);
     rebuild(false);
     emit();
   }

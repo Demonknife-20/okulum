@@ -413,3 +413,9 @@ Müdür tüm okulu, öğretmen kendi derslerini, öğrenci yalnızca kendi devam
 
 - **Veli bağlantısı:** Müdür kişiler listesinde velilerin bağlı olduğu öğrenciler artık görünüyor (`childIds` kullanıcı listesinde sunuluyordu). Öğretmenler ve öğrenciler bu bilgiyi görmez. Testi: `test/api.test.js`.
 - **Arayüz:** Nokta ızgaralı ve üç ışımalı arka plan (açık ve koyu tema), cam efektli üst çubuk, liste satırı vurgusu, ince kaydırma çubukları, düğme basma geri bildirimi, hareket azaltma desteği.
+
+## GeoGebra: orta nokta ve kesişim (v41)
+
+- `M=Orta(A,B)`: iki noktanın orta noktası; A veya B taşınınca M de güncellenir.
+- `K=Kesişim(a,b)`: iki doğrunun (doğru, ışın ya da parça) kesişim noktası. Paralel doğrular için hata verir.
+- Araç çubuğunda **Orta** aracı: iki nokta seçince orta nokta oluşur.

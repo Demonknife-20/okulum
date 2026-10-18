@@ -1,6 +1,7 @@
+import { parseCommand } from '../public/graph.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { compileExpression, parseLine, niceStep } from '../public/graph.js';
+import { compileExpression, parseLine, niceStep, buildModel } from '../public/graph.js';
 
 test('ifade değerlendirme: öncelik, üs, eksi, örtük çarpma, fonksiyonlar', () => {
   assert.equal(compileExpression('2x^2+1')(3), 19);
@@ -52,7 +53,6 @@ test('ızgara adımı okunaklı değerler üretir', () => {
   assert.equal(niceStep(40), 50);
 });
 
-import { parseCommand, buildModel } from '../public/graph.js';
 
 test('komutlar: doğru, ışın, parça; Türkçe ve İngilizce adlar, isteğe bağlı ad', () => {
   assert.deepEqual(parseCommand('d=Doğru(A,B)'), { kind: 'line', name: 'd', a: 'A', b: 'B', c: null });
@@ -101,4 +101,34 @@ test('çember ve açı komutları: doğru argüman sayısı', () => {
   assert.deepEqual(parseCommand('Açı(A,B,C)'), { kind: 'angle', name: null, a: 'A', b: 'B', c: 'C' });
   assert.throws(() => parseCommand('Açı(A,B)'), /üç nokta/);
   assert.throws(() => parseCommand('Doğru(A,B,C)'), /en fazla iki/);
+});
+
+test('orta nokta: iki noktanın ortası türetilmiş nokta olarak hesaplanır', () => {
+  const model = buildModel(['A=(0,0)', 'B=(4,2)', 'M=Orta(A,B)']);
+  assert.deepEqual([model.points.get('M').x, model.points.get('M').y], [2, 1]);
+  assert.equal(model.points.get('M').derived, true);
+  assert.equal(model.errors.length, 0);
+  // Türetilmiş nokta serbest değildir: satırı sürüklenemez
+  assert.equal(model.points.get('M').row, 2);
+});
+
+test('kesişim: iki doğrunun kesişim noktası (sonsuz doğrular)', () => {
+  const model = buildModel(['A=(0,0)', 'B=(2,2)', 'C=(0,2)', 'D=(2,0)', 'a=Doğru(A,B)', 'b=Doğru(C,D)', 'K=Kesişim(a,b)']);
+  assert.ok(Math.abs(model.points.get('K').x - 1) < 1e-9 && Math.abs(model.points.get('K').y - 1) < 1e-9);
+  assert.equal(model.errors.length, 0);
+});
+
+test('kesişim: paralel doğrular ve eksik adlar açıklayıcı hata verir', () => {
+  const parallel = buildModel(['A=(0,0)', 'B=(1,0)', 'C=(0,1)', 'D=(1,1)', 'a=Doğru(A,B)', 'b=Doğru(C,D)', 'K=Kesişim(a,b)']);
+  assert.match(parallel.errors[6], /Paralel/);
+  assert.equal(parallel.points.has('K'), false);
+  const unnamed = buildModel(['A=(0,0)', 'B=(1,1)', 'Orta(A,B)']);
+  assert.match(unnamed.errors[2], /bir ad verin/);
+  const missing = buildModel(['A=(0,0)', 'M=Orta(A,Z)']);
+  assert.equal(missing.errors[1], 'Nokta tanımlı değil: Z');
+});
+
+test('kesişim: sayı olmayan nesne (fonksiyon) doğru yerine geçmez', () => {
+  const model = buildModel(['A=(0,0)', 'B=(1,1)', 'f(x)=x', 'K=Kesişim(f,f)']);
+  assert.match(model.errors[3], /iki doğru/);
 });
