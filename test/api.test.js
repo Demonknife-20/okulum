@@ -1548,6 +1548,52 @@ test('güvenlik başlıkları: harici GeoGebra betiği ya da çerçevesi yok', a
   assert.doesNotMatch(csp, /geogebra/);
 });
 
+test('pano: düzen ve arka plan doğrulanır, konum yalnızca yazar ya da yönetici tarafından değişir', async () => {
+  const created = await call('POST', '/api/boards', { cookie: state.ayse, body: { title: 'Duvar panosu', scope: 'class', classId: state.class6A, layout: 'wall', background: 'sky' } });
+  assert.equal(created.status, 201, JSON.stringify(created.data));
+  assert.equal((await call('POST', '/api/boards', { cookie: state.ayse, body: { title: 'Kötü düzen', scope: 'class', classId: state.class6A, layout: 'daire' } })).status, 400);
+  assert.equal((await call('POST', '/api/boards', { cookie: state.ayse, body: { title: 'Kötü arka plan', scope: 'class', classId: state.class6A, background: 'neon' } })).status, 400);
+  const boardId = created.data.id;
+  const notes = await call('GET', `/api/boards/${boardId}/notes`, { cookie: state.ayse });
+  assert.equal(notes.data.board.layout, 'wall');
+  assert.equal(notes.data.board.background, 'sky');
+  const note = await call('POST', `/api/boards/${boardId}/notes`, { cookie: state.ayse, body: { title: 'Kart', body: 'Merhaba', color: 'mint' } });
+  assert.equal(note.status, 201, JSON.stringify(note.data));
+  const noteId = note.data.id;
+  assert.equal((await call('PATCH', `/api/board-notes/${noteId}/position`, { cookie: state.ayse, body: { x: 120, y: 80 } })).status, 200, 'yazar taşıyabilir');
+  const moved = await call('GET', `/api/boards/${boardId}/notes`, { cookie: state.ece });
+  const card = moved.data.notes.find(n => n.id === noteId);
+  assert.deepEqual([card.posX, card.posY], [120, 80], 'konum kaydedilir');
+  assert.equal(card.canMove, false, 'öğrenci başkasının notunu taşıyamaz');
+  assert.equal((await call('PATCH', `/api/board-notes/${noteId}/position`, { cookie: state.ece, body: { x: 1, y: 1 } })).status, 403);
+  assert.equal((await call('PATCH', `/api/board-notes/${noteId}/position`, { cookie: state.ayse, body: { x: -5, y: 1 } })).status, 400, 'negatif konum reddedilir');
+  assert.equal((await call('PATCH', `/api/board-notes/${noteId}/position`, { cookie: state.ayse, body: { x: null, y: null } })).status, 200, 'otomatik yerleşime dönebilir');
+  const cleared = await call('GET', `/api/boards/${boardId}/notes`, { cookie: state.ayse });
+  assert.equal(cleared.data.notes.find(n => n.id === noteId).posX, null);
+  await call('DELETE', `/api/boards/${boardId}`, { cookie: state.ayse });
+});
+
+test('pano: beğeni geri alınır, yorum eklenir ve yalnızca sahibi ya da yönetici siler', async () => {
+  const created = await call('POST', '/api/boards', { cookie: state.ayse, body: { title: 'Beğeni panosu', scope: 'class', classId: state.class6A } });
+  const boardId = created.data.id;
+  const note = await call('POST', `/api/boards/${boardId}/notes`, { cookie: state.ayse, body: { title: 'Beğen', body: 'x' } });
+  const noteId = note.data.id;
+  const like = await call('POST', `/api/board-notes/${noteId}/like`, { cookie: state.ece });
+  assert.deepEqual([like.data.liked, like.data.likeCount], [true, 1]);
+  const unlike = await call('POST', `/api/board-notes/${noteId}/like`, { cookie: state.ece });
+  assert.deepEqual([unlike.data.liked, unlike.data.likeCount], [false, 0], 'ikinci basış beğeniyi geri alır');
+  const comment = await call('POST', `/api/board-notes/${noteId}/comments`, { cookie: state.ece, body: { body: 'Harika olmuş' } });
+  assert.equal(comment.status, 201);
+  assert.equal((await call('POST', `/api/board-notes/${noteId}/comments`, { cookie: state.ece, body: { body: '' } })).status, 400, 'boş yorum reddedilir');
+  assert.equal((await call('POST', `/api/board-notes/${noteId}/comments`, { cookie: state.ali, body: { body: 'yabancı' } })).status, 403, 'başka sınıfın öğretmeni yorum yapamaz');
+  const list = await call('GET', `/api/board-notes/${noteId}/comments`, { cookie: state.ayse });
+  assert.equal(list.data.comments.length, 1);
+  assert.equal(list.data.comments[0].body, 'Harika olmuş');
+  assert.equal((await call('DELETE', `/api/board-note-comments/${comment.data.id}`, { cookie: state.ali })).status, 403);
+  assert.equal((await call('DELETE', `/api/board-note-comments/${comment.data.id}`, { cookie: state.ayse })).status, 200, 'yönetici yorumu silebilir');
+  await call('DELETE', `/api/boards/${boardId}`, { cookie: state.ayse });
+});
+
 test('hız sınırı: çok sayıda başarısız girişten sonra 429', async () => {
   const statuses = [];
   for (let i = 0; i < 14; i += 1) {

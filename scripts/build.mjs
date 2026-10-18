@@ -36,6 +36,9 @@ fs.writeFileSync(path.join(out, 'index.html'), html);
 fs.copyFileSync(path.join(src, 'icon.svg'), path.join(out, 'icon.svg'));
 fs.copyFileSync(path.join(src, 'manifest.webmanifest'), path.join(out, 'manifest.webmanifest'));
 fs.copyFileSync(path.join(src, 'sw.js'), path.join(out, 'sw.js'));
+for (const asset of ['icon-192.png', 'icon-512.png', 'brand-mark.png', 'logo.png']) {
+  fs.copyFileSync(path.join(src, asset), path.join(out, asset));
+}
 
 const kb = file => (fs.statSync(path.join(out, file)).size / 1024).toFixed(1);
 console.log(`dist hazır: ${jsFile} (${kb(jsFile)} KB), ${cssFile} (${kb(cssFile)} KB)`);

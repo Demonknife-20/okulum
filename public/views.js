@@ -1151,6 +1151,9 @@ async function pagePanolar(params) {
 
 FORMS['board-search'] = async form => setQuery('panolar', { scope: val(form, 'scope'), q: val(form, 'q').trim() });
 
+const BOARD_LAYOUTS = [['grid', 'Izgara'], ['wall', 'Duvar (kartları sürükleyin)'], ['stream', 'Akış (tek sütun)']];
+const BOARD_BACKGROUNDS = [['paper', 'Kağıt'], ['mint', 'Nane'], ['sky', 'Gök'], ['lilac', 'Leylak'], ['sun', 'Sarı'], ['dark', 'Koyu']];
+
 function boardForm(board = null) {
   const role = state.me.role;
   const editing = Boolean(board);
@@ -1176,6 +1179,12 @@ function boardForm(board = null) {
           <select name="classId">${classes.map(c => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('')}</select></label>
       </div>
       <p class="muted small" data-for-scope="school" hidden>Okul panosunu yalnızca müdür açar. İçine yazdığı notlar ana sayfada okul duyurusu olarak görünür.</p>`}
+    <div class="grid-2">
+      <label class="field"><span>Düzen</span>
+        <select name="layout">${BOARD_LAYOUTS.map(([value, label]) => `<option value="${value}" ${(board?.layout || 'grid') === value ? 'selected' : ''}>${label}</option>`).join('')}</select></label>
+      <label class="field"><span>Arka plan</span>
+        <select name="background">${BOARD_BACKGROUNDS.map(([value, label]) => `<option value="${value}" ${(board?.background || 'paper') === value ? 'selected' : ''}>${label}</option>`).join('')}</select></label>
+    </div>
     <p class="form-error" data-error role="alert"></p>
     <div class="form-actions"><button class="btn ghost" type="button" data-action="close-modal">Vazgeç</button>
       <button class="btn primary" type="submit">${editing ? 'Kaydet' : 'Panoyu aç'}</button></div>
@@ -1229,7 +1238,7 @@ ACTIONS['board-edit-open'] = () => currentBoard && openModal('Panoyu düzenle', 
 
 FORMS['board-create'] = async form => {
   const scope = val(form, 'scope');
-  const body = { title: val(form, 'title').trim(), description: val(form, 'description').trim(), scope };
+  const body = { title: val(form, 'title').trim(), description: val(form, 'description').trim(), scope, layout: val(form, 'layout'), background: val(form, 'background') };
   if (scope === 'class') {
     body.classId = val(form, 'classId');
     body.assignedOnly = form.querySelector('[name=assignedOnly]')?.checked === true;
@@ -1242,7 +1251,7 @@ FORMS['board-create'] = async form => {
 };
 
 FORMS['board-edit'] = async form => {
-  const body = { title: val(form, 'title').trim(), description: val(form, 'description').trim() };
+  const body = { title: val(form, 'title').trim(), description: val(form, 'description').trim(), layout: val(form, 'layout'), background: val(form, 'background') };
   if (form.querySelector('[name=assignedOnly]')) {
     body.assignedOnly = form.querySelector('[name=assignedOnly]').checked;
     body.moderated = form.querySelector('[name=moderated]').checked;
@@ -1261,10 +1270,14 @@ ACTIONS['board-delete'] = async el => {
   setQuery('panolar', {});
 };
 
+let currentNotes = [];
+let currentOpenNote = null;
+
 async function pageBoard(params) {
   if (!params.id) return { html: `${head('Pano')}${panel('Pano', '', empty('Pano seçilmedi', 'Panolar sayfasından bir pano seçin.'))}` };
   const { board, notes } = await api(`/boards/${encodeURIComponent(params.id)}/notes`);
   currentBoard = board;
+  currentNotes = notes;
   const rights = board.rights;
   const actions = [
     rights.post ? `<button class="btn primary" type="button" data-action="note-new" data-id="${esc(board.id)}">${icon('plus')}<span>Not ekle</span></button>` : '',
@@ -1274,8 +1287,15 @@ async function pageBoard(params) {
     '<a class="btn ghost" href="#/panolar">← Panolar</a>',
   ].join('');
   const isImage = n => ['image/png', 'image/jpeg'].includes(n.fileMime);
-  const cards = notes.map(n => `
-    <article class="pin pin-${esc(n.color)}${n.approved === false ? ' pin-pending' : ''}">
+  const layout = board.layout || 'grid';
+  const background = `bg-${board.background || 'paper'}`;
+  const autoX = index => 20 + (index % 4) * 250;
+  const autoY = index => 20 + Math.floor(index / 4) * 200;
+  const cardPos = (n, index) => (layout === 'wall'
+    ? ` data-x="${n.posX ?? autoX(index)}" data-y="${n.posY ?? autoY(index)}"`
+    : '');
+  const cards = notes.map((n, index) => `
+    <article class="pin pin-${esc(n.color)}${n.approved === false ? ' pin-pending' : ''}${layout === 'wall' && n.canMove ? ' pin-movable' : ''}" data-note="${esc(n.id)}"${cardPos(n, index)}>
       ${n.hasFile && isImage(n) ? `<img class="pin-img" src="/api/files/board-note/${esc(n.id)}?inline=1" alt="${esc(n.fileName || 'Pano resmi')}" loading="lazy" decoding="async">` : ''}
       ${n.title ? `<h3>${esc(n.title)}</h3>` : ''}
       ${n.body ? `<p>${esc(n.body)}</p>` : ''}
@@ -1285,22 +1305,123 @@ async function pageBoard(params) {
       <footer class="note-foot">
         <span>${esc(n.authorName || 'Silinmiş kullanıcı')} · ${esc(ROLE[n.authorRole] || '')} · ${esc(fmtDate(n.createdAt))}</span>
         <span class="note-actions">
+          <button class="pin-like${n.likedByMe ? ' on' : ''}" type="button" data-action="note-like" data-id="${esc(n.id)}" aria-pressed="${n.likedByMe ? 'true' : 'false'}" aria-label="Beğen">♥ <b>${n.likeCount}</b></button>
+          <button class="pin-comments" type="button" data-action="pin-comments-open" data-id="${esc(n.id)}">Yorum <b>${n.commentCount}</b></button>
           ${n.canApprove ? `<button class="btn ghost sm" type="button" data-action="note-approve" data-id="${esc(n.id)}">Onayla</button>` : ''}
           ${n.canDelete ? `<button class="icon-btn sm" type="button" data-action="note-delete" data-id="${esc(n.id)}" aria-label="Notu sil">${icon('trash')}</button>` : ''}
         </span>
       </footer>
     </article>`).join('');
+  const wallHeight = layout === 'wall'
+    ? Math.max(520, ...notes.map((n, index) => (n.posY ?? autoY(index)) + 230)) + 40
+    : 0;
+  const surface = layout === 'wall'
+    ? `<div class="pad-wall ${background}" data-wall data-height="${wallHeight}">${cards}</div>`
+    : layout === 'stream'
+      ? `<div class="pad-stream ${background}">${cards}</div>`
+      : `<div class="pin-grid pad-surface ${background}">${cards}</div>`;
   const pending = rights.pendingCount
     ? `<div class="pending-banner" role="status">${rights.pendingCount} öğrenci notu onayınızı bekliyor.</div>` : '';
   const assignNotice = board.assignedOnly && !rights.post
     ? '<p class="notice">Bu panoya yalnızca öğretmeninin atadığı öğrenciler not ekleyebilir.</p>' : '';
-  return { html: `
+  return {
+    html: `
     ${head(board.title, `${scopeLabel(board.scope)}${board.className ? ` · ${board.className}` : ''}${board.description ? ` — ${board.description}` : ''}`, actions)}
     ${assignNotice}${pending}
     ${notes.length
-      ? `<div class="pin-grid">${cards}</div>`
-      : empty('Henüz not yok', rights.post ? 'İlk notu ekleyerek panoyu başlatın.' : 'Bu pano için henüz not eklenmedi.')}` };
+      ? surface
+      : empty('Henüz not yok', rights.post ? 'İlk notu ekleyerek panoyu başlatın.' : 'Bu pano için henüz not eklenmedi.')}`,
+    after: setupWall,
+  };
 }
+
+// Duvar düzeninde kartları sürükleyerek yerleştirme; yeni konum sunucuya kaydedilir
+function setupWall() {
+  const wall = document.querySelector('[data-wall]');
+  if (!wall || wall.dataset.ready) return;
+  wall.dataset.ready = '1';
+  // Konumları ve yüksekliği CSP uyumlu şekilde, sayfa yüklendikten sonra uygula
+  wall.style.height = `min(78vh, ${wall.dataset.height}px)`;
+  wall.querySelectorAll('.pin').forEach(card => {
+    card.style.left = `${card.dataset.x}px`;
+    card.style.top = `${card.dataset.y}px`;
+  });
+  let drag = null;
+  wall.addEventListener('pointerdown', event => {
+    const card = event.target.closest('.pin-movable');
+    if (!card || event.target.closest('button, a, input, textarea, select')) return;
+    const rect = card.getBoundingClientRect();
+    drag = { card, id: card.dataset.note, dx: event.clientX - rect.left, dy: event.clientY - rect.top, startX: event.clientX, startY: event.clientY, moved: false };
+    card.setPointerCapture(event.pointerId);
+  });
+  wall.addEventListener('pointermove', event => {
+    if (!drag) return;
+    if (!drag.moved && Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) < 5) return;
+    if (!drag.moved) drag.card.classList.add('pin-dragging');
+    drag.moved = true;
+    const wallRect = wall.getBoundingClientRect();
+    drag.x = Math.max(0, Math.round(event.clientX - wallRect.left - drag.dx + wall.scrollLeft));
+    drag.y = Math.max(0, Math.round(event.clientY - wallRect.top - drag.dy + wall.scrollTop));
+    drag.card.style.left = `${drag.x}px`;
+    drag.card.style.top = `${drag.y}px`;
+  });
+  const finish = async () => {
+    if (!drag) return;
+    const current = drag;
+    drag = null;
+    current.card.classList.remove('pin-dragging');
+    if (!current.moved) return;
+    try {
+      await api(`/board-notes/${current.id}/position`, { method: 'PATCH', body: { x: current.x, y: current.y } });
+      const note = currentNotes.find(n => n.id === current.id);
+      if (note) { note.posX = current.x; note.posY = current.y; }
+    } catch (error) {
+      toast(error.message, 'error');
+      refresh();
+    }
+  };
+  wall.addEventListener('pointerup', finish);
+  wall.addEventListener('pointercancel', finish);
+}
+
+ACTIONS['note-like'] = async el => {
+  const data = await api(`/board-notes/${el.dataset.id}/like`, { method: 'POST' });
+  el.classList.toggle('on', data.liked);
+  el.setAttribute('aria-pressed', String(data.liked));
+  el.querySelector('b').textContent = data.likeCount;
+};
+
+async function openNote(id) {
+  currentOpenNote = id;
+  const { comments } = await api(`/board-notes/${id}/comments`);
+  const note = currentNotes.find(n => n.id === id);
+  const items = comments.map(c => `<li class="list-row"><div class="list-main"><strong>${esc(c.authorName || 'Silinmiş kullanıcı')}</strong>
+      <small class="muted">${esc(fmtDate(c.createdAt))}</small><p>${esc(c.body)}</p></div>
+      ${c.canDelete ? `<button class="icon-btn sm" type="button" data-action="comment-delete" data-id="${esc(c.id)}" aria-label="Yorumu sil">${icon('trash')}</button>` : ''}</li>`).join('');
+  openModal(note?.title || 'Not', `<div class="stack">
+    ${note?.body ? `<p class="note-preview">${esc(note.body)}</p>` : ''}
+    <ul class="list comment-list">${items || '<li class="muted">Henüz yorum yok.</li>'}</ul>
+    <form class="stack" data-form="note-comment" data-id="${esc(id)}">
+      <label class="field"><span>Yorum yaz</span><textarea name="body" rows="2" maxlength="500" required></textarea></label>
+      <p class="form-error" data-error role="alert"></p>
+      <div class="form-actions"><button class="btn primary" type="submit">Yorum yap</button></div>
+    </form></div>`);
+}
+
+ACTIONS['pin-comments-open'] = el => openNote(el.dataset.id);
+
+FORMS['note-comment'] = async form => {
+  await api(`/board-notes/${form.dataset.id}/comments`, { method: 'POST', body: { body: val(form, 'body').trim() } });
+  await openNote(form.dataset.id);
+  refresh();
+};
+
+ACTIONS['comment-delete'] = async el => {
+  await api(`/board-note-comments/${el.dataset.id}`, { method: 'DELETE' });
+  toast('Yorum silindi');
+  await openNote(currentOpenNote);
+  refresh();
+};
 
 function noteForm(boardId) {
   return `<form class="stack" data-form="note-create" data-id="${esc(boardId)}">

@@ -1164,6 +1164,13 @@ on('PATCH', '/api/me', async ({ body, user }) => {
 
 // ---------- Panolar (sınıf ve okul panoları) ----------
 const NOTE_COLORS = ['sun', 'mint', 'coral', 'sky', 'lilac'];
+const BOARD_LAYOUTS = ['grid', 'wall', 'stream'];
+const BOARD_BACKGROUNDS = ['paper', 'mint', 'sky', 'lilac', 'sun', 'dark'];
+function boardChoice(value, list, label, fallback) {
+  if (value === undefined) return fallback;
+  if (!list.includes(value)) fail(400, `${label} geçersiz.`);
+  return value;
+}
 
 // Kullanıcının sınıf üyelikleri: öğrenci olarak kayıtlı sınıflar ve öğretmen olarak verdiği sınıflar.
 async function membership(user) {
@@ -1192,7 +1199,7 @@ async function studentCanPost(user, board, rights) {
 async function loadBoard(id) {
   const { rows: [b] } = await q(`select b.id, b.title, b.description, b.scope, b.class_id as "classId",
       c.name as "className", u.name as "createdBy", b.created_by as "createdById", b.created_at as "createdAt",
-      b.assigned_only as "assignedOnly", b.moderated
+      b.assigned_only as "assignedOnly", b.moderated, b.layout, b.background
     from boards b left join classes c on c.id = b.class_id left join users u on u.id = b.created_by where b.id = $1`, [id]);
   if (!b) fail(404, 'Pano bulunamadı.');
   return b;
@@ -1251,8 +1258,10 @@ on('POST', '/api/boards', async ({ body, user }) => {
   }
   const assignedOnly = body.scope === 'class' && body.assignedOnly === true;
   const moderated = body.scope === 'class' && body.moderated === true;
-  const { rows: [row] } = await q(`insert into boards (title, description, scope, class_id, created_by, assigned_only, moderated)
-    values ($1, $2, $3, $4, $5, $6, $7) returning id`, [title, description, body.scope, classId, user.id, assignedOnly, moderated]);
+  const layout = boardChoice(body.layout, BOARD_LAYOUTS, 'Pano düzeni', 'grid');
+  const background = boardChoice(body.background, BOARD_BACKGROUNDS, 'Arka plan', 'paper');
+  const { rows: [row] } = await q(`insert into boards (title, description, scope, class_id, created_by, assigned_only, moderated, layout, background)
+    values ($1, $2, $3, $4, $5, $6, $7, $8, $9) returning id`, [title, description, body.scope, classId, user.id, assignedOnly, moderated, layout, background]);
   await audit(user, 'board_created', title, { scope: body.scope, assignedOnly, moderated });
   return created({ id: row.id });
 }, { roles: STAFF });
@@ -1268,7 +1277,10 @@ on('PATCH', '/api/boards/:id', async ({ params, body, user }) => {
   const description = body.description !== undefined ? str(body.description, 500) : board.description;
   const assignedOnly = board.scope === 'class' && (body.assignedOnly !== undefined ? body.assignedOnly === true : board.assignedOnly);
   const moderated = board.scope === 'class' && (body.moderated !== undefined ? body.moderated === true : board.moderated);
-  await q('update boards set title = $2, description = $3, assigned_only = $4, moderated = $5 where id = $1', [id, title, description, assignedOnly, moderated]);
+  const layout = boardChoice(body.layout, BOARD_LAYOUTS, 'Pano düzeni', board.layout);
+  const background = boardChoice(body.background, BOARD_BACKGROUNDS, 'Arka plan', board.background);
+  await q('update boards set title = $2, description = $3, assigned_only = $4, moderated = $5, layout = $6, background = $7 where id = $1',
+    [id, title, description, assignedOnly, moderated, layout, background]);
   await audit(user, 'board_updated', title, { assignedOnly, moderated });
   return ok({ updated: true });
 });
@@ -1295,12 +1307,15 @@ on('GET', '/api/boards/:id/notes', async ({ params, user }) => {
   // Onay bekleyen notları yalnızca yöneticiler ve yazarın kendisi görür.
   const { rows } = await q(`select n.id, n.title, n.body, n.link, n.color, n.file_name as "fileName", n.file_mime as "fileMime",
       (n.file_path is not null) as "hasFile", n.approved, n.created_at as "createdAt", n.author_id as "authorId",
-      u.name as "authorName", u.role as "authorRole"
+      u.name as "authorName", u.role as "authorRole", n.pos_x as "posX", n.pos_y as "posY",
+      (select count(*)::int from board_note_likes l where l.note_id = n.id) as "likeCount",
+      exists(select 1 from board_note_likes l where l.note_id = n.id and l.user_id = $2) as "likedByMe",
+      (select count(*)::int from board_note_comments c where c.note_id = n.id) as "commentCount"
     from board_notes n left join users u on u.id = n.author_id
     where n.board_id = $1 and (${rights.moderate ? 'true' : 'n.approved or n.author_id = $2'})
-    order by n.created_at desc limit 300`, rights.moderate ? [id] : [id, user.id]);
+    order by n.created_at desc limit 300`, [id, user.id]);
   const pendingCount = rights.moderate ? rows.filter(n => !n.approved).length : 0;
-  const notes = rows.map(n => ({ ...n, canDelete: rights.moderate || n.authorId === user.id, canApprove: rights.moderate && !n.approved }));
+  const notes = rows.map(n => ({ ...n, canDelete: rights.moderate || n.authorId === user.id, canApprove: rights.moderate && !n.approved, canMove: rights.moderate || n.authorId === user.id }));
   return ok({ board: { ...board, rights: { ...rights, pendingCount } }, notes });
 });
 
@@ -1391,6 +1406,69 @@ on('DELETE', '/api/board-notes/:id', async ({ params, user }) => {
   await q('delete from board_notes where id = $1', [id]);
   if (n.file_path) await storage.remove(n.file_path);
   if (!own) await audit(user, 'board_note_deleted', `${board.title}: ${n.title || 'başlıksız not'}`);
+  return ok({ deleted: true });
+});
+
+// Not erişimi: pano görünürlüğü ve onay durumu tek yerde denetlenir
+async function noteAccess(rawId, user) {
+  const id = requireId(rawId, 'not');
+  const { rows: [note] } = await q('select id, board_id, author_id, approved from board_notes where id = $1', [id]);
+  if (!note) fail(404, 'Not bulunamadı.');
+  const board = await loadBoard(note.board_id);
+  const rights = rightsFor(user, { scope: board.scope, classId: board.classId }, await membership(user));
+  if (!rights.view) fail(403, 'Bu panoyu görme yetkin yok.');
+  if (!note.approved && !(rights.moderate || note.author_id === user.id)) fail(404, 'Not bulunamadı.');
+  return { note, board, rights };
+}
+
+// Konum: yazar ya da pano yöneticisi taşır; x/y null gönderilirse otomatik yerleşime döner
+on('PATCH', '/api/board-notes/:id/position', async ({ params, body, user }) => {
+  const { note, rights } = await noteAccess(params.id, user);
+  if (!(rights.moderate || note.author_id === user.id)) fail(403, 'Bu notu taşıma yetkin yok.');
+  if (body.x === null || body.y === null) {
+    await q('update board_notes set pos_x = null, pos_y = null where id = $1', [note.id]);
+    return ok({ reset: true });
+  }
+  const x = Number(body.x);
+  const y = Number(body.y);
+  if (!Number.isInteger(x) || !Number.isInteger(y) || x < 0 || y < 0 || x > 4000 || y > 4000) fail(400, 'Konum geçersiz.');
+  await q('update board_notes set pos_x = $2, pos_y = $3 where id = $1', [note.id, x, y]);
+  return ok({ x, y });
+});
+
+// Beğeni: aynı kullanıcı tekrar basarsa geri alır
+on('POST', '/api/board-notes/:id/like', async ({ params, user }) => {
+  const { note } = await noteAccess(params.id, user);
+  const { rows: [existing] } = await q('select 1 from board_note_likes where note_id = $1 and user_id = $2', [note.id, user.id]);
+  if (existing) await q('delete from board_note_likes where note_id = $1 and user_id = $2', [note.id, user.id]);
+  else await q('insert into board_note_likes (note_id, user_id) values ($1, $2) on conflict do nothing', [note.id, user.id]);
+  const { rows: [{ count }] } = await q('select count(*)::int as count from board_note_likes where note_id = $1', [note.id]);
+  return ok({ liked: !existing, likeCount: count });
+});
+
+on('GET', '/api/board-notes/:id/comments', async ({ params, user }) => {
+  const { note, rights } = await noteAccess(params.id, user);
+  const { rows } = await q(`select c.id, c.body, c.created_at as "createdAt", c.author_id as "authorId", u.name as "authorName"
+    from board_note_comments c left join users u on u.id = c.author_id
+    where c.note_id = $1 order by c.created_at limit 300`, [note.id]);
+  return ok({ comments: rows.map(c => ({ ...c, canDelete: rights.moderate || c.authorId === user.id })) });
+});
+
+on('POST', '/api/board-notes/:id/comments', async ({ params, body, user }) => {
+  const { note } = await noteAccess(params.id, user);
+  const text = String(body.body ?? '').trim();
+  if (text.length < 1 || text.length > 500) fail(400, 'Yorum 1 ile 500 karakter arasında olmalı.');
+  const { rows: [row] } = await q('insert into board_note_comments (note_id, author_id, body) values ($1, $2, $3) returning id', [note.id, user.id, text]);
+  return created({ id: row.id });
+});
+
+on('DELETE', '/api/board-note-comments/:id', async ({ params, user }) => {
+  const id = requireId(params.id, 'yorum');
+  const { rows: [c] } = await q('select note_id, author_id from board_note_comments where id = $1', [id]);
+  if (!c) fail(404, 'Yorum bulunamadı.');
+  const { rights } = await noteAccess(c.note_id, user);
+  if (!(rights.moderate || c.author_id === user.id)) fail(403, 'Bu yorumu silme yetkin yok.');
+  await q('delete from board_note_comments where id = $1', [id]);
   return ok({ deleted: true });
 });
 

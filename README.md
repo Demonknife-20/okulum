@@ -399,3 +399,12 @@ Müdür tüm okulu, öğretmen kendi derslerini, öğrenci yalnızca kendi devam
 
 - İki adımlı doğrulamada aynı 30 saniyelik kod iki kez kullanılamaz (`users.totp_last_step`, migrasyon 0007).
 - Tarayıcı testleri `test/e2e/` klasöründe; `npm test` yalnızca API ve birim testlerini çalıştırır.
+
+## Padlet benzeri pano (v38)
+
+- **Düzenler:** Izgara, duvar (kartları sürükleyerek yerleştirme, konum kaydedilir) ve akış (tek sütun). Pano formundan seçilir.
+- **Arka plan:** Kağıt, nane, gök, leylak, sarı, koyu.
+- **Beğeni:** Her kullanıcı bir kez beğenir; tekrar basınca geri alınır.
+- **Yorumlar:** Kartın yorum penceresinde yazılır; yorumu yazan kişi ya da pano yöneticisi siler.
+- Konumu yalnızca notu yazan kişi ya da pano yöneticisi değiştirebilir.
+- Migrasyon: `0008_padlet.sql`. Tarayıcı testi: `test/e2e/pano_duvar.py`.

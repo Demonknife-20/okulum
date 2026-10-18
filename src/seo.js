@@ -16,12 +16,12 @@ const SHELL = (base, { title, description, path, body }) => `<!doctype html>
 <meta property="og:description" content="${esc(description)}">
 <meta property="og:url" content="${esc(base + path)}">
 <meta name="robots" content="index, follow">
-<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="icon" href="/icon-192.png" type="image/png">
 <link rel="stylesheet" href="/styles.css">
 <script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'WebPage', name: title, description, url: base + path, isPartOf: { '@type': 'WebSite', name: 'Okulum', url: base + '/' } })}</script>
 </head>
 <body class="seo-page">
-<header class="public-top"><a class="brand" href="/"><span class="brand-mark">o</span><span class="brand-name">okulum</span></a>
+<header class="public-top"><a class="brand" href="/"><span class="brand-mark"><img src="/brand-mark.png" alt="" width="40" height="40"></span><span class="brand-name">okulum</span></a>
 <nav class="public-nav"><a href="/kullanim">Kullanım</a><a href="/hakkinda">Hakkında</a><a class="btn primary sm" href="/#/mudur-girisi">Giriş yap</a></nav></header>
 <main class="public-view seo-main">${body}</main>
 <footer class="public-foot">Okulum · Okul yönetim sistemi · <a href="/kullanim">Kullanım kılavuzu</a> · <a href="/hakkinda">Hakkında</a></footer>
