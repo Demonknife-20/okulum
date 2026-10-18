@@ -1382,3 +1382,14 @@ body{
 @media (prefers-reduced-motion:reduce){
   *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}
 }
+
+/* v42: yorum moderasyonu */
+.comment-pending{background:color-mix(in srgb,var(--warn) 7%,transparent)}
+.comment-pending strong{margin-right:6px}
+
+/* v43: pano medya kartları ve büyütme */
+.pin-pdf{width:100%;height:260px;border:1px solid rgba(0,0,0,.08);border-radius:11px;background:#fff;display:block}
+.media-badge{align-self:flex-start;background:rgba(255,255,255,.8);color:#1f2d26;font-size:11px}
+.expand{max-height:72vh;overflow:auto}
+.expand-img{width:100%;height:auto;max-height:60vh;object-fit:contain;border-radius:12px;background:rgba(0,0,0,.04)}
+.expand-pdf{width:100%;height:60vh;border:1px solid var(--line);border-radius:12px;background:#fff}

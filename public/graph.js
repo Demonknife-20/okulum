@@ -14,6 +14,9 @@ const COMMANDS = {
   'açı': 'angle', aci: 'angle', angle: 'angle',
   'orta': 'midpoint', midpoint: 'midpoint',
   'kesişim': 'intersect', kesisim: 'intersect', intersect: 'intersect',
+  dik: 'perp', perp: 'perp',
+  paralel: 'parallel', parallel: 'parallel',
+  'uzaklık': 'distance', uzaklik: 'distance', distance: 'distance',
 };
 const LINE_KINDS = ['line', 'ray', 'segment'];
 
@@ -197,6 +200,32 @@ export function parseLine(line, fallbackName = 'f') {
   return { type: 'fn', name: name || fallbackName, expr: rhs, fn, text };
 }
 
+// İki nokta arasındaki uzaklık (ölçüm etiketi için)
+export function distanceBetween(a, b) {
+  return Math.hypot(b.x - a.x, b.y - a.y);
+}
+
+// Doğru nesnelerinin iki noktası: doğru/ışın/parça için iki nokta; dik ve paralel doğrular için nokta + yön
+export function lineGeometry(object, points, objects) {
+  if (object.kind === 'perp' || object.kind === 'parallel') {
+    const p = points.get(object.a);
+    const reference = objects.find(o => o.name === object.b && LINE_KINDS.includes(o.kind));
+    if (!p || !reference) return null;
+    const r1 = points.get(reference.a);
+    const r2 = points.get(reference.b);
+    if (!r1 || !r2) return null;
+    let dx = r2.x - r1.x;
+    let dy = r2.y - r1.y;
+    if (Math.hypot(dx, dy) < 1e-12) return null;
+    if (object.kind === 'perp') [dx, dy] = [-dy, dx];
+    return [[p.x, p.y], [p.x + dx, p.y + dy]];
+  }
+  const a = points.get(object.a);
+  const b = points.get(object.b);
+  if (!a || !b) return null;
+  return [[a.x, a.y], [b.x, b.y]];
+}
+
 // Türetilmiş noktanın koordinatı: Orta(A,B) ya da Kesişim(a,b)
 export function derivedPoint(command, points, objects) {
   if (command.kind === 'midpoint') {
@@ -235,6 +264,15 @@ export function buildModel(lines) {
       if (!result) return;
       if (result.type === 'pt') {
         points.set(result.name, { kind: 'point', name: result.name, x: result.x, y: result.y, row });
+      } else if (result.type === 'cmd' && result.kind === 'distance') {
+        objects.push({ kind: 'distance', name: result.name || `#${row}`, a: result.a, b: result.b, row });
+      } else if (result.type === 'cmd' && (result.kind === 'perp' || result.kind === 'parallel')) {
+        const object = { kind: result.kind, name: result.name || `#${row}`, a: result.a, b: result.b, row };
+        objects.push(object);
+        if (!lineGeometry(object, points, objects)) {
+          objects.pop();
+          throw new Error(`${result.kind === 'perp' ? 'Dik' : 'Paralel'} için önce bir nokta ve bir doğru seçin`);
+        }
       } else if (result.type === 'cmd' && (result.kind === 'midpoint' || result.kind === 'intersect')) {
         if (!result.name) throw new Error(`${result.kind === 'midpoint' ? 'Orta' : 'Kesişim'} için bir ad verin (ör. M=...)`);
         const [dx, dy] = derivedPoint(result, points, objects);
@@ -250,7 +288,7 @@ export function buildModel(lines) {
     }
   });
   for (const object of objects) {
-    if (object.kind === 'fn') continue;
+    if (object.kind === 'fn' || object.kind === 'perp' || object.kind === 'parallel') continue;
     for (const key of ['a', 'b', 'c']) {
       if (object[key] === null || object[key] === undefined) continue;
       if (!points.has(object[key])) errors[object.row] = `Nokta tanımlı değil: ${object[key]}`;
@@ -331,7 +369,13 @@ export function mountGraph(root, initial = { lines: [] }, options = {}) {
         <button type="button" class="gx-tool" data-tool="circle" title="Çember (merkez, çevre noktası)">Çember</button>
         <button type="button" class="gx-tool" data-tool="angle" title="Açı (kenar, köşe, kenar)">Açı</button>
         <button type="button" class="gx-tool" data-tool="midpoint" title="Orta nokta (iki nokta)">Orta</button>
+        <button type="button" class="gx-tool" data-tool="perp" title="Dik doğru: önce doğruyu, sonra noktayı seçin">Dik</button>
+        <button type="button" class="gx-tool" data-tool="parallel" title="Paralel doğru: önce doğruyu, sonra noktayı seçin">Paralel</button>
         <button type="button" class="gx-tool" data-tool="delete" title="Nesneyi sil">Sil</button>
+        <button type="button" class="gx-tool" data-tool="distance" title="Uzaklık: iki nokta seçin, ölçüm yazılır">Uzaklık</button>
+        <span class="gx-sep"></span>
+        <button type="button" class="gx-tool on" data-gx="axes" aria-pressed="true">Eksenler</button>
+        <button type="button" class="gx-tool" data-gx="png">PNG indir</button>
         <span class="gx-sep"></span>
         <button type="button" class="gx-tool" data-gx="zoomin" aria-label="Yakınlaştır">+</button>
         <button type="button" class="gx-tool" data-gx="zoomout" aria-label="Uzaklaştır">−</button>
@@ -355,6 +399,7 @@ export function mountGraph(root, initial = { lines: [] }, options = {}) {
   let cursor = null;    // dünya koordinatında imleç (önizleme için)
   let drag = null;
   let drawQueued = false;
+  let showAxes = true;
   const colorOf = index => COLORS[index % COLORS.length];
   const hints = {
     move: 'Taşı: noktayı sürükleyin, boş alanı sürükleyerek kaydırın',
@@ -365,6 +410,9 @@ export function mountGraph(root, initial = { lines: [] }, options = {}) {
     circle: 'Çember: merkezi, sonra çevredeki bir noktayı seçin',
     angle: 'Açı: bir kenar, köşe, diğer kenar noktasını sırayla seçin',
     midpoint: 'Orta nokta: iki nokta seçin, ortalarına yeni nokta oluşur',
+    distance: 'Uzaklık: iki nokta seçin, aralarındaki uzaklık yazılır',
+    perp: 'Dik doğru: önce bir doğru seçin, sonra noktayı seçin',
+    parallel: 'Paralel doğru: önce bir doğru seçin, sonra noktayı seçin',
     delete: 'Sil: silmek istediğiniz nesneye tıklayın',
   };
 
@@ -459,9 +507,9 @@ export function mountGraph(root, initial = { lines: [] }, options = {}) {
         continue;
       }
       if (object.kind === 'angle') continue;
-      const a = resolvePoint(object.a);
-      const b = resolvePoint(object.b);
-      if (!a || !b) continue;
+      const geometry = lineGeometry(object, model.points, model.objects);
+      if (!geometry) continue;
+      const [a, b] = geometry;
       const [ax, ay] = toScreen(a[0], a[1], w, h);
       const [bx, by] = toScreen(b[0], b[1], w, h);
       const distance = distanceToSegmentOrLine(px, py, ax, ay, bx, by, object.kind);
@@ -506,6 +554,7 @@ export function mountGraph(root, initial = { lines: [] }, options = {}) {
       if (object.kind === 'fn') drawFunction(object, color, w, h);
       else if (object.kind === 'circle') drawCircle(object, color, w, h);
       else if (object.kind === 'angle') drawAngle(object, color, w, h);
+      else if (object.kind === 'distance') drawDistance(object, color, w, h);
       else drawLine(object, color, w, h);
     });
     if (pending.length && cursor && tool !== 'move' && tool !== 'delete' && tool !== 'point') {
@@ -533,7 +582,7 @@ export function mountGraph(root, initial = { lines: [] }, options = {}) {
     ctx.lineWidth = 1;
     for (let gx = Math.ceil(left / step) * step; gx <= right; gx += step) {
       const [sx] = toScreen(gx, 0, w, h);
-      ctx.strokeStyle = Math.abs(gx) < step / 2 ? '#7c8f86' : '#e4ece8';
+      ctx.strokeStyle = showAxes && Math.abs(gx) < step / 2 ? '#7c8f86' : '#e4ece8';
       ctx.beginPath(); ctx.moveTo(sx, 0); ctx.lineTo(sx, h); ctx.stroke();
       if (Math.abs(gx) > step / 2) {
         const [, sy] = toScreen(0, 0, w, h);
@@ -543,7 +592,7 @@ export function mountGraph(root, initial = { lines: [] }, options = {}) {
     }
     for (let gy = Math.ceil(bottom / step) * step; gy <= top; gy += step) {
       const [, sy] = toScreen(0, gy, w, h);
-      ctx.strokeStyle = Math.abs(gy) < step / 2 ? '#7c8f86' : '#e4ece8';
+      ctx.strokeStyle = showAxes && Math.abs(gy) < step / 2 ? '#7c8f86' : '#e4ece8';
       ctx.beginPath(); ctx.moveTo(0, sy); ctx.lineTo(w, sy); ctx.stroke();
       if (Math.abs(gy) > step / 2) {
         const [sx] = toScreen(0, 0, w, h);
@@ -580,9 +629,9 @@ export function mountGraph(root, initial = { lines: [] }, options = {}) {
   }
 
   function drawLine(object, color, w, h) {
-    const a = resolvePoint(object.a);
-    const b = resolvePoint(object.b);
-    if (!a || !b) return;
+    const geometry = lineGeometry(object, model.points, model.objects);
+    if (!geometry) return;
+    const [a, b] = geometry;
     const ends = lineEndpoints(object.kind, a, b, w, h);
     if (!ends) return;
     const [sa, sb] = ends.map(([x, y]) => toScreen(x, y, w, h));
@@ -610,6 +659,21 @@ export function mountGraph(root, initial = { lines: [] }, options = {}) {
     const worldRadius = Math.hypot(through[0] - center[0], through[1] - center[1]);
     const angle = -Math.PI / 4;
     labelAt(`${object.name}: r = ${formatCoord(worldRadius)}`, cx + Math.cos(angle) * radius + 6, cy + Math.sin(angle) * radius - 6, color);
+  }
+
+  function drawDistance(object, color, w, h) {
+    const a = resolvePoint(object.a);
+    const b = resolvePoint(object.b);
+    if (!a || !b) return;
+    const [ax, ay] = toScreen(a[0], a[1], w, h);
+    const [bx, by] = toScreen(b[0], b[1], w, h);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([6, 5]);
+    ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
+    ctx.setLineDash([]);
+    const length = distanceBetween({ x: a[0], y: a[1] }, { x: b[0], y: b[1] });
+    labelAt(`${object.name} = ${formatCoord(length)}`, (ax + bx) / 2 + 8, (ay + by) / 2 - 8, color);
   }
 
   function drawAngle(object, color, w, h) {
@@ -705,7 +769,7 @@ export function mountGraph(root, initial = { lines: [] }, options = {}) {
 
   function addObject(kind, names) {
     const name = nextLineName();
-    const keyword = { line: 'Doğru', ray: 'Işın', segment: 'Parça', circle: 'Çember', angle: 'Açı', midpoint: 'Orta' }[kind];
+    const keyword = { line: 'Doğru', ray: 'Işın', segment: 'Parça', circle: 'Çember', angle: 'Açı', midpoint: 'Orta', perp: 'Dik', parallel: 'Paralel', distance: 'Uzaklık' }[kind];
     const label = kind === 'midpoint' ? nextPointName() : name;
     lines.push(`${label}=${keyword}(${names.join(',')})`);
     rebuild(false);
@@ -765,6 +829,22 @@ export function mountGraph(root, initial = { lines: [] }, options = {}) {
     view.cy = wy + (py - h / 2) / view.scale;
     scheduleDraw();
   };
+  root.querySelector('[data-gx="axes"]').addEventListener('click', event => {
+    showAxes = !showAxes;
+    event.currentTarget.classList.toggle('on', showAxes);
+    event.currentTarget.setAttribute('aria-pressed', String(showAxes));
+    scheduleDraw();
+  });
+  root.querySelector('[data-gx="png"]').addEventListener('click', () => {
+    canvas.toBlob(blob => {
+      if (!blob) return;
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = 'matematik-laboratuvari.png';
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+    }, 'image/png');
+  });
   root.querySelector('[data-gx="zoomin"]').addEventListener('click', () => zoomAt(1.25, canvas.clientWidth / 2, canvas.clientHeight / 2));
   root.querySelector('[data-gx="zoomout"]').addEventListener('click', () => zoomAt(0.8, canvas.clientWidth / 2, canvas.clientHeight / 2));
   root.querySelector('[data-gx="reset"]').addEventListener('click', () => {
@@ -804,6 +884,25 @@ export function mountGraph(root, initial = { lines: [] }, options = {}) {
     }
     if (tool === 'point') {
       addPointAt(wx, wy);
+      return;
+    }
+    if (tool === 'perp' || tool === 'parallel') {
+      if (!pending.length) {
+        const hit = hitObject(px, py);
+        const isLine = hit && (LINE_KINDS.includes(hit.kind) || hit.kind === 'perp' || hit.kind === 'parallel');
+        if (!isLine) {
+          hintEl.textContent = 'Önce bir doğru seçin';
+          return;
+        }
+        pending = [hit.name];
+        hintEl.textContent = `${hit.name} seçildi: şimdi noktayı seçin`;
+      } else {
+        const point = pointUnder(px, py);
+        addObject(tool, [point, pending[0]]);
+        pending = [];
+        hintEl.textContent = hints[tool];
+      }
+      scheduleDraw();
       return;
     }
     // Doğru, ışın, parça, çember, açı: gerekli sayıda nokta

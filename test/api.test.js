@@ -728,7 +728,11 @@ test('pano onayı: öğrenci notu onaylanana kadar yalnızca yazarda görünür,
   const pdfNote = await call('POST', `/api/boards/${state.boardMod}/notes`, { cookie: state.ayse, body: { title: 'Kâğıt', file: { name: 'kagit.pdf', data: b64(PDF) } } });
   assert.equal(pdfNote.status, 201);
   const pdfInline = await call('GET', `/api/files/board-note/${pdfNote.data.id}?inline=1`, { cookie: state.ayse });
-  assert.match(pdfInline.headers.get('content-disposition') || '', /^attachment/, 'PDF satır içi açılmaz');
+  assert.match(pdfInline.headers.get('content-disposition') || '', /^inline/, 'PDF önizleme için satır içi açılır');
+  assert.equal(pdfInline.headers.get('content-type'), 'application/pdf');
+  assert.equal(pdfInline.headers.get('x-frame-options'), 'SAMEORIGIN', 'PDF yalnızca aynı site çerçevesinde gösterilir');
+  const pdfDownload = await call('GET', `/api/files/board-note/${pdfNote.data.id}`, { cookie: state.ayse });
+  assert.match(pdfDownload.headers.get('content-disposition') || '', /^attachment/, 'normal indirme ek olarak kalır');
   assert.equal((await call('GET', `/api/files/board-note/${pending.data.id}`, { cookie: state.deryaCookie })).status, 404, 'onaysız not dosyası görünmez');
   assert.equal((await call('PUT', `/api/boards/${state.boardMod}/members`, { cookie: state.ece, body: { studentIds: [] } })).status, 403);
 });
@@ -1596,6 +1600,28 @@ test('pano: beğeni geri alınır, yorum eklenir ve yalnızca sahibi ya da yöne
   assert.equal(list.data.comments[0].body, 'Harika olmuş');
   assert.equal((await call('DELETE', `/api/board-note-comments/${comment.data.id}`, { cookie: state.ali })).status, 403);
   assert.equal((await call('DELETE', `/api/board-note-comments/${comment.data.id}`, { cookie: state.ayse })).status, 200, 'yönetici yorumu silebilir');
+  await call('DELETE', `/api/boards/${boardId}`, { cookie: state.ayse });
+});
+
+test('yorum moderasyonu: moderasyonlu panoda öğrenci yorumu onay bekler, yalnızca yönetici onaylar', async () => {
+  const created = await call('POST', '/api/boards', { cookie: state.ayse, body: { title: 'Moderasyonlu pano', scope: 'class', classId: state.class6A, moderated: true } });
+  const boardId = created.data.id;
+  const note = await call('POST', `/api/boards/${boardId}/notes`, { cookie: state.ayse, body: { title: 'Not', body: 'x' } });
+  const noteId = note.data.id;
+  const comment = await call('POST', `/api/board-notes/${noteId}/comments`, { cookie: state.ece, body: { body: 'Öğrenci yorumu' } });
+  assert.equal(comment.data.approved, false, 'öğrenci yorumu onay bekler');
+  const teacherView = await call('GET', `/api/board-notes/${noteId}/comments`, { cookie: state.ayse });
+  assert.equal(teacherView.data.comments.length, 1);
+  assert.equal(teacherView.data.comments[0].canApprove, true);
+  const otherStudent = await call('GET', `/api/board-notes/${noteId}/comments`, { cookie: state.ece });
+  assert.equal(otherStudent.data.comments.length, 1, 'yazar kendi bekleyen yorumunu görür');
+  const note2 = await call('GET', `/api/boards/${boardId}/notes`, { cookie: state.ayse });
+  assert.equal(note2.data.notes.find(n => n.id === noteId).commentCount, 0, 'onaysız yorum sayılmaz');
+  assert.equal((await call('PATCH', `/api/board-note-comments/${comment.data.id}`, { cookie: state.ece, body: { approved: true } })).status, 403, 'öğrenci onaylayamaz');
+  assert.equal((await call('PATCH', `/api/board-note-comments/${comment.data.id}`, { cookie: state.ayse, body: { approved: 'evet' } })).status, 400);
+  assert.equal((await call('PATCH', `/api/board-note-comments/${comment.data.id}`, { cookie: state.ayse, body: { approved: true } })).status, 200);
+  const publicView = await call('GET', `/api/boards/${boardId}/notes`, { cookie: state.ayse });
+  assert.equal(publicView.data.notes.find(n => n.id === noteId).commentCount, 1, 'onaylanan yorum sayılır');
   await call('DELETE', `/api/boards/${boardId}`, { cookie: state.ayse });
 });
 

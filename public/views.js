@@ -1299,12 +1299,15 @@ async function pageBoard(params) {
       ${n.hasFile && isImage(n) ? `<img class="pin-img" src="/api/files/board-note/${esc(n.id)}?inline=1" alt="${esc(n.fileName || 'Pano resmi')}" loading="lazy" decoding="async">` : ''}
       ${n.title ? `<h3>${esc(n.title)}</h3>` : ''}
       ${n.body ? `<p>${esc(n.body)}</p>` : ''}
+      ${n.link ? `<span class="badge media-badge">${esc(platformOf(n.link))}</span>` : ''}
       ${n.link ? `<a class="note-link" href="${esc(n.link)}" target="_blank" rel="noopener noreferrer">${icon('send')}<span>${esc(n.link.replace(/^https?:\/\//, '').slice(0, 60))}</span></a>` : ''}
+      ${n.hasFile && n.fileMime === 'application/pdf' ? `<iframe class="pin-pdf" src="/api/files/board-note/${esc(n.id)}?inline=1" title="${esc(n.fileName || 'PDF')}" loading="lazy"></iframe>` : ''}
       ${n.hasFile ? `<a class="note-link" href="/api/files/board-note/${esc(n.id)}" download>${icon('download')}<span>${esc(n.fileName)}</span></a>` : ''}
       ${n.approved === false ? '<span class="badge warn">Onay bekliyor</span>' : ''}
       <footer class="note-foot">
         <span>${esc(n.authorName || 'Silinmiş kullanıcı')} · ${esc(ROLE[n.authorRole] || '')} · ${esc(fmtDate(n.createdAt))}</span>
         <span class="note-actions">
+          <button class="btn ghost sm" type="button" data-action="note-expand" data-id="${esc(n.id)}">Büyüt</button>
           <button class="pin-like${n.likedByMe ? ' on' : ''}" type="button" data-action="note-like" data-id="${esc(n.id)}" aria-pressed="${n.likedByMe ? 'true' : 'false'}" aria-label="Beğen">♥ <b>${n.likeCount}</b></button>
           <button class="pin-comments" type="button" data-action="pin-comments-open" data-id="${esc(n.id)}">Yorum <b>${n.commentCount}</b></button>
           ${n.canApprove ? `<button class="btn ghost sm" type="button" data-action="note-approve" data-id="${esc(n.id)}">Onayla</button>` : ''}
@@ -1384,6 +1387,37 @@ function setupWall() {
   wall.addEventListener('pointercancel', finish);
 }
 
+// Bağlantının türü: video ve paylaşım platformları için okunur bir etiket (dış içerik yüklenmez)
+function platformOf(url) {
+  try {
+    const host = new URL(url).hostname.replace(/^www\./, '');
+    if (host === 'youtube.com' || host === 'youtu.be' || host.endsWith('.youtube.com')) return 'YouTube videosu';
+    if (host === 'vimeo.com' || host.endsWith('.vimeo.com')) return 'Vimeo videosu';
+    if (host === 'drive.google.com') return 'Google Drive';
+    if (host === 'docs.google.com') return 'Google Dokümanlar';
+    return host;
+  } catch {
+    return 'Bağlantı';
+  }
+}
+
+ACTIONS['note-expand'] = el => {
+  const note = currentNotes.find(n => n.id === el.dataset.id);
+  if (!note) return;
+  const media = [
+    note.hasFile && ['image/png', 'image/jpeg'].includes(note.fileMime)
+      ? `<img class="expand-img" src="/api/files/board-note/${esc(note.id)}?inline=1" alt="${esc(note.fileName || 'Pano resmi')}">` : '',
+    note.hasFile && note.fileMime === 'application/pdf'
+      ? `<iframe class="expand-pdf" src="/api/files/board-note/${esc(note.id)}?inline=1" title="${esc(note.fileName || 'PDF')}"></iframe>` : '',
+  ].join('');
+  openModal(note.title || 'Not', `<div class="stack expand">
+    ${media}
+    ${note.body ? `<p class="note-preview">${esc(note.body)}</p>` : ''}
+    ${note.link ? `<a class="btn ghost" href="${esc(note.link)}" target="_blank" rel="noopener noreferrer">${esc(platformOf(note.link))} · Aç</a>` : ''}
+    ${note.hasFile ? `<a class="btn ghost" href="/api/files/board-note/${esc(note.id)}" download>Dosyayı indir</a>` : ''}
+  </div>`);
+};
+
 ACTIONS['note-like'] = async el => {
   const data = await api(`/board-notes/${el.dataset.id}/like`, { method: 'POST' });
   el.classList.toggle('on', data.liked);
@@ -1395,9 +1429,13 @@ async function openNote(id) {
   currentOpenNote = id;
   const { comments } = await api(`/board-notes/${id}/comments`);
   const note = currentNotes.find(n => n.id === id);
-  const items = comments.map(c => `<li class="list-row"><div class="list-main"><strong>${esc(c.authorName || 'Silinmiş kullanıcı')}</strong>
+  const items = comments.map(c => `<li class="list-row${c.approved ? '' : ' comment-pending'}"><div class="list-main"><strong>${esc(c.authorName || 'Silinmiş kullanıcı')}</strong>
+      ${c.approved ? '' : '<span class="badge warn">Onay bekliyor</span>'}
       <small class="muted">${esc(fmtDate(c.createdAt))}</small><p>${esc(c.body)}</p></div>
-      ${c.canDelete ? `<button class="icon-btn sm" type="button" data-action="comment-delete" data-id="${esc(c.id)}" aria-label="Yorumu sil">${icon('trash')}</button>` : ''}</li>`).join('');
+      <span class="note-actions">
+        ${c.canApprove ? `<button class="btn ghost sm" type="button" data-action="comment-approve" data-id="${esc(c.id)}">Onayla</button>` : ''}
+        ${c.canDelete ? `<button class="icon-btn sm" type="button" data-action="comment-delete" data-id="${esc(c.id)}" aria-label="Yorumu sil">${icon('trash')}</button>` : ''}
+      </span></li>`).join('');
   openModal(note?.title || 'Not', `<div class="stack">
     ${note?.body ? `<p class="note-preview">${esc(note.body)}</p>` : ''}
     <ul class="list comment-list">${items || '<li class="muted">Henüz yorum yok.</li>'}</ul>
@@ -1411,8 +1449,16 @@ async function openNote(id) {
 ACTIONS['pin-comments-open'] = el => openNote(el.dataset.id);
 
 FORMS['note-comment'] = async form => {
-  await api(`/board-notes/${form.dataset.id}/comments`, { method: 'POST', body: { body: val(form, 'body').trim() } });
+  const result = await api(`/board-notes/${form.dataset.id}/comments`, { method: 'POST', body: { body: val(form, 'body').trim() } });
+  toast(result.approved === false ? 'Yorumunuz öğretmen onayından sonra görünecek' : 'Yorum eklendi');
   await openNote(form.dataset.id);
+  refresh();
+};
+
+ACTIONS['comment-approve'] = async el => {
+  await api(`/board-note-comments/${el.dataset.id}`, { method: 'PATCH', body: { approved: true } });
+  toast('Yorum onaylandı');
+  await openNote(currentOpenNote);
   refresh();
 };
 
@@ -3106,9 +3152,9 @@ async function pageGeogebra() {
     ? `<li class="list-row"><div class="list-main"><strong>${esc(m.title)}</strong><small class="muted">${esc(m.className)} · çalışma · ${(m.content?.lines || []).length} satır</small></div>
         <div class="row-actions"><button class="btn ghost sm" type="button" data-action="ggb-load" data-content="${esc(JSON.stringify(m.content || { lines: [] }))}">Çalışmayı aç</button>${del(m)}</div></li>`
     : `<li class="list-row"><div class="list-main"><strong>${esc(m.title)}</strong><small class="muted">${esc(m.className)} · bağlantı</small></div>
-        <div class="row-actions"><a class="btn ghost sm" href="${esc(m.url)}" target="_blank" rel="noopener">GeoGebra'da aç</a>${del(m)}</div></li>`)).join('');
+        <div class="row-actions"><a class="btn ghost sm" href="${esc(m.url)}" target="_blank" rel="noopener">Materyali aç</a>${del(m)}</div></li>`)).join('');
   return {
-    html: `${head('GeoGebra', 'Fonksiyon ve nokta çizin, sınıf çalışmalarını kaydedin. Öğrenciler çalışmayı açıp kendi denemelerini yapabilir.', saveButton)}
+    html: `${head('Matematik Laboratuvarı', 'Fonksiyon, nokta, doğru ve çember çizin; sınıf çalışmalarını kaydedin. Öğrenciler çalışmayı açıp kendi denemelerini yapabilir.', saveButton)}
       ${panel('Grafik', '', '<div class="pad"><div id="graphHost" class="gx-host"></div></div>')}
       ${panel('Sınıf çalışmaları', `${materials.length} kayıt`, materials.length
         ? `<ul class="list">${list}</ul>`
@@ -3154,11 +3200,11 @@ FORMS['ggb-save'] = async form => {
 
 ACTIONS['ggb-add'] = () => {
   const classes = state.me.role === 'teacher' ? teacherClasses() : state.classes;
-  openModal('GeoGebra materyali ekle', `<form class="stack" data-form="ggb-add">
+  openModal('Harici materyal ekle', `<form class="stack" data-form="ggb-add">
     <label class="field"><span>Sınıf</span><select name="classId">${classes.map(c => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('')}</select></label>
     <label class="field"><span>Başlık</span><input name="title" required minlength="2" maxlength="120" placeholder="Örn. Üçgenin alanı"></label>
-    <label class="field"><span>GeoGebra bağlantısı</span><input name="url" type="url" required maxlength="500" placeholder="https://www.geogebra.org/m/..."></label>
-    <p class="muted small">Yalnızca geogebra.org bağlantıları kabul edilir. Materyali GeoGebra'da oluşturup paylaşım bağlantısını buraya yapıştırın.</p>
+    <label class="field"><span>Materyal bağlantısı</span><input name="url" type="url" required maxlength="500" placeholder="https://www.geogebra.org/m/..."></label>
+    <p class="muted small">Yalnızca izinli etkileşimli materyal bağlantıları kabul edilir. Materyali oluşturup paylaşım bağlantısını buraya yapıştırın.</p>
     <p class="form-error" data-error role="alert"></p>
     <div class="form-actions"><button class="btn ghost" type="button" data-action="close-modal">Vazgeç</button><button class="btn primary" type="submit">Ekle</button></div>
   </form>`);

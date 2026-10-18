@@ -1311,7 +1311,7 @@ on('GET', '/api/boards/:id/notes', async ({ params, user }) => {
       u.name as "authorName", u.role as "authorRole", n.pos_x as "posX", n.pos_y as "posY",
       (select count(*)::int from board_note_likes l where l.note_id = n.id) as "likeCount",
       exists(select 1 from board_note_likes l where l.note_id = n.id and l.user_id = $2) as "likedByMe",
-      (select count(*)::int from board_note_comments c where c.note_id = n.id) as "commentCount"
+      (select count(*)::int from board_note_comments c where c.note_id = n.id and c.approved) as "commentCount"
     from board_notes n left join users u on u.id = n.author_id
     where n.board_id = $1 and (${rights.moderate ? 'true' : 'n.approved or n.author_id = $2'})
     order by n.created_at desc limit 300`, [id, user.id]);
@@ -1449,18 +1449,37 @@ on('POST', '/api/board-notes/:id/like', async ({ params, user }) => {
 
 on('GET', '/api/board-notes/:id/comments', async ({ params, user }) => {
   const { note, rights } = await noteAccess(params.id, user);
-  const { rows } = await q(`select c.id, c.body, c.created_at as "createdAt", c.author_id as "authorId", u.name as "authorName"
+  const { rows } = await q(`select c.id, c.body, c.created_at as "createdAt", c.author_id as "authorId", c.approved,
+      u.name as "authorName"
     from board_note_comments c left join users u on u.id = c.author_id
-    where c.note_id = $1 order by c.created_at limit 300`, [note.id]);
-  return ok({ comments: rows.map(c => ({ ...c, canDelete: rights.moderate || c.authorId === user.id })) });
+    where c.note_id = $1 and (c.approved or c.author_id = $2 or $3::boolean)
+    order by c.created_at limit 300`, [note.id, user.id, rights.moderate]);
+  return ok({ comments: rows.map(c => ({
+    ...c,
+    canDelete: rights.moderate || c.authorId === user.id,
+    canApprove: rights.moderate && !c.approved,
+  })) });
 });
 
 on('POST', '/api/board-notes/:id/comments', async ({ params, body, user }) => {
-  const { note } = await noteAccess(params.id, user);
+  const { note, board } = await noteAccess(params.id, user);
   const text = String(body.body ?? '').trim();
   if (text.length < 1 || text.length > 500) fail(400, 'Yorum 1 ile 500 karakter arasında olmalı.');
-  const { rows: [row] } = await q('insert into board_note_comments (note_id, author_id, body) values ($1, $2, $3) returning id', [note.id, user.id, text]);
-  return created({ id: row.id });
+  const approved = !(user.role === 'student' && board.moderated);
+  const { rows: [row] } = await q('insert into board_note_comments (note_id, author_id, body, approved) values ($1, $2, $3, $4) returning id',
+    [note.id, user.id, text, approved]);
+  return created({ id: row.id, approved });
+});
+
+on('PATCH', '/api/board-note-comments/:id', async ({ params, body, user }) => {
+  const id = requireId(params.id, 'yorum');
+  const { rows: [c] } = await q('select note_id from board_note_comments where id = $1', [id]);
+  if (!c) fail(404, 'Yorum bulunamadı.');
+  const { rights } = await noteAccess(c.note_id, user);
+  if (!rights.moderate) fail(403, 'Yorumu onaylama yetkin yok.');
+  if (typeof body.approved !== 'boolean') fail(400, 'Onay durumu geçersiz.');
+  await q('update board_note_comments set approved = $2 where id = $1', [id, body.approved]);
+  return ok({ approved: body.approved });
 });
 
 on('DELETE', '/api/board-note-comments/:id', async ({ params, user }) => {
@@ -1483,7 +1502,9 @@ on('GET', '/api/files/board-note/:id', async ({ params, query, user }) => {
   if (!rights.moderate && !n.approved && n.author_id !== user.id) fail(403, 'Bu not henüz onaylanmadı.');
   const result = await fileOf(n.file_path, n.file_mime, n.file_name);
   // Yalnızca resimler sayfa içinde gösterilir; diğer dosyalar her zaman indirme olarak sunulur.
-  result.file.inline = query.get('inline') === '1' && ['image/png', 'image/jpeg'].includes(n.file_mime);
+  const pdf = n.file_mime === 'application/pdf';
+  result.file.inline = query.get('inline') === '1' && (pdf || ['image/png', 'image/jpeg'].includes(n.file_mime));
+  result.file.frameable = pdf && result.file.inline;
   return result;
 });
 
@@ -3522,7 +3543,7 @@ function geogebraUrl(value) {
     fail(400, 'Bağlantı geçersiz.');
   }
   if (parsed.protocol !== 'https:' || !(parsed.hostname === 'geogebra.org' || parsed.hostname.endsWith('.geogebra.org'))) {
-    fail(400, 'Yalnızca geogebra.org bağlantıları eklenebilir.');
+    fail(400, 'Yalnızca izinli etkileşimli materyal bağlantıları eklenebilir.');
   }
   return parsed.toString();
 }
@@ -3550,7 +3571,7 @@ on('POST', '/api/geogebra/materials', async ({ body, user }) => {
   const url = geogebraUrl(str(body.url, 500));
   const { rows: [row] } = await q('insert into geogebra_materials (class_id, title, url, created_by) values ($1, $2, $3, $4) returning id', [classId, title, url, user.id]);
   const { rows: students } = await q('select student_id from enrollments where class_id = $1', [classId]);
-  push.notify(students.map(s => s.student_id), { title: 'Yeni GeoGebra materyali', body: title, url: '/#/geogebra', tag: `ggb-${row.id}` }).catch(() => {});
+  push.notify(students.map(s => s.student_id), { title: 'Yeni laboratuvar materyali', body: title, url: '/#/geogebra', tag: `ggb-${row.id}` }).catch(() => {});
   return created({ id: row.id });
 }, { roles: STAFF });
 

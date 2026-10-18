@@ -205,6 +205,11 @@ const server = http.createServer(async (req, res) => {
     }
     if (result.file) {
       const { buffer, mime, name, inline } = result.file;
+      if (result.file.frameable) {
+        // Pano PDF önizlemesi: yalnızca aynı site çerçevesinde gösterilebilir
+        res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+        res.setHeader('Content-Security-Policy', "default-src 'self'; frame-ancestors 'self'");
+      }
       res.writeHead(200, {
         'Content-Type': mime,
         'Content-Length': buffer.length,

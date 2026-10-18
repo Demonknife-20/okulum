@@ -132,3 +132,37 @@ test('kesişim: sayı olmayan nesne (fonksiyon) doğru yerine geçmez', () => {
   const model = buildModel(['A=(0,0)', 'B=(1,1)', 'f(x)=x', 'K=Kesişim(f,f)']);
   assert.match(model.errors[3], /iki doğru/);
 });
+
+import { lineGeometry } from '../public/graph.js';
+
+test('dik ve paralel doğrular: yönleri referans doğruya göre hesaplanır', () => {
+  const lines = ['A=(0,0)', 'B=(2,0)', 'a=Doğru(A,B)', 'P=(1,1)', 'd=Dik(P,a)', 'q=Paralel(P,a)'];
+  const model = buildModel(lines);
+  assert.equal(model.errors.length, 0, JSON.stringify(model.errors));
+  const perp = lineGeometry(model.objects.find(o => o.name === 'd'), model.points, model.objects);
+  const parallel = lineGeometry(model.objects.find(o => o.name === 'q'), model.points, model.objects);
+  const dir = ([[x1, y1], [x2, y2]]) => [x2 - x1, y2 - y1];
+  const [pdx, pdy] = dir(perp);
+  assert.ok(Math.abs(pdx * 2 + pdy * 0) < 1e-9, 'dik doğru referansa dik');
+  const [qdx, qdy] = dir(parallel);
+  assert.ok(Math.abs(qdx * 0 - qdy * 2) < 1e-9, 'paralel doğru referansa paralel');
+  assert.deepEqual(perp[0], [1, 1], 'dik doğru noktadan geçer');
+});
+
+test('dik doğru: referans nesne doğru değilse ya da nokta yoksa açıklayıcı hata', () => {
+  const notLine = buildModel(['A=(0,0)', 'f(x)=x', 'd=Dik(A,f)']);
+  assert.match(notLine.errors[2], /önce bir nokta ve bir doğru/);
+  const noPoint = buildModel(['A=(0,0)', 'B=(1,0)', 'a=Doğru(A,B)', 'd=Paralel(Z,a)']);
+  assert.match(noPoint.errors[3], /önce bir nokta ve bir doğru/);
+});
+
+import { distanceBetween } from '../public/graph.js';
+
+test('uzaklık: iki nokta arasındaki uzaklık ölçülür ve nesne olarak tanınır', () => {
+  assert.equal(distanceBetween({ x: 0, y: 0 }, { x: 3, y: 4 }), 5);
+  const model = buildModel(['A=(0,0)', 'B=(3,4)', 'u=Uzaklık(A,B)']);
+  assert.equal(model.errors.length, 0);
+  assert.equal(model.objects[0].kind, 'distance');
+  const missing = buildModel(['A=(0,0)', 'u=Uzaklık(A,Q)']);
+  assert.equal(missing.errors[1], 'Nokta tanımlı değil: Q');
+});

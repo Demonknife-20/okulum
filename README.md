@@ -419,3 +419,22 @@ Müdür tüm okulu, öğretmen kendi derslerini, öğrenci yalnızca kendi devam
 - `M=Orta(A,B)`: iki noktanın orta noktası; A veya B taşınınca M de güncellenir.
 - `K=Kesişim(a,b)`: iki doğrunun (doğru, ışın ya da parça) kesişim noktası. Paralel doğrular için hata verir.
 - Araç çubuğunda **Orta** aracı: iki nokta seçince orta nokta oluşur.
+
+## Yorum moderasyonu (v42)
+
+- Moderasyonlu panoda öğrenci yorumları pano yöneticisi onaylayana kadar yalnızca yazara ve yöneticiye görünür.
+- Onay bekleyen yorumlar sayaçta sayılmaz.
+- Migrasyon: `0009_comment_moderation.sql`.
+
+## Matematik Laboratuvarı ve pano medyası (v43)
+
+- Menüdeki ve sayfa başlığındaki "GeoGebra" adı "Laboratuvar / Matematik Laboratuvarı" olarak değiştirildi.
+- Grafik: **Dik** ve **Paralel** araçları (önce doğru, sonra nokta); komutlar `Dik(P,a)` ve `Paralel(P,a)`.
+- Pano: PDF dosyaları kartın içinde önizlenir; bağlantılar video/platform rozetiyle gösterilir; **Büyüt** ile kart tam pencerede açılır.
+- PDF önizlemesi yalnızca aynı site çerçevesinde açılır (dosya yanıtında X-Frame-Options SAMEORIGIN).
+
+## Grafik: ölçüm, eksenler, PNG (v44)
+
+- `u=Uzaklık(A,B)`: iki nokta arasındaki uzaklık çizgi üzerinde etiketlenir. Araç çubuğunda **Uzaklık** aracı da var.
+- **Eksenler** düğmesi sıfır çizgilerini gösterip gizler.
+- **PNG indir** düğmesi mevcut grafiği `matematik-laboratuvari.png` olarak indirir.
