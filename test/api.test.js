@@ -1633,3 +1633,8 @@ test('hız sınırı: çok sayıda başarısız girişten sonra 429', async () =
   assert.ok(statuses.includes(429), `429 beklendi, gelen: ${statuses.join(',')}`);
   assert.equal(statuses.at(-1), 429);
 });
+
+test('android: dijital varlık bağlantısı yalnızca parmak izi tanımlıyken yayınlanır', async () => {
+  const response = await fetch(`${BASE}/.well-known/assetlinks.json`);
+  assert.equal(response.status, 404, 'ANDROID_SHA256 tanımlı değilken 404 döner');
+});

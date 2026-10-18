@@ -3,6 +3,9 @@ import { ACTIONS, FORMS, CHANGES, INPUTS, renderView, stopTimers } from './views
 import { renderPublic } from './public.js';
 import { initNotifications } from './push.js';
 import { ensureKvkk } from './views.js';
+import { setupInstall } from './install.js';
+// Kurulum isteğini herkese açık sayfada da yakalamak için modül yüklenirken başlatılır.
+setupInstall();
 
 const NAV = {
   principal: [['overview', 'Genel bakış', 'home'], ['analiz', 'Analiz', 'chart'], ['people', 'Kişiler', 'users'], ['school', 'Okul', 'school'], ['panolar', 'Panolar', 'board'], ['asistan', 'Asistan', 'spark'], ['messages', 'Mesajlar', 'chat'], ['audit', 'Denetim', 'file'], ['program', 'Ders programı', 'clock'], ['takvim', 'Takvim', 'calendar'], ['geogebra', 'Laboratuvar', 'chart'], ['izin', 'İzin defteri', 'calendar'], ['yardim', 'Kullanım', 'help']],

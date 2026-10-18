@@ -124,6 +124,19 @@ const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
 
   const key0 = clientKey(req);
+  // Android APK (Trusted Web Activity): paket imzası doğrulaması için dijital varlık bağlantısı
+  if (url.pathname === '/.well-known/assetlinks.json') {
+    const fingerprint = (process.env.ANDROID_SHA256 || '').trim();
+    if (!fingerprint) return send(res, 404, { error: 'Bulunamadı.' });
+    return send(res, 200, [{
+      relation: ['delegate_permission/common.handle_all_urls'],
+      target: {
+        namespace: 'android_app',
+        package_name: process.env.ANDROID_PACKAGE || 'com.okulum.app',
+        sha256_cert_fingerprints: [fingerprint],
+      },
+    }]);
+  }
   if (url.pathname === '/healthz') {
     try {
       const started = Date.now();
