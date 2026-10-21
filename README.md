@@ -444,3 +444,19 @@ Müdür tüm okulu, öğretmen kendi derslerini, öğrenci yalnızca kendi devam
 - **Kurulum kartı:** Yuvarlatılmış, logolu kart; Android'de Yükle, iPhone'da ekleme yönergesi.
 - **Pano sabitleme:** Yönetici notu üste sabitleyebilir (`0010_pinned_notes.sql`).
 - **Grafik koordinatları:** "Koordinat" düğmesiyle noktaların koordinatları etiketlerde gösterilir.
+
+## Sürüm 48
+
+- **Gizlilik politikası:** `/gizlilik` sayfası eklendi. Hukuki onaydan geçene kadar taslaktır; saklama süreleri ve iletişim bilgileri yer tutucu olarak bırakıldı.
+- **Pano kartı metni:** Kalın, italik, madde ve bağlantı biçimleri desteklenir (güvenli Markdown dönüştürücüsü; HTML kabul edilmez).
+
+## Sürüm 49
+
+- **Pano sıralaması:** Yönetici, akış ve ızgara düzenlerinde notları ▲▼ düğmeleriyle sıralayabilir (`0011_note_order.sql`). Sıra tüm panoda kaydedilir.
+- Sürükle-bırak henüz yok; dokunmatik ekranlarda ▲▼ düğmeleri kullanılır.
+
+## Sürüm 50: Deney laboratuvarı
+
+- Menüde **Deneyler** sayfası: fizik (eğik atış: hız, açı, Dünya/Ay/Mars) ve kimya (güçlü asit-baz titrasyonu: derişim, hacim, pH eğrisi).
+- Hesaplar `public/labs.js` içinde, birim testleri `test/labs.test.mjs`.
+- Tarayıcıda bilinen değerlerle doğrulandı (örn. 20 m/s, 45°, Dünya: menzil 40,77 m; 0,1 M HCl + 0,1 M NaOH eşdeğerliğinde pH 7).
