@@ -1625,6 +1625,27 @@ test('yorum moderasyonu: moderasyonlu panoda öğrenci yorumu onay bekler, yaln�
   await call('DELETE', `/api/boards/${boardId}`, { cookie: state.ayse });
 });
 
+test('pano sıralaması: yönetici sırayı belirler, öğrenci değiştiremez, başka panonun notu reddedilir', async () => {
+  const created = await call('POST', '/api/boards', { cookie: state.ayse, body: { title: 'Sıralama panosu', scope: 'class', classId: state.class6A, layout: 'stream' } });
+  const boardId = created.data.id;
+  const a = await call('POST', `/api/boards/${boardId}/notes`, { cookie: state.ayse, body: { title: 'A', body: 'a' } });
+  await new Promise(r => setTimeout(r, 15));
+  const b = await call('POST', `/api/boards/${boardId}/notes`, { cookie: state.ayse, body: { title: 'B', body: 'b' } });
+  await new Promise(r => setTimeout(r, 15));
+  const c = await call('POST', `/api/boards/${boardId}/notes`, { cookie: state.ayse, body: { title: 'C', body: 'c' } });
+  const other = await call('POST', '/api/boards', { cookie: state.ayse, body: { title: 'Başka pano', scope: 'class', classId: state.class6A } });
+  const foreign = await call('POST', `/api/boards/${other.data.id}/notes`, { cookie: state.ayse, body: { title: 'D', body: 'd' } });
+  const ids = [c.data.id, a.data.id, b.data.id];
+  assert.equal((await call('PATCH', `/api/boards/${boardId}/order`, { cookie: state.ece, body: { ids } })).status, 403, 'öğrenci sıralayamaz');
+  assert.equal((await call('PATCH', `/api/boards/${boardId}/order`, { cookie: state.ayse, body: { ids: ['x'] } })).status, 400, 'geçersiz kimlik');
+  assert.equal((await call('PATCH', `/api/boards/${boardId}/order`, { cookie: state.ayse, body: { ids: [c.data.id, foreign.data.id] } })).status, 400, 'başka panonun notu reddedilir');
+  assert.equal((await call('PATCH', `/api/boards/${boardId}/order`, { cookie: state.ayse, body: { ids } })).status, 200);
+  const list = await call('GET', `/api/boards/${boardId}/notes`, { cookie: state.ayse });
+  assert.deepEqual(list.data.notes.map(n => n.title), ['C', 'A', 'B'], 'sıra listede yansır');
+  await call('DELETE', `/api/boards/${boardId}`, { cookie: state.ayse });
+  await call('DELETE', `/api/boards/${other.data.id}`, { cookie: state.ayse });
+});
+
 test('hız sınırı: çok sayıda başarısız girişten sonra 429', async () => {
   const statuses = [];
   for (let i = 0; i < 14; i += 1) {
@@ -1654,4 +1675,13 @@ test('pano sabitleme: yalnızca yönetici sabitler, sabitli not listede üstte g
   assert.equal(list.data.notes[1].id, second.data.id);
   assert.equal(list.data.notes[0].canPin, true);
   await call('DELETE', `/api/boards/${boardId}`, { cookie: state.ayse });
+});
+
+test('gizlilik: taslak sayfa yayınlanır ve yer tutucuları açıkça işaretler', async () => {
+  const response = await fetch(`${BASE}/gizlilik`);
+  assert.equal(response.status, 200);
+  const html = await response.text();
+  assert.match(html, /Gizlilik politikası/);
+  assert.match(html, /Taslak:/, 'hukuki onay öncesi taslak olduğu belirtilir');
+  assert.match(html, /\[Verilerin ne kadar süre saklandığı/, 'saklama süresi uydurulmaz, yer tutucu kalır');
 });

@@ -1,6 +1,7 @@
 import { renderMarkdown } from './markdown.js';
 import { enablePush, disablePush, isSubscribed } from './push.js';
 import { mountGraph } from './graph.js';
+import { projectile, trajectory, titrationPH, equivalenceVolume, titrationSeries } from './labs.js';
 import { helpHtml } from './help.js';
 import { state, api, $, $$, esc, ROLE, icon, fmtDate, todayIso, pct, initials, tone, readFile, toast, openModal, closeModal, confirmDialog, refreshMe, refresh, val, setBusy, setQuery, parseHash, paintWidths, refreshBadges } from './core.js';
 
@@ -1299,7 +1300,7 @@ async function pageBoard(params) {
       ${n.hasFile && isImage(n) ? `<img class="pin-img" src="/api/files/board-note/${esc(n.id)}?inline=1" alt="${esc(n.fileName || 'Pano resmi')}" loading="lazy" decoding="async">` : ''}
       ${n.pinned ? '<span class="badge pin-badge">Sabit</span>' : ''}
       ${n.title ? `<h3>${esc(n.title)}</h3>` : ''}
-      ${n.body ? `<p>${esc(n.body)}</p>` : ''}
+      ${n.body ? `<div class="md">${renderMarkdown(n.body)}</div>` : ''}
       ${n.link ? `<span class="badge media-badge">${esc(platformOf(n.link))}</span>` : ''}
       ${n.link ? `<a class="note-link" href="${esc(n.link)}" target="_blank" rel="noopener noreferrer">${icon('send')}<span>${esc(n.link.replace(/^https?:\/\//, '').slice(0, 60))}</span></a>` : ''}
       ${n.hasFile && n.fileMime === 'application/pdf' ? `<iframe class="pin-pdf" src="/api/files/board-note/${esc(n.id)}?inline=1" title="${esc(n.fileName || 'PDF')}" loading="lazy"></iframe>` : ''}
@@ -1308,6 +1309,7 @@ async function pageBoard(params) {
       <footer class="note-foot">
         <span>${esc(n.authorName || 'Silinmiş kullanıcı')} · ${esc(ROLE[n.authorRole] || '')} · ${esc(fmtDate(n.createdAt))}</span>
         <span class="note-actions">
+          ${rights.moderate && layout !== 'wall' ? `<span class="order-btns"><button class="icon-btn sm" type="button" data-action="note-up" data-id="${esc(n.id)}" aria-label="Notu yukarı taşı">▲</button><button class="icon-btn sm" type="button" data-action="note-down" data-id="${esc(n.id)}" aria-label="Notu aşağı taşı">▼</button></span>` : ''}
           ${n.canPin ? `<button class="btn ghost sm" type="button" data-action="note-pin" data-id="${esc(n.id)}" data-pinned="${n.pinned ? '1' : '0'}">${n.pinned ? 'Sabiti kaldır' : 'Sabitle'}</button>` : ''}
           <button class="btn ghost sm" type="button" data-action="note-expand" data-id="${esc(n.id)}">Büyüt</button>
           <button class="pin-like${n.likedByMe ? ' on' : ''}" type="button" data-action="note-like" data-id="${esc(n.id)}" aria-pressed="${n.likedByMe ? 'true' : 'false'}" aria-label="Beğen">♥ <b>${n.likeCount}</b></button>
@@ -1403,6 +1405,31 @@ function platformOf(url) {
   }
 }
 
+// Sıralama: komşu notla yer değiştirir ve tüm pano sırası kaydedilir
+async function saveNoteOrder(ids) {
+  await api(`/boards/${currentBoard.id}/order`, { method: 'PATCH', body: { ids } });
+  refresh();
+}
+
+function moveNote(noteId, step) {
+  const ids = currentNotes.map(n => n.id);
+  const index = ids.indexOf(noteId);
+  const target = index + step;
+  if (index < 0 || target < 0 || target >= ids.length) return null;
+  [ids[index], ids[target]] = [ids[target], ids[index]];
+  return ids;
+}
+
+ACTIONS['note-up'] = async el => {
+  const ids = moveNote(el.dataset.id, -1);
+  if (ids) await saveNoteOrder(ids);
+};
+
+ACTIONS['note-down'] = async el => {
+  const ids = moveNote(el.dataset.id, 1);
+  if (ids) await saveNoteOrder(ids);
+};
+
 ACTIONS['note-pin'] = async el => {
   const pinned = el.dataset.pinned !== '1';
   await api(`/board-notes/${el.dataset.id}/pin`, { method: 'PATCH', body: { pinned } });
@@ -1421,7 +1448,7 @@ ACTIONS['note-expand'] = el => {
   ].join('');
   openModal(note.title || 'Not', `<div class="stack expand">
     ${media}
-    ${note.body ? `<p class="note-preview">${esc(note.body)}</p>` : ''}
+    ${note.body ? `<div class="note-preview md">${renderMarkdown(note.body)}</div>` : ''}
     ${note.link ? `<a class="btn ghost" href="${esc(note.link)}" target="_blank" rel="noopener noreferrer">${esc(platformOf(note.link))} · Aç</a>` : ''}
     ${note.hasFile ? `<a class="btn ghost" href="/api/files/board-note/${esc(note.id)}" download>Dosyayı indir</a>` : ''}
   </div>`);
@@ -3149,6 +3176,166 @@ FORMS['grade-save'] = async form => {
   refresh();
 };
 
+// ---------- Deneyler (v50): fizik ve kimya ----------
+const LAB_CONCENTRATIONS = [0.05, 0.1, 0.2];
+
+function labPhysicsHtml() {
+  return `<div class="lab-grid">
+    <div class="lab-controls" data-lab="fizik">
+      <label class="field"><span>Başlangıç hızı: <b data-out="v">20</b> m/s</span><input type="range" min="1" max="100" value="20" data-in="v"></label>
+      <label class="field"><span>Atış açısı: <b data-out="theta">45</b>°</span><input type="range" min="1" max="89" value="45" data-in="theta"></label>
+      <label class="field"><span>Ortam</span><select data-in="g">
+        <option value="9.81">Dünya (9,81 m/s²)</option><option value="1.62">Ay (1,62 m/s²)</option><option value="3.71">Mars (3,71 m/s²)</option>
+      </select></label>
+      <ul class="lab-results">
+        <li>Menzil: <b data-res="range">–</b> m</li>
+        <li>En yüksek nokta: <b data-res="height">–</b> m</li>
+        <li>Uçuş süresi: <b data-res="time">–</b> s</li>
+      </ul>
+    </div>
+    <canvas class="lab-canvas" data-canvas="fizik" aria-label="Eğik atış yörüngesi"></canvas>
+  </div>`;
+}
+
+function labChemHtml() {
+  const options = LAB_CONCENTRATIONS.map(c => `<option value="${c}" ${c === 0.1 ? 'selected' : ''}>${String(c).replace('.', ',')} mol/L</option>`).join('');
+  return `<div class="lab-grid">
+    <div class="lab-controls" data-lab="kimya">
+      <label class="field"><span>Asit (HCl) derişimi</span><select data-in="ca">${options}</select></label>
+      <label class="field"><span>Asit hacmi: <b data-out="va">25</b> mL</span><input type="range" min="5" max="50" step="1" value="25" data-in="va"></label>
+      <label class="field"><span>Baz (NaOH) derişimi</span><select data-in="cb">${options}</select></label>
+      <label class="field"><span>Eklenen baz: <b data-out="vb">0</b> mL</span><input type="range" min="0" max="60" step="0.5" value="0" data-in="vb"></label>
+      <ul class="lab-results">
+        <li>pH: <b data-res="ph">–</b></li>
+        <li>Eşdeğerlik hacmi: <b data-res="veq">–</b> mL</li>
+        <li>Durum: <b data-res="state">–</b></li>
+      </ul>
+    </div>
+    <canvas class="lab-canvas" data-canvas="kimya" aria-label="Titrasyon pH eğrisi"></canvas>
+  </div>`;
+}
+
+async function pageDeneyler() {
+  return {
+    html: `${head('Deney laboratuvarı', 'Fizik ve kimya deneylerinde değerleri değiştirin; sonuçlar ve grafik anında güncellenir.', '')}
+      ${panel('Fizik · Eğik atış', 'Başlangıç hızı, açı ve ortama göre atışın menzilini, yüksekliğini ve süresini hesaplayın.', labPhysicsHtml())}
+      ${panel('Kimya · Asit-baz titrasyonu', 'Güçlü asit (HCl) çözeltisine güçlü baz (NaOH) eklerken pH değişimini izleyin.', labChemHtml())}`,
+    after: setupLabs,
+  };
+}
+
+function fitCanvas(canvas) {
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  const w = Math.max(200, rect.width);
+  const h = Math.max(160, rect.height);
+  canvas.width = Math.round(w * dpr);
+  canvas.height = Math.round(h * dpr);
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  return { ctx, w, h };
+}
+
+function drawPhysics(canvas, path, result) {
+  const { ctx, w, h } = fitCanvas(canvas);
+  const pad = 36;
+  const maxX = Math.max(result.range, 1) * 1.1;
+  const maxY = Math.max(result.height, 1) * 1.3;
+  const sx = (w - pad * 2) / maxX;
+  const sy = (h - pad * 2) / maxY;
+  ctx.strokeStyle = '#cfd9d3';
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(pad, h - pad); ctx.lineTo(w - pad / 2, h - pad); ctx.moveTo(pad, h - pad); ctx.lineTo(pad, pad / 2); ctx.stroke();
+  ctx.fillStyle = '#6b7f76';
+  ctx.font = '12px system-ui, sans-serif';
+  ctx.fillText('x (m)', w - 46, h - pad + 16);
+  ctx.fillText('y (m)', 4, pad / 2 + 4);
+  ctx.strokeStyle = '#1b6b50';
+  ctx.lineWidth = 2.4;
+  ctx.beginPath();
+  path.forEach((p, i) => {
+    const px = pad + p.x * sx;
+    const py = h - pad - p.y * sy;
+    if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+  });
+  ctx.stroke();
+}
+
+function drawTitration(canvas, series, veq, current) {
+  const { ctx, w, h } = fitCanvas(canvas);
+  const pad = 36;
+  const maxV = Math.max(10, Math.ceil(Math.max(veq * 2, 10)));
+  const X = v => pad + (v / maxV) * (w - pad * 1.5);
+  const Y = pH => h - pad - (pH / 14) * (h - pad * 1.5);
+  ctx.strokeStyle = '#cfd9d3';
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(pad, h - pad); ctx.lineTo(w - pad / 2, h - pad); ctx.moveTo(pad, h - pad); ctx.lineTo(pad, pad / 2); ctx.stroke();
+  ctx.fillStyle = '#6b7f76';
+  ctx.font = '12px system-ui, sans-serif';
+  ctx.fillText('Eklenen baz (mL)', w - 130, h - pad + 16);
+  ctx.fillText('pH', 6, pad / 2 + 4);
+  ctx.setLineDash([5, 5]);
+  ctx.strokeStyle = '#e8590c';
+  ctx.beginPath(); ctx.moveTo(X(veq), h - pad); ctx.lineTo(X(veq), pad / 2); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.strokeStyle = '#1b6b50';
+  ctx.lineWidth = 2.4;
+  ctx.beginPath();
+  series.forEach((p, i) => { if (i === 0) ctx.moveTo(X(p.v), Y(p.pH)); else ctx.lineTo(X(p.v), Y(p.pH)); });
+  ctx.stroke();
+  const marker = { v: current.v, pH: current.pH };
+  ctx.fillStyle = '#e5484d';
+  ctx.beginPath(); ctx.arc(X(marker.v), Y(marker.pH), 5, 0, Math.PI * 2); ctx.fill();
+}
+
+function setupLabs() {
+  const fizikBox = document.querySelector('[data-lab=fizik]');
+  const kimyaBox = document.querySelector('[data-lab=kimya]');
+  if (!fizikBox || !kimyaBox) return;
+
+  const updatePhysics = () => {
+    const v = Number(fizikBox.querySelector('[data-in=v]').value);
+    const theta = Number(fizikBox.querySelector('[data-in=theta]').value);
+    const g = Number(fizikBox.querySelector('[data-in=g]').value);
+    fizikBox.querySelector('[data-out=v]').textContent = v;
+    fizikBox.querySelector('[data-out=theta]').textContent = theta;
+    const result = projectile(v, theta, g);
+    fizikBox.querySelector('[data-res=range]').textContent = result.range.toFixed(2);
+    fizikBox.querySelector('[data-res=height]').textContent = result.height.toFixed(2);
+    fizikBox.querySelector('[data-res=time]').textContent = result.time.toFixed(2);
+    drawPhysics(document.querySelector('[data-canvas=fizik]'), trajectory(v, theta, g, 120), result);
+  };
+
+  const updateChem = () => {
+    const ca = Number(kimyaBox.querySelector('[data-in=ca]').value);
+    const va = Number(kimyaBox.querySelector('[data-in=va]').value);
+    const cb = Number(kimyaBox.querySelector('[data-in=cb]').value);
+    const vb = Number(kimyaBox.querySelector('[data-in=vb]').value);
+    kimyaBox.querySelector('[data-out=va]').textContent = va;
+    kimyaBox.querySelector('[data-out=vb]').textContent = vb;
+    const veq = equivalenceVolume(ca, va, cb);
+    const pH = titrationPH(ca, va, cb, vb);
+    const acidMoles = ca * va;
+    const baseMoles = cb * vb;
+    const state = Math.abs(acidMoles - baseMoles) < 1e-9 ? 'Eşdeğerlik noktası'
+      : acidMoles > baseMoles ? 'Asit fazlası' : 'Baz fazlası';
+    kimyaBox.querySelector('[data-res=ph]').textContent = pH.toFixed(2);
+    kimyaBox.querySelector('[data-res=veq]').textContent = veq.toFixed(1);
+    kimyaBox.querySelector('[data-res=state]').textContent = state;
+    const maxV = Math.max(10, veq * 2);
+    drawTitration(document.querySelector('[data-canvas=kimya]'), titrationSeries(ca, va, cb, maxV, 0.5), veq, { v: vb, pH });
+  };
+
+  fizikBox.addEventListener('input', updatePhysics);
+  fizikBox.addEventListener('change', updatePhysics);
+  kimyaBox.addEventListener('input', updateChem);
+  kimyaBox.addEventListener('change', updateChem);
+  updatePhysics();
+  updateChem();
+  window.addEventListener('resize', () => { updatePhysics(); updateChem(); });
+}
+
 // ---------- GeoGebra (v32): kendi grafik aracımız, sınıf çalışmaları ----------
 let ggbCurrent = null;
 
@@ -3241,7 +3428,7 @@ const PAGES = {
   yardim: async () => ({ html: helpHtml() }),
   panolar: pagePanolar, pano: pageBoard, asistan: pageAsistan,
   cocuklar: pageCocuklar, sinavlar: pageSinavlar, sinav: pageSinav, notlar: pageNotlar,
-  davranis: pageDavranis, puanlarim: pagePuanlarim, program: pageProgram, takvim: pageTakvim, karne: pageKarne, canli: pageCanli, analiz: pageAnaliz, izin: pageIzin, gece: pageGece, geogebra: pageGeogebra,
+  davranis: pageDavranis, puanlarim: pagePuanlarim, program: pageProgram, takvim: pageTakvim, karne: pageKarne, canli: pageCanli, analiz: pageAnaliz, izin: pageIzin, gece: pageGece, geogebra: pageGeogebra, deneyler: pageDeneyler,
 };
 export function renderView(page, params) {
   if (page === 'overview' && state.me.role === 'parent') return pageParentOverview();

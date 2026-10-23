@@ -1408,3 +1408,21 @@ body{
 
 /* v47: pano sabit notları */
 .pin-badge{background:var(--brand-soft,#e3f1ea);color:var(--brand,#1b6b50);margin-bottom:6px}
+
+/* v48: pano kart metni biçimi ve gizlilik taslağı */
+.pin .md p{margin:0 0 6px}
+.pin .md ul,.pin .md ol{margin:4px 0 6px 18px;padding:0}
+.pin .md code{font-size:12px;background:rgba(0,0,0,.06);padding:1px 4px;border-radius:5px}
+.legal-draft{padding:10px 12px;border-radius:12px;background:#fff6dc;border:1px solid #efd58a;color:#6b4d00}
+
+/* v49: pano notlarını elle sıralama */
+.order-btns{display:inline-flex;gap:4px}
+.order-btns .icon-btn{width:30px;height:30px;font-size:12px}
+
+/* v50: deney laboratuvarı */
+.lab-grid{display:grid;grid-template-columns:minmax(230px,320px) minmax(0,1fr);gap:16px;align-items:start}
+.lab-controls{display:grid;gap:12px}
+.lab-canvas{width:100%;height:300px;border-radius:16px;background:#fff;border:1px solid var(--line);display:block}
+.lab-results{list-style:none;margin:0;padding:12px 14px;border-radius:14px;background:var(--surface-2);display:grid;gap:6px;font-size:14px}
+.lab-results b{color:var(--brand)}
+@media (max-width:760px){.lab-grid{grid-template-columns:1fr}.lab-canvas{height:240px}}

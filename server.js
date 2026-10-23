@@ -174,6 +174,10 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=3600' });
     return res.end(seo.sitemap(base));
   }
+  if (url.pathname === '/gizlilik') {
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=600' });
+    return res.end(seo.privacyPage(base));
+  }
   if (url.pathname === '/kullanim' || url.pathname === '/hakkinda') {
     return contentReady.then(content => {
       const html = url.pathname === '/kullanim' ? seo.usagePage(base, content) : seo.aboutPage(base, content);

@@ -1314,7 +1314,7 @@ on('GET', '/api/boards/:id/notes', async ({ params, user }) => {
       (select count(*)::int from board_note_comments c where c.note_id = n.id and c.approved) as "commentCount"
     from board_notes n left join users u on u.id = n.author_id
     where n.board_id = $1 and (${rights.moderate ? 'true' : 'n.approved or n.author_id = $2'})
-    order by n.pinned desc, n.created_at desc limit 300`, [id, user.id]);
+    order by n.pinned desc, n.sort_order asc nulls last, n.created_at desc limit 300`, [id, user.id]);
   const pendingCount = rights.moderate ? rows.filter(n => !n.approved).length : 0;
   const notes = rows.map(n => ({ ...n, canDelete: rights.moderate || n.authorId === user.id, canApprove: rights.moderate && !n.approved, canMove: rights.moderate || n.authorId === user.id, canPin: rights.moderate }));
   return ok({ board: { ...board, rights: { ...rights, pendingCount } }, notes });
@@ -1445,6 +1445,26 @@ on('PATCH', '/api/board-notes/:id/pin', async ({ params, body, user }) => {
   if (typeof body.pinned !== 'boolean') fail(400, 'Sabitleme durumu geçersiz.');
   await q('update board_notes set pinned = $2 where id = $1', [note.id, body.pinned]);
   return ok({ pinned: body.pinned });
+});
+
+// Sıralama: pano yöneticisi notların sırasını belirler (ids, yukarıdan aşağıya)
+on('PATCH', '/api/boards/:id/order', async ({ params, body, user }) => {
+  const boardId = requireId(params.id, 'pano');
+  const board = await loadBoard(boardId);
+  if (!board) fail(404, 'Pano bulunamadı.');
+  const rights = rightsFor(user, { scope: board.scope, classId: board.classId }, await membership(user));
+  if (!rights.moderate) fail(403, 'Notları sıralama yetkin yok.');
+  const ids = body.ids;
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!Array.isArray(ids) || ids.length === 0 || ids.length > 300 || !ids.every(id => typeof id === 'string' && uuid.test(id))) {
+    fail(400, 'Sıralama listesi geçersiz.');
+  }
+  const { rowCount } = await q(
+    'update board_notes n set sort_order = o.ord from unnest($2::uuid[]) with ordinality as o(id, ord) where n.id = o.id and n.board_id = $1',
+    [boardId, ids],
+  );
+  if (rowCount !== ids.length) fail(400, 'Bazı notlar bu panoya ait değil.');
+  return ok({ ordered: rowCount });
 });
 
 on('POST', '/api/board-notes/:id/like', async ({ params, user }) => {

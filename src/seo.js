@@ -28,6 +28,40 @@ const SHELL = (base, { title, description, path, body }) => `<!doctype html>
 </body>
 </html>`;
 
+function privacyPage(base) {
+  const body = `
+<article class="seo-article">
+<p class="legal-draft"><strong>Taslak:</strong> Bu metin hukuki onaydan geçene kadar taslaktır. Köşeli parantez içindeki alanlar okul tarafından doldurulmalıdır.</p>
+<h1>Gizlilik politikası</h1>
+<p>Okulum, okul, öğretmen, öğrenci ve veliler arasında ödev, yoklama, not, duyuru ve iletişim süreçlerini yürüten bir okul yönetim sistemidir. Bu sayfa hangi kişisel verilerin işlendiğini, neden işlendiğini ve kullanıcı haklarını açıklar.</p>
+<h2>Hangi veriler işlenir</h2>
+<ul>
+<li>Kimlik ve iletişim: ad, soyad, kullanıcı adı, okul numarası, e-posta adresi.</li>
+<li>Eğitim kayıtları: ödevler ve teslimler, yoklama, notlar, sınav sonuçları, davranış puanları ve gözlem notları.</li>
+<li>İletişim içerikleri: mesajlar, pano notları, yorumlar ve yüklenen dosyalar.</li>
+<li>Güvenlik kayıtları: giriş denemeleri, iki adımlı doğrulama bilgisi (şifreli olarak) ve cihaz bildirim aboneliği.</li>
+</ul>
+<h2>Verilerin işlenme amacı</h2>
+<p>Veriler yalnızca okulun eğitim ve yönetim süreçlerini yürütmek, güvenliği sağlamak ve kullanıcının talep ettiği işlemleri (örneğin şifre sıfırlama) gerçekleştirmek için kullanılır.</p>
+<h2>Verilerin paylaşımı</h2>
+<p>Veriler, hizmeti sağlamak için kullanılan altyapı sağlayıcılarında tutulur: uygulama barındırma (Render), veritabanı ve dosya depolama (Supabase) ve e-posta gönderimi ([e-posta sağlayıcısı]). Veriler bunların dışında üçüncü kişilerle paylaşılmaz.</p>
+<h2>Saklama süresi</h2>
+<p>[Verilerin ne kadar süre saklandığı burada belirtilecek. Örneğin: öğrenci kayıtları okul yılı sonrasında ... süreyle saklanır.]</p>
+<h2>Kullanıcı hakları</h2>
+<p>Kişisel verilerinizle ilgili olarak bilgi edinme, düzeltme, silme ve dışa aktarma haklarına sahipsiniz. Uygulama içinde verilerinizi dışa aktarabilir ve hesap silme talebi oluşturabilirsiniz. Diğer talepler için aşağıdaki iletişim adresini kullanın.</p>
+<h2>Açık rıza ve aydınlatma</h2>
+<p>Uygulamayı ilk kullanımınızda kişisel verilerinizin işlenmesine ilişkin aydınlatma metnini onaylamanız istenir.</p>
+<h2>İletişim</h2>
+<p>[Veri sorumlusu okul adı], [adres], [e-posta adresi].</p>
+</article>`;
+  return SHELL(base, {
+    title: 'Gizlilik politikası · Okulum',
+    description: 'Okulum uygulamasında hangi kişisel verilerin işlendiği, neden işlendiği ve kullanıcı haklarının açıklaması.',
+    path: '/gizlilik',
+    body,
+  });
+}
+
 function usagePage(base, { HELP_SECTIONS }) {
   const body = `<article class="help seo-article">
     <h1>Okulum kullanım kılavuzu</h1>
@@ -82,4 +116,4 @@ function notFoundPage(base) {
     .replace('content="index, follow"', 'content="noindex, nofollow"');
 }
 
-module.exports = { usagePage, aboutPage, notFoundPage, sitemap, robots };
+module.exports = { usagePage, aboutPage, privacyPage, notFoundPage, sitemap, robots };
