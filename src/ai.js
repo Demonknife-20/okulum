@@ -147,110 +147,6 @@ async function streamGemini({ role, history, message, onDelta, signal }) {
   return text;
 }
 
-
-// ---------- Sınav sorusu üretimi (öğretmen) ----------
-const IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL || 'gemini-2.5-flash-image';
-const LEVELS = { kolay: 'kolay', orta: 'orta', zor: 'zor' };
-
-function questionPrompt({ topic, subject, grade, level, count, kind, examples, withImages }) {
-  const kinds = kind === 'text' ? 'yalnızca açık uçlu' : kind === 'mixed' ? 'çoğu çoktan seçmeli, birkaçı açık uçlu' : 'yalnızca çoktan seçmeli';
-  return [
-    `Bir Türk okulunda ${subject ? `"${subject}" dersi için ` : ''}${grade ? `${grade} düzeyinde ` : ''}sınav sorusu hazırlıyorsun.`,
-    `Konu: ${topic}`,
-    `Zorluk: ${LEVELS[level] || 'orta'}. Soru sayısı: ${count}. Tür: ${kinds}.`,
-    examples.length ? `Öğretmenin örnek soruları aşağıda. Üslup, uzunluk ve zorluk bakımından bunlara benze ama aynılarını kopyalama:\n${examples.map((e, i) => `${i + 1}) ${e}`).join('\n')}` : '',
-    'Kurallar: Türkçe yaz. Çoktan seçmeli sorularda tam 4 şık olsun, yalnızca biri doğru olsun, şıklar birbirine yakın uzunlukta olsun. Şıkların başına A), B) gibi harf koyma. Soru metni en fazla 600 karakter olsun.',
-    withImages
-      ? 'Bir şekil, grafik, tablo, harita ya da deney düzeneği soruyu gerçekten güçlendiriyorsa o soru için "image" alanına görseli tarif eden kısa bir İngilizce çizim talimatı yaz (yazı içermeyen, sade, beyaz zeminli eğitim çizimi). Gereksizse "image" boş dize olsun. Görselli soruda metin "Şekilde..." gibi görsele atıf yapabilir.'
-      : 'Görsel kullanma, "image" alanı her zaman boş dize olsun.',
-    'Her soruya kısa bir "explanation" (çözüm açıklaması) ekle.',
-  ].filter(Boolean).join('\n\n');
-}
-
-const QUESTION_SCHEMA = {
-  type: 'OBJECT',
-  properties: {
-    questions: {
-      type: 'ARRAY',
-      items: {
-        type: 'OBJECT',
-        properties: {
-          kind: { type: 'STRING', enum: ['choice', 'text'] },
-          text: { type: 'STRING' },
-          options: { type: 'ARRAY', items: { type: 'STRING' } },
-          correctIndex: { type: 'INTEGER' },
-          explanation: { type: 'STRING' },
-          image: { type: 'STRING' },
-        },
-        required: ['kind', 'text', 'options', 'correctIndex', 'explanation', 'image'],
-      },
-    },
-  },
-  required: ['questions'],
-};
-
-async function geminiCall(model, body, timeoutMs) {
-  let res;
-  try {
-    res = await fetch(`${BASE}/v1beta/models/${model}:generateContent`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': process.env.GEMINI_API_KEY },
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-  } catch {
-    throw new AiError(502, 'Yapay zekâya şu an ulaşılamıyor. Biraz sonra tekrar deneyin.');
-  }
-  if (res.status === 429) throw new AiError(429, 'Yapay zekâ şu an çok yoğun. Lütfen biraz sonra deneyin.');
-  if (!res.ok) {
-    console.error('Gemini yanıt hatası:', model, res.status);
-    throw new AiError(502, 'Yapay zekâ şu an yanıt veremiyor. Lütfen daha sonra tekrar deneyin.');
-  }
-  return res.json().catch(() => ({}));
-}
-
-const clip = (v, n) => String(v ?? '').trim().slice(0, n);
-
-async function generateQuestions(input) {
-  const data = await geminiCall(MODEL, {
-    contents: [{ role: 'user', parts: [{ text: questionPrompt(input) }] }],
-    generationConfig: { temperature: 0.7, maxOutputTokens: 6000, responseMimeType: 'application/json', responseSchema: QUESTION_SCHEMA },
-  }, 60000);
-  const raw = (data.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('');
-  let parsed;
-  try { parsed = JSON.parse(raw.replace(/^```(json)?|```$/g, '')); } catch { throw new AiError(502, 'Sorular okunamadı. Lütfen tekrar deneyin.'); }
-  const list = Array.isArray(parsed?.questions) ? parsed.questions : [];
-  const out = [];
-  for (const item of list.slice(0, input.count)) {
-    const text = clip(item?.text, 1000);
-    if (!text) continue;
-    const explanation = clip(item?.explanation, 600);
-    const image = input.withImages ? clip(item?.image, 600) : '';
-    if (item?.kind === 'text' || input.kind === 'text') { out.push({ kind: 'text', text, explanation, image }); continue; }
-    const options = (Array.isArray(item?.options) ? item.options : []).map(o => clip(o, 300).replace(/^[A-Ea-e][).]\s+/, '')).filter(Boolean).slice(0, 5);
-    const correctIndex = Number.isInteger(item?.correctIndex) ? item.correctIndex : -1;
-    if (options.length < 2 || correctIndex < 0 || correctIndex >= options.length) continue;
-    out.push({ kind: 'choice', text, options, correctIndex, explanation, image });
-  }
-  if (!out.length) throw new AiError(502, 'Uygun soru üretilemedi. Konuyu biraz daha açık yazıp tekrar deneyin.');
-  return out;
-}
-
-// Soru için sade bir eğitim çizimi üretir. PNG/JPEG tampon döner.
-async function generateQuestionImage(description) {
-  const prompt = `Clean educational illustration for a school exam question, flat 2D line drawing, white background, black and one accent colour, no text, no letters, no numbers unless essential labels. ${description}`;
-  const data = await geminiCall(IMAGE_MODEL, {
-    contents: [{ role: 'user', parts: [{ text: prompt }] }],
-    generationConfig: { responseModalities: ['IMAGE'] },
-  }, 90000);
-  const part = (data.candidates?.[0]?.content?.parts || []).find(p => p.inlineData?.data || p.inline_data?.data);
-  const inline = part?.inlineData || part?.inline_data;
-  if (!inline) throw new AiError(502, 'Görsel üretilemedi. Tekrar deneyin ya da kendi görselinizi yükleyin.');
-  const mime = inline.mimeType || inline.mime_type || 'image/png';
-  if (!['image/png', 'image/jpeg'].includes(mime)) throw new AiError(502, 'Görsel biçimi desteklenmiyor.');
-  return { buffer: Buffer.from(inline.data, 'base64'), mime };
-}
-
 // Eski sohbetleri ve kullanım kayıtlarını siler. Açılışta ve her gün çalışır.
 async function purgeExpired() {
   await q('delete from ai_conversations where updated_at < now() - ($1::int * interval \'1 day\')', [RETENTION_DAYS]);
@@ -261,4 +157,4 @@ function startRetention() {
   setInterval(() => purgeExpired().catch(error => console.error('Saklama temizliği hatası:', error.message)), 24 * 60 * 60 * 1000).unref();
 }
 
-module.exports = { NOTICE, NOTICE_VERSION, DAILY_LIMIT, GLOBAL_DAILY, enabled, askGemini, streamGemini, AiError, systemPrompt, startRetention, isInjection, INJECTION_REPLY, generateQuestions, generateQuestionImage };
+module.exports = { NOTICE, NOTICE_VERSION, DAILY_LIMIT, GLOBAL_DAILY, enabled, askGemini, streamGemini, AiError, systemPrompt, startRetention, isInjection, INJECTION_REPLY };

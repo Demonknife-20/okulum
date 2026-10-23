@@ -1552,7 +1552,7 @@ const AUDIT_LABELS = {
   class_created: 'Sınıf eklendi', class_deleted: 'Sınıf silindi', subject_created: 'Ders eklendi', subject_deleted: 'Ders silindi',
   user_created: 'Hesap açıldı', user_updated: 'Hesap düzenlendi', user_deleted: 'Hesap silindi',
   password_reset: 'Şifre sıfırlandı', password_changed: 'Kendi şifresini değiştirdi', profile_updated: 'Ad değiştirildi',
-  board_created: 'Pano açıldı', board_deleted: 'Pano silindi', board_note_deleted: 'Pano notu silindi', ai_logs_viewed: 'Asistan kaydı görüntülendi', users_imported: 'Toplu hesap eklendi', quiz_created: 'Sınav oluşturuldu', quiz_ai_generated: 'YZ ile soru üretildi', quiz_deleted: 'Sınav silindi',
+  board_created: 'Pano açıldı', board_deleted: 'Pano silindi', board_note_deleted: 'Pano notu silindi', ai_logs_viewed: 'Asistan kaydı görüntülendi', users_imported: 'Toplu hesap eklendi', quiz_created: 'Sınav oluşturuldu', quiz_deleted: 'Sınav silindi',
   assignment_created: 'Ödev oluşturuldu', assignment_updated: 'Ödev düzenlendi', assignment_deleted: 'Ödev silindi',
   grades_saved: 'Not kaydedildi', attendance_saved: 'Yoklama kaydedildi',
 };
@@ -1931,79 +1931,32 @@ async function pageSinavlar() {
       ${canCreate ? `<button class="btn ghost sm" type="button" data-action="quiz-toggle" data-id="${esc(z.id)}" data-published="${z.published}">${z.published ? 'Gizle' : 'Yayınla'}</button>
         <button class="icon-btn sm" type="button" data-action="quiz-delete" data-id="${esc(z.id)}" aria-label="Sınavı sil">${icon('trash')}</button>` : ''}
     </td></tr>`).join('');
-  return { html: `${head('Sınavlar', 'Sınav hazırlayın, soruları isterseniz yapay zekâya yazdırın. Sonuçlar otomatik hesaplanır.',
-      canCreate ? `<button class="btn ghost" type="button" data-action="quiz-bank-open">Soru bankası</button><button class="btn primary" type="button" data-action="quiz-new">${icon('plus')}<span>Yeni sınav</span></button>` : '')}
+  return { html: `${head('Sınavlar', 'Çoktan seçmeli sınavlar hazırlayın, süre ve zaman aralığı belirleyin. Sonuçlar otomatik hesaplanır.',
+      canCreate ? `<button class="btn primary" type="button" data-action="quiz-new">${icon('plus')}<span>Yeni sınav</span></button>` : '')}
     <section class="panel">${quizzes.length
       ? `<div class="table-wrap"><table class="table"><thead><tr><th>Sınav</th><th>Sınıf · Ders</th><th>Zaman aralığı</th><th>Durum</th><th>Teslim</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`
       : empty('Henüz sınav yok', canCreate ? 'İlk sınavınızı oluşturarak başlayın.' : 'Sınıfınız için sınav hazırlandığında burada görünür.')}</section>` };
 }
 
-function quizQuestionBlock(pre = {}) {
+function quizQuestionBlock() {
   const uid = Math.random().toString(36).slice(2, 8);
-  const kind = pre.kind === 'text' ? 'text' : 'choice';
-  const opts = pre.options || [];
-  const correct = Number.isInteger(pre.correctIndex) ? pre.correctIndex : 0;
-  return `<div class="quiz-q${pre.ai ? ' is-ai' : ''}" data-kind="${kind}"${pre.aiImage ? ` data-ai-image="${esc(pre.aiImage)}"` : ''}>
-    <div class="quiz-q-head"><strong class="qno">Soru</strong>${pre.ai ? '<span class="tag-ai">YZ taslağı · kontrol edin</span>' : ''}
-      <span class="quiz-q-tools">
-        <button class="btn ghost sm" type="button" data-action="quiz-q-bank" title="Bu soruyu soru bankasına kaydet">${icon('plus')}<span>Bankaya</span></button>
-        <button class="icon-btn sm" type="button" data-action="quiz-remove-q" aria-label="Soruyu kaldır">${icon('close')}</button></span></div>
+  return `<div class="quiz-q" data-kind="choice">
+    <div class="quiz-q-head"><strong class="qno">Soru</strong>
+      <button class="icon-btn sm" type="button" data-action="quiz-remove-q" aria-label="Soruyu kaldır">${icon('close')}</button></div>
     <label class="field"><span>Soru türü</span><select name="kind" data-change="quizKind">
-      <option value="choice" ${kind === 'choice' ? 'selected' : ''}>Çoktan seçmeli</option><option value="text" ${kind === 'text' ? 'selected' : ''}>Açık uçlu (elle puanlanır)</option></select></label>
-    <label class="field"><span>Soru metni</span><textarea name="qtext" rows="3" maxlength="1000" required>${esc(pre.text || '')}</textarea></label>
-    <div class="ai-image-slot">${pre.preview ? `<figure class="ai-figure"><img src="${esc(pre.preview)}" alt="Yapay zekâ ile üretilen soru görseli"><figcaption>Üretilen görsel <button class="btn ghost sm" type="button" data-action="quiz-ai-image-drop">Kaldır</button></figcaption></figure>` : ''}</div>
-    <div class="ai-image-row">
-      <label class="field"><span>Görsel (isteğe bağlı)</span><input name="qimage" type="file" accept="image/png,image/jpeg">
-        <small>JPG veya PNG, en fazla 5 MB.</small></label>
-      <label class="field"><span>…ya da yapay zekâ çizsin</span><span class="inline-input"><input name="qimgdesc" maxlength="600" placeholder="Örn. dik üçgen, kenarları 3 ve 4 birim" value="${esc(pre.image || '')}"><button class="btn sm" type="button" data-action="quiz-ai-image">Çiz</button></span></label>
-    </div>
+      <option value="choice">Çoktan seçmeli</option><option value="text">Açık uçlu (elle puanlanır)</option></select></label>
+    <label class="field"><span>Soru metni</span><textarea name="qtext" rows="2" maxlength="1000" required></textarea></label>
+    <label class="field"><span>Görsel (isteğe bağlı)</span><input name="qimage" type="file" accept="image/png,image/jpeg">
+      <small>JPG veya PNG, en fazla 5 MB. Canlı yarışmada görsel öğretmen ekranında gösterilir.</small></label>
     <div class="quiz-opts">${[0, 1, 2, 3].map(i => `<label class="quiz-opt">
-      <input type="radio" name="correct-${uid}" value="${i}" ${i === correct ? 'checked' : ''} aria-label="Doğru cevap ${i + 1}">
-      <input name="opt" maxlength="300" placeholder="${i < 2 ? 'Seçenek' : 'İsteğe bağlı seçenek'} ${i + 1}" value="${esc(opts[i] || '')}">
+      <input type="radio" name="correct-${uid}" value="${i}" ${i === 0 ? 'checked' : ''} aria-label="Doğru cevap ${i + 1}">
+      <input name="opt" maxlength="300" placeholder="${i < 2 ? 'Seçenek' : 'İsteğe bağlı seçenek'} ${i + 1}">
     </label>`).join('')}</div>
-    ${pre.explanation ? `<details class="ai-expl"><summary>Çözüm notu</summary><p>${esc(pre.explanation)}</p></details>` : ''}
     <div class="grid-2">
       <label class="field"><span>Puan</span><select name="points">${[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(v => `<option value="${v}">${v}</option>`).join('')}</select></label>
       <label class="field"><span>Süre (canlı yarışma)</span><select name="time">${[5, 10, 15, 20, 30, 45, 60, 90, 120].map(v => `<option value="${v}" ${v === 20 ? 'selected' : ''}>${v} sn</option>`).join('')}</select></label>
     </div>
   </div>`;
-}
-
-function aiQuizPanel() {
-  return `<section class="ai-panel" id="aiPanel">
-    <header class="ai-panel-head"><div><strong>Yapay zekâ ile soru yaz</strong><small>Konuyu ve isterseniz örnek sorularınızı verin; sorular aşağıya taslak olarak eklenir.</small></div>
-      <button class="btn ghost sm" type="button" data-action="ai-panel-toggle" aria-expanded="true">Gizle</button></header>
-    <div class="ai-panel-body">
-      <div class="grid-2">
-        <label class="field"><span>Konu</span><input name="aiTopic" maxlength="200" placeholder="Örn. Kesirlerle toplama, Osmanlı'nın kuruluşu"></label>
-        <label class="field"><span>Sınıf düzeyi</span><input name="aiGrade" maxlength="40" placeholder="Örn. 6. sınıf"></label>
-      </div>
-      <div class="grid-3">
-        <label class="field"><span>Soru sayısı</span><select name="aiCount">${[3, 5, 8, 10].map(v => `<option ${v === 5 ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
-        <label class="field"><span>Zorluk</span><select name="aiLevel"><option value="kolay">Kolay</option><option value="orta" selected>Orta</option><option value="zor">Zor</option></select></label>
-        <label class="field"><span>Tür</span><select name="aiKind"><option value="choice">Çoktan seçmeli</option><option value="mixed">Karışık</option><option value="text">Açık uçlu</option></select></label>
-      </div>
-      <label class="field"><span>Örnek sorular (isteğe bağlı)</span><textarea name="aiExamples" rows="3" maxlength="4000" placeholder="Her satıra bir örnek soru yazın. Yapay zekâ üslubu ve zorluğu bunlara göre ayarlar."></textarea></label>
-      <div class="field"><span class="field-label">Soru bankasından örnek seç</span><div class="bank-picks" id="bankPicks"><small class="muted">Yükleniyor…</small></div></div>
-      <div class="ai-panel-foot">
-        <label class="check-line"><input type="checkbox" name="aiImages"><span>Gerekirse görselli soru hazırlasın</span></label>
-        <label class="check-line"><input type="checkbox" name="aiSaveExamples"><span>Yazdığım örnekleri bankaya kaydet</span></label>
-        <button class="btn primary" type="button" data-action="ai-generate">Soruları yaz</button>
-      </div>
-      <p class="ai-status" id="aiStatus" role="status"></p>
-    </div>
-  </section>`;
-}
-
-async function loadBankPicks() {
-  const box = document.querySelector('#bankPicks');
-  if (!box) return;
-  try {
-    const { items } = await api('/quiz-bank');
-    box.innerHTML = items.length
-      ? items.slice(0, 40).map(it => `<label class="bank-pick"><input type="checkbox" value="${esc(it.id)}"><span><b>${esc(it.topic)}</b> ${esc(it.text.slice(0, 90))}${it.text.length > 90 ? '…' : ''}</span></label>`).join('')
-      : '<small class="muted">Henüz kayıtlı örnek soru yok. Soruların yanındaki “Bankaya” düğmesiyle kaydedebilirsiniz.</small>';
-  } catch { box.innerHTML = '<small class="muted">Soru bankası açılamadı.</small>'; }
 }
 
 function renumberQuestions() {
@@ -2027,7 +1980,6 @@ function quizForm() {
       <label class="field"><span>Süre (dakika)</span><input name="timeLimitMinutes" type="number" min="1" max="240" value="20" required></label>
       <label class="switch switch-line"><input type="checkbox" name="published"><span class="switch-ui" aria-hidden="true"></span><span><strong>Hemen yayınla</strong><small>Kapalıysa taslak olarak kaydedilir.</small></span></label>
     </div>
-    ${aiQuizPanel()}
     <h3 class="sub-title">Sorular</h3>
     <div id="quizQuestions">${quizQuestionBlock()}</div>
     <button class="btn ghost" type="button" data-action="quiz-add-q">${icon('plus')}<span>Soru ekle</span></button>
@@ -2037,119 +1989,7 @@ function quizForm() {
   </form>`;
 }
 
-ACTIONS['quiz-new'] = () => { openModal('Yeni sınav', quizForm(), { wide: true }); renumberQuestions(); loadBankPicks(); };
-
-ACTIONS['ai-panel-toggle'] = el => {
-  const panel = el.closest('.ai-panel');
-  const closed = panel.classList.toggle('closed');
-  el.textContent = closed ? 'Aç' : 'Gizle';
-  el.setAttribute('aria-expanded', String(!closed));
-};
-
-ACTIONS['ai-generate'] = async el => {
-  const form = el.closest('form');
-  const topic = form.querySelector('[name=aiTopic]').value.trim();
-  if (topic.length < 2) throw new Error('Önce bir konu yazın.');
-  const status = form.querySelector('#aiStatus');
-  const examples = form.querySelector('[name=aiExamples]').value.split('\n').map(v => v.trim()).filter(Boolean);
-  const bankIds = [...form.querySelectorAll('#bankPicks input:checked')].map(i => i.value);
-  const pair = form.querySelector('[name=pair]');
-  const subject = pair?.selectedOptions[0]?.textContent.split('·')[1]?.trim() || '';
-  const withImages = form.querySelector('[name=aiImages]').checked;
-  el.disabled = true; status.textContent = 'Sorular yazılıyor…';
-  try {
-    if (examples.length && form.querySelector('[name=aiSaveExamples]').checked) {
-      await api('/quiz-bank', { method: 'POST', body: { items: examples.map(text => ({ topic, text, kind: 'text' })) } });
-    }
-    const { questions } = await api('/quizzes/ai/generate', { method: 'POST', body: {
-      topic, grade: form.querySelector('[name=aiGrade]').value.trim(), subject,
-      count: Number(form.querySelector('[name=aiCount]').value), level: form.querySelector('[name=aiLevel]').value,
-      kind: form.querySelector('[name=aiKind]').value, examples, bankIds, withImages,
-    } });
-    const box = form.querySelector('#quizQuestions');
-    // İlk boş soru bloğunu temizle
-    box.querySelectorAll('.quiz-q').forEach(b => { if (!b.querySelector('[name=qtext]').value.trim() && !b.classList.contains('is-ai')) b.remove(); });
-    if (box.querySelectorAll('.quiz-q').length + questions.length > 50) throw new Error('Bir sınavda en fazla 50 soru olabilir.');
-    const added = [];
-    for (const qn of questions) { box.insertAdjacentHTML('beforeend', quizQuestionBlock({ ...qn, ai: true })); added.push(box.lastElementChild); }
-    renumberQuestions();
-    const needImages = added.filter(b => b.querySelector('[name=qimgdesc]').value.trim());
-    status.textContent = `${questions.length} soru eklendi.${needImages.length ? ` ${needImages.length} görsel çiziliyor…` : ' Yayınlamadan önce kontrol edin.'}`;
-    added[0]?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    let drawn = 0;
-    for (const block of needImages) {
-      try { await drawAiImage(block); drawn++; } catch (error) { block.querySelector('.ai-image-slot').innerHTML = `<p class="form-error">${esc(error.message)}</p>`; }
-    }
-    if (needImages.length) status.textContent = `${questions.length} soru eklendi, ${drawn} görsel çizildi. Yayınlamadan önce kontrol edin.`;
-  } catch (error) {
-    status.textContent = '';
-    throw error;
-  } finally { el.disabled = false; }
-};
-
-async function drawAiImage(block) {
-  const description = block.querySelector('[name=qimgdesc]').value.trim();
-  if (description.length < 4) throw new Error('Görseli birkaç kelimeyle tarif edin.');
-  const slot = block.querySelector('.ai-image-slot');
-  slot.innerHTML = '<div class="ai-figure loading">Görsel çiziliyor…</div>';
-  const result = await api('/quizzes/ai/image', { method: 'POST', body: { description } });
-  block.dataset.aiImage = result.path;
-  slot.innerHTML = `<figure class="ai-figure"><img src="${esc(result.preview)}" alt="Yapay zekâ ile üretilen soru görseli"><figcaption>Üretilen görsel <button class="btn ghost sm" type="button" data-action="quiz-ai-image-drop">Kaldır</button></figcaption></figure>`;
-}
-ACTIONS['quiz-ai-image'] = async el => {
-  el.disabled = true;
-  try { await drawAiImage(el.closest('.quiz-q')); } finally { el.disabled = false; }
-};
-ACTIONS['quiz-ai-image-drop'] = el => {
-  const block = el.closest('.quiz-q');
-  delete block.dataset.aiImage;
-  block.querySelector('.ai-image-slot').innerHTML = '';
-};
-ACTIONS['quiz-q-bank'] = async el => {
-  const block = el.closest('.quiz-q');
-  const form = el.closest('form');
-  const text = block.querySelector('[name=qtext]').value.trim();
-  if (!text) throw new Error('Önce soru metnini yazın.');
-  const topic = form?.querySelector('[name=aiTopic]')?.value.trim() || form?.querySelector('[name=title]')?.value.trim() || 'Genel';
-  const kind = block.querySelector('[name=kind]').value;
-  const rows = [...block.querySelectorAll('.quiz-opt')];
-  const options = rows.map(r => r.querySelector('input[name=opt]').value.trim());
-  const checked = rows.findIndex(r => r.querySelector('input[type=radio]').checked);
-  const filtered = options.filter(Boolean);
-  await api('/quiz-bank', { method: 'POST', body: { topic, text, kind, options: kind === 'choice' ? filtered : null, correctIndex: filtered.indexOf(options[checked]), explanation: block.querySelector('.ai-expl p')?.textContent || '' } });
-  toast('Soru bankaya kaydedildi');
-  loadBankPicks();
-};
-
-// Soru bankası: kayıtlı örnek sorular
-ACTIONS['quiz-bank-open'] = async () => {
-  const { items, topics } = await api('/quiz-bank');
-  const rows = items.map(it => `<li class="bank-item"><div><span class="bank-topic">${esc(it.topic)}</span><p>${esc(it.text)}</p>${it.options ? `<ol class="bank-opts">${it.options.map((o, i) => `<li class="${i === it.correctIndex ? 'right' : ''}">${esc(o)}</li>`).join('')}</ol>` : ''}</div>
-    <button class="icon-btn sm" type="button" data-action="quiz-bank-delete" data-id="${esc(it.id)}" aria-label="Kaydı sil">${icon('trash')}</button></li>`).join('');
-  openModal('Soru bankası', `<div class="stack">
-    <p class="muted">${items.length} kayıtlı soru · ${topics.length} konu. Bu sorular yapay zekâya örnek olarak verilebilir.</p>
-    <form class="bank-add stack" data-form="quiz-bank-add">
-      <div class="grid-2"><label class="field"><span>Konu</span><input name="topic" required maxlength="160"></label>
-      <label class="field"><span>Şıklar (isteğe bağlı, doğru olan ilk satır)</span><textarea name="options" rows="2" maxlength="1200"></textarea></label></div>
-      <label class="field"><span>Örnek soru</span><textarea name="text" rows="3" required maxlength="1000"></textarea></label>
-      <p class="form-error" data-error role="alert"></p>
-      <div class="form-actions"><button class="btn primary" type="submit">Kaydet</button></div>
-    </form>
-    ${items.length ? `<ul class="bank-list">${rows}</ul>` : empty('Banka boş', 'Örnek sorularınızı buraya kaydedin.')}
-  </div>`, { wide: true });
-};
-FORMS['quiz-bank-add'] = async form => {
-  const lines = val(form, 'options').split('\n').map(v => v.trim()).filter(Boolean);
-  await api('/quiz-bank', { method: 'POST', body: { topic: val(form, 'topic').trim(), text: val(form, 'text').trim(), kind: lines.length >= 2 ? 'choice' : 'text', options: lines.length >= 2 ? lines : null, correctIndex: 0 } });
-  toast('Örnek soru kaydedildi');
-  closeModal();
-  ACTIONS['quiz-bank-open']();
-};
-ACTIONS['quiz-bank-delete'] = async el => {
-  await api(`/quiz-bank/${el.dataset.id}`, { method: 'DELETE' });
-  el.closest('.bank-item').remove();
-  toast('Kayıt silindi');
-};
+ACTIONS['quiz-new'] = () => { openModal('Yeni sınav', quizForm(), { wide: true }); renumberQuestions(); };
 ACTIONS['quiz-add-q'] = () => {
   const box = document.querySelector('#quizQuestions');
   if (box.querySelectorAll('.quiz-q').length >= 50) throw new Error('Bir sınavda en fazla 50 soru olabilir.');
@@ -2178,7 +2018,6 @@ FORMS['quiz-create'] = async form => {
       points: Number(block.querySelector('[name=points]').value) || 1,
       timeLimit: Number(block.querySelector('[name=time]').value) || 20,
       image: file ? await readFile(file) : null,
-      aiImage: !file && block.dataset.aiImage ? block.dataset.aiImage : null,
     };
     if (kind === 'text') return base;
     const rows = [...block.querySelectorAll('.quiz-opt')];

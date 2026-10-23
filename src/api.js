@@ -1977,13 +1977,13 @@ function parseQuizQuestions(list) {
     if (timeLimit < 5 || timeLimit > 120) fail(400, `${index + 1}. sorunun süresi 5-120 saniye arasında olmalı.`);
     const image = item?.image || null;
     if (item?.kind === 'text') {
-      return { kind: 'text', text, options: null, correctIndex: null, points, timeLimit, image, aiImage: item?.aiImage || null, position: index + 1 };
+      return { kind: 'text', text, options: null, correctIndex: null, points, timeLimit, image, position: index + 1 };
     }
     const options = Array.isArray(item?.options) ? item.options.map(v => str(v, 300)) : [];
     if (options.length < 2 || options.length > 5 || options.some(v => !v)) fail(400, `${index + 1}. soruda 2-5 dolu seçenek olmalı.`);
     const correctIndex = Number.isInteger(item?.correctIndex) ? item.correctIndex : -1;
     if (correctIndex < 0 || correctIndex >= options.length) fail(400, `${index + 1}. sorunun doğru cevabı seçilmemiş.`);
-    return { kind: 'choice', text, options, correctIndex, points, timeLimit, image, aiImage: item?.aiImage || null, position: index + 1 };
+    return { kind: 'choice', text, options, correctIndex, points, timeLimit, image, position: index + 1 };
   });
 }
 
@@ -2044,12 +2044,6 @@ on('POST', '/api/quizzes', async ({ body, user }) => {
   const imagePaths = [];
   try {
     for (const question of questions) {
-      if (!question.image && aiImageOwned(user, question.aiImage)) {
-        question.imagePath = question.aiImage;
-        question.imageMime = question.aiImage.endsWith('.png') ? 'image/png' : 'image/jpeg';
-        question.imageName = `yz-gorsel.${question.aiImage.endsWith('.png') ? 'png' : 'jpg'}`;
-        continue;
-      }
       if (!question.image) continue;
       const upload = storage.parseUpload(question.image);
       if (!['image/png', 'image/jpeg'].includes(upload.mime)) fail(400, `${question.position}. sorunun görseli PNG veya JPG olmalı.`);
@@ -2080,102 +2074,6 @@ on('POST', '/api/quizzes', async ({ body, user }) => {
     throw error;
   }
 }, { roles: STAFF });
-
-// ---------- Yapay zekâ ile soru üretimi ve soru bankası (öğretmen) ----------
-const AI_QUIZ_DAILY = Number(process.env.AI_QUIZ_DAILY || 25);
-const aiImageOwned = (user, p) => typeof p === 'string' && p.startsWith(`quiz/ai-${user.id}/`) && !p.includes('..');
-
-async function aiQuizQuota(user, cost) {
-  if (!ai.enabled()) fail(503, 'Yapay zekâ henüz etkin değil. Okul yöneticinizden GEMINI_API_KEY ayarını isteyin.');
-  const { rows: [usage] } = await q('select used from ai_usage where user_id = $1 and day = current_date', [user.id]);
-  if ((usage?.used ?? 0) + cost > AI_QUIZ_DAILY + ai.DAILY_LIMIT) fail(429, 'Bugünkü yapay zekâ hakkınız doldu. Yarın tekrar deneyin.');
-  await q(`insert into ai_usage (user_id, day, used) values ($1, current_date, $2)
-    on conflict (user_id, day) do update set used = ai_usage.used + $2`, [user.id, cost]);
-}
-
-on('POST', '/api/quizzes/ai/generate', async ({ body, user }) => {
-  const topic = str(body.topic, 200);
-  if (topic.length < 2) fail(400, 'Konu yazın.');
-  if (ai.isInjection(topic)) fail(400, 'Bu konu metni kabul edilmedi.');
-  const count = Math.min(10, Math.max(1, Number.parseInt(body.count, 10) || 5));
-  const kind = ['choice', 'text', 'mixed'].includes(body.kind) ? body.kind : 'choice';
-  let examples = (Array.isArray(body.examples) ? body.examples : []).map(e => sec.redact(str(e, 1000))).filter(Boolean).slice(0, 8);
-  const bankIds = (Array.isArray(body.bankIds) ? body.bankIds : []).filter(isId).slice(0, 10);
-  if (bankIds.length) {
-    const { rows } = await q('select text, options, correct_index from quiz_bank where owner_id = $1 and id = any($2::uuid[])', [user.id, bankIds]);
-    examples = examples.concat(rows.map(r => r.options ? `${r.text} Şıklar: ${r.options.join(' | ')} (doğru: ${r.options[r.correct_index] ?? '-'})` : r.text));
-  }
-  await aiQuizQuota(user, 1);
-  try {
-    const questions = await ai.generateQuestions({
-      topic: sec.redact(topic), subject: str(body.subject, 80), grade: str(body.grade, 40), level: body.level,
-      count, kind, examples: examples.slice(0, 10), withImages: body.withImages === true,
-    });
-    await audit(user, 'quiz_ai_generated', topic, { count: questions.length });
-    return ok({ questions });
-  } catch (error) {
-    if (error instanceof ai.AiError) fail(error.status, error.message);
-    throw error;
-  }
-}, { roles: TEACHER });
-
-on('POST', '/api/quizzes/ai/image', async ({ body, user }) => {
-  const description = str(body.description, 600);
-  if (description.length < 4) fail(400, 'Görsel tarifi çok kısa.');
-  await aiQuizQuota(user, 2);
-  try {
-    const { buffer, mime } = await ai.generateQuestionImage(sec.redact(description));
-    if (buffer.length > storage.MAX_BYTES) fail(502, 'Üretilen görsel çok büyük. Tekrar deneyin.');
-    const ext = mime === 'image/png' ? 'png' : 'jpg';
-    const path = `quiz/ai-${user.id}/${crypto.randomUUID()}.${ext}`;
-    await storage.put(path, buffer, mime);
-    return ok({ path, mime, preview: `data:${mime};base64,${buffer.toString('base64')}` });
-  } catch (error) {
-    if (error instanceof ai.AiError) fail(error.status, error.message);
-    throw error;
-  }
-}, { roles: TEACHER });
-
-const bankRow = r => ({ id: r.id, topic: r.topic, kind: r.kind, text: r.text, options: r.options, correctIndex: r.correct_index, explanation: r.explanation, subjectId: r.subject_id, createdAt: r.created_at });
-
-on('GET', '/api/quiz-bank', async ({ user, query }) => {
-  const topic = str(query.get('topic'), 160);
-  const { rows } = topic
-    ? await q('select * from quiz_bank where owner_id = $1 and topic ilike $2 order by created_at desc limit 300', [user.id, `%${escapeLike(topic)}%`])
-    : await q('select * from quiz_bank where owner_id = $1 order by created_at desc limit 300', [user.id]);
-  const { rows: topics } = await q('select topic, count(*)::int as n from quiz_bank where owner_id = $1 group by topic order by topic', [user.id]);
-  return ok({ items: rows.map(bankRow), topics });
-}, { roles: TEACHER });
-
-on('POST', '/api/quiz-bank', async ({ body, user }) => {
-  const list = Array.isArray(body.items) ? body.items : [body];
-  if (!list.length || list.length > 50) fail(400, 'Bir seferde 1-50 soru kaydedilebilir.');
-  const saved = [];
-  for (const [i, item] of list.entries()) {
-    const topic = str(item?.topic, 160);
-    const text = str(item?.text, 1000);
-    if (!topic) fail(400, `${i + 1}. kayıt için konu yazın.`);
-    if (!text) fail(400, `${i + 1}. kaydın soru metni boş.`);
-    let options = null, correctIndex = null;
-    const kind = item?.kind === 'text' ? 'text' : 'choice';
-    if (kind === 'choice' && Array.isArray(item.options) && item.options.some(o => str(o))) {
-      options = item.options.map(o => str(o, 300)).filter(Boolean).slice(0, 5);
-      correctIndex = Number.isInteger(item.correctIndex) && item.correctIndex < options.length ? item.correctIndex : 0;
-    }
-    const subjectId = isId(item?.subjectId) ? item.subjectId : null;
-    const { rows: [row] } = await q(`insert into quiz_bank (owner_id, topic, subject_id, kind, text, options, correct_index, explanation)
-      values ($1, $2, $3, $4, $5, $6, $7, $8) returning *`, [user.id, topic, subjectId, options ? 'choice' : kind, text, options ? JSON.stringify(options) : null, correctIndex, str(item?.explanation, 600) || null]);
-    saved.push(bankRow(row));
-  }
-  return created({ items: saved });
-}, { roles: TEACHER });
-
-on('DELETE', '/api/quiz-bank/:id', async ({ params, user }) => {
-  const id = requireId(params.id, 'soru');
-  const { rowCount } = await q('delete from quiz_bank where id = $1 and owner_id = $2', [id, user.id]);
-  if (!rowCount) fail(404, 'Kayıt bulunamadı.');
-  return ok({ ok: true });
-}, { roles: TEACHER });
 
 on('GET', '/api/quizzes', async ({ user }) => {
   const scope = user.role === 'principal' ? 'true'
