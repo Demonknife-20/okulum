@@ -59,3 +59,25 @@ test('birleşme: kalsiyum + oksijen → sönmemiş kireç; sodyum + oksijen → 
   assert.equal(findProduct(combineComp(atomComp('Ca'), atomComp('O'))).formula, 'CaO');
   assert.equal(findProduct(combineComp(atomComp('Na'), combineComp(atomComp('Na'), atomComp('O')))).formula, 'Na₂O');
 });
+
+import { parseFormulaComp, bestReaction } from '../public/chem.js';
+
+test('formül ayrıştırma: basit, parantezli ve geçersiz formüller', () => {
+  assert.deepEqual(parseFormulaComp('H2O'), { H: 2, O: 1 });
+  assert.deepEqual(parseFormulaComp('Ca(OH)2'), { Ca: 1, O: 2, H: 2 });
+  assert.deepEqual(parseFormulaComp('C6H12O6'), { C: 6, H: 12, O: 6 });
+  assert.throws(() => parseFormulaComp('Xx2'), /Bilinmeyen element/);
+  assert.throws(() => parseFormulaComp(''), /boş/);
+  assert.throws(() => parseFormulaComp('H2O)'), /Parantez|anlaşılamadı/);
+});
+
+test('küme birleşmesi: 24 atomdan glikoz, parçalardan sülfürik asit ve su', () => {
+  const atoms = (sym, n) => Array.from({ length: n }, () => ({ [sym]: 1 }));
+  const glucose = bestReaction([...atoms('C', 6), ...atoms('H', 12), ...atoms('O', 6)]);
+  assert.equal(glucose.product.name, 'Glikoz (üzüm şekeri)');
+  assert.equal(glucose.indices.length, 24);
+  assert.equal(bestReaction([{ H: 2 }, { S: 1 }, { O: 2 }, { O: 2 }]).product.formula, 'H₂SO₄');
+  assert.equal(bestReaction([{ H: 1 }, { H: 1 }, { O: 1 }]).product.formula, 'H₂O');
+  assert.equal(bestReaction([{ H: 2 }]), null, 'tek parça tepkime vermez');
+  assert.equal(bestReaction([{ Na: 1 }, { Au: 1 }]), null, 'eşleşmeyen parçalar birleşmez');
+});

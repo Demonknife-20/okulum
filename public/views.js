@@ -2,7 +2,7 @@ import { renderMarkdown } from './markdown.js';
 import { enablePush, disablePush, isSubscribed } from './push.js';
 import { mountGraph } from './graph.js';
 import { projectile, trajectory, titrationPH, equivalenceVolume, titrationSeries } from './labs.js';
-import { ELEMENTS, findProduct, combineComp, atomComp } from './chem.js';
+import { ELEMENTS, bestReaction, parseFormulaComp, atomComp } from './chem.js';
 import { helpHtml } from './help.js';
 import { state, api, $, $$, esc, ROLE, icon, fmtDate, todayIso, pct, initials, tone, readFile, toast, openModal, closeModal, confirmDialog, refreshMe, refresh, val, setBusy, setQuery, parseHash, paintWidths, refreshBadges } from './core.js';
 
@@ -3325,9 +3325,16 @@ function chemGameHtml() {
         <p class="chem-empty" data-empty>Tablodan bir element seçin.</p>
         <div class="chem-trash" data-trash>Silmek için buraya bırakın</div>
       </div>
+      <form class="chem-add" data-chem-add>
+        <input name="formula" maxlength="60" placeholder="Formül yazın: H2O, C6H12O6, H2SO4" aria-label="Formül">
+        <button class="btn ghost sm" type="submit">Atomları ekle</button>
+      </form>
       <div class="chem-bar">
         <span class="chem-hint" data-chem-hint>Parçaları birbirine yaklaştırıp bırakın. Uygun olanlar birleşir.</span>
-        <button class="btn ghost sm" type="button" data-chem-clear>Alanı temizle</button>
+        <div class="chem-actions">
+          <button class="btn primary sm" type="button" data-chem-all>Hepsini birleştir</button>
+          <button class="btn ghost sm" type="button" data-chem-clear>Alanı temizle</button>
+        </div>
       </div>
       <div class="chem-known"><strong>Keşfedilenler</strong><ul data-known><li class="muted">Henüz bir bileşik oluşmadı.</li></ul></div>
     </div>
@@ -3444,36 +3451,97 @@ function setupChemGame() {
       removeItem(current.item);
       return;
     }
-    tryReact(current.item);
+    reactAround(current.item);
   };
   stage.addEventListener('pointerup', finishDrag);
   stage.addEventListener('pointercancel', () => { drag = null; });
 
-  // İki parça yeterince yakınsa birleşme denenir
-  const tryReact = item => {
-    const NEAR = 64;
-    const other = [...items.values()].find(o => o !== item
-      && Math.hypot(o.x - item.x, o.y - item.y) < NEAR);
-    if (!other) return;
-    const product = findProduct(combineComp(item.comp, other.comp));
-    if (!product) {
-      setHint(`${item.label} ile ${other.label} birleşmedi.`);
+  const NEAR = 90;
+
+  // Anchor'a yakın parçaların kümesi (dolaylı komşular dahil)
+  const clusterOf = anchor => {
+    const all = [...items.values()];
+    const cluster = [anchor];
+    const seen = new Set([anchor.id]);
+    for (let i = 0; i < cluster.length; i += 1) {
+      for (const other of all) {
+        if (!seen.has(other.id) && Math.hypot(other.x - cluster[i].x, other.y - cluster[i].y) < NEAR) {
+          seen.add(other.id);
+          cluster.push(other);
+        }
+      }
+    }
+    return cluster;
+  };
+
+  // Tepkimeyi uygular: kullanılan parçalar silinir, ürün ortalarına yerleşir
+  const applyReaction = (parts, result) => {
+    const cx = parts.reduce((sum, p) => sum + p.x, 0) / parts.length;
+    const cy = parts.reduce((sum, p) => sum + p.y, 0) / parts.length;
+    parts.forEach(removeItem);
+    addItem(result.comp, result.product.formula, result.product.name, 'molecule', cx, cy);
+    if (!found.has(result.product.formula)) found.set(result.product.formula, result.product);
+    renderKnown();
+    const prefix = result.product.count > 1 ? result.product.count : '';
+    setHint(`Tepkime: ${prefix}${result.product.formula} · ${result.product.name}`);
+  };
+
+  const reactAround = anchor => {
+    const cluster = clusterOf(anchor);
+    if (cluster.length < 2) return;
+    const result = bestReaction(cluster.map(p => p.comp));
+    if (!result) {
+      setHint('Bu parçalar birleşmedi. Başka bir kombinasyon deneyin.');
       return;
     }
-    const x = (item.x + other.x) / 2;
-    const y = (item.y + other.y) / 2;
-    removeItem(item);
-    removeItem(other);
-    const comp = combineComp(item.comp, other.comp);
-    addItem(comp, product.formula, product.name, 'molecule', x, y);
-    if (!found.has(product.formula)) found.set(product.formula, product);
-    renderKnown();
-    setHint(`Tepkime oluştu: ${product.count > 1 ? product.count : ''}${product.formula} · ${product.name}`);
+    applyReaction(result.indices.map(i => cluster[i]), result);
+  };
+
+  const reactAll = () => {
+    let reactions = 0;
+    for (let round = 0; round < 80; round += 1) {
+      const all = [...items.values()];
+      const result = bestReaction(all.map(p => p.comp));
+      if (!result) break;
+      applyReaction(result.indices.map(i => all[i]), result);
+      reactions += 1;
+    }
+    if (!reactions) setHint('Alanda birleşebilecek bir kombinasyon bulunamadı.');
+    else setHint(`${reactions} tepkime tamamlandı.`);
+  };
+
+  // Formülden atomları çalışma alanına yerleştirir (ızgara biçiminde)
+  const addFormula = text => {
+    const comp = parseFormulaComp(text);
+    const rect = stage.getBoundingClientRect();
+    const cols = Math.max(4, Math.floor((rect.width - 20) / 72));
+    let index = 0;
+    for (const [symbol, count] of Object.entries(comp)) {
+      const name = ELEMENTS.find(e => e[0] === symbol)[1];
+      for (let i = 0; i < count; i += 1) {
+        const x = 10 + (index % cols) * 72;
+        const y = 10 + Math.floor(index / cols) * 60;
+        addItem(atomComp(symbol), symbol, name, 'atom', x, y);
+        index += 1;
+      }
+    }
+    setHint(`${text} için ${index} atom eklendi. "Hepsini birleştir" ile tepkimeyi deneyin.`);
   };
 
   document.querySelector('[data-chem-clear]').addEventListener('click', () => {
     [...items.values()].forEach(removeItem);
     setHint('Alan temizlendi.');
+  });
+  document.querySelector('[data-chem-all]').addEventListener('click', reactAll);
+  document.querySelector('[data-chem-add]').addEventListener('submit', event => {
+    event.preventDefault();
+    const input = event.currentTarget.querySelector('[name=formula]');
+    try {
+      addFormula(input.value.trim());
+      input.value = '';
+    } catch (error) {
+      setHint(error.message);
+    }
   });
   refreshEmpty();
 }

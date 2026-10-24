@@ -138,6 +138,18 @@ export const COMPOUNDS = [
   { comp: { Ca: 1, O: 2, H: 2 }, formula: 'Ca(OH)2', name: 'Söndürülmüş kireç (kalsiyum hidroksit)' },
   { comp: { Mg: 1, O: 2, H: 2 }, formula: 'Mg(OH)2', name: 'Magnezya sütü (magnezyum hidroksit)' },
   { comp: { Al: 1, O: 3, H: 3 }, formula: 'Al(OH)3', name: 'Alüminyum hidroksit' },
+  { comp: { C: 6, H: 12, O: 6 }, formula: 'C6H12O6', name: 'Glikoz (üzüm şekeri)' },
+  { comp: { C: 12, H: 22, O: 11 }, formula: 'C12H22O11', name: 'Sofra şekeri (sakkaroz)' },
+  { comp: { C: 2, H: 4, O: 2 }, formula: 'C2H4O2', name: 'Asetik asit (sirke)' },
+  { comp: { C: 6, H: 8, O: 7 }, formula: 'C6H8O7', name: 'Sitrik asit (limon asidi)' },
+  { comp: { C: 6, H: 8, O: 6 }, formula: 'C6H8O6', name: 'C vitamini (askorbik asit)' },
+  { comp: { C: 3, H: 8, O: 3 }, formula: 'C3H8O3', name: 'Gliserin' },
+  { comp: { C: 6, H: 6 }, formula: 'C6H6', name: 'Benzen' },
+  { comp: { C: 1, H: 4, N: 2, O: 1 }, formula: 'CH4N2O', name: 'Üre (idrar bileşeni, gübre)' },
+  { comp: { N: 1, H: 4, Cl: 1 }, formula: 'NH4Cl', name: 'Amonyum klorür (salmiak)' },
+  { comp: { N: 2, H: 4, O: 3 }, formula: 'NH4NO3', name: 'Amonyum nitrat (gübre)' },
+  { comp: { H: 3, B: 1, O: 3 }, formula: 'H3BO3', name: 'Borik asit' },
+  { comp: { H: 1, Cl: 1, O: 4 }, formula: 'HClO4', name: 'Perklorik asit' },
 ];
 
 const SUB = { 0: '₀', 1: '₁', 2: '₂', 3: '₃', 4: '₄', 5: '₅', 6: '₆', 7: '₇', 8: '₈', 9: '₉' };
@@ -176,4 +188,89 @@ export function findProduct(comp) {
 // Bir öğenin bileşimi: tek atom
 export function atomComp(symbol) {
   return { [symbol]: 1 };
+}
+
+// Formül metninden bileşim: "C6H12O6", "Ca(OH)2" → { C: 6, H: 12, O: 6 }. Geçersizse hata fırlatır.
+export function parseFormulaComp(text) {
+  let work = String(text).replace(/\s+/g, '');
+  if (!work) throw new Error('Formül boş');
+  // Parantezleri aç: (OH)2 → O2H2
+  for (let guard = 0; /\([^()]*\)\d*/.test(work) && guard < 10; guard += 1) {
+    work = work.replace(/\(([^()]*)\)(\d*)/g, (_, inner, mult) => {
+      const factor = mult ? Number(mult) : 1;
+      return inner.replace(/([A-Z][a-z]?)(\d*)/g, (m, sym, n) => `${sym}${(n ? Number(n) : 1) * factor}`);
+    });
+  }
+  if (/[()]/.test(work)) throw new Error('Parantez hatalı');
+  const comp = {};
+  const pattern = /([A-Z][a-z]?)(\d*)/gy;
+  let consumed = 0;
+  let match;
+  while ((match = pattern.exec(work)) !== null) {
+    const [whole, symbol, digits] = match;
+    if (!ELEMENTS.some(e => e[0] === symbol)) throw new Error(`Bilinmeyen element: ${symbol}`);
+    comp[symbol] = (comp[symbol] ?? 0) + (digits ? Number(digits) : 1);
+    consumed += whole.length;
+  }
+  if (consumed !== work.length || !Object.keys(comp).length) throw new Error('Formül anlaşılamadı');
+  if (Object.values(comp).reduce((a, b) => a + b, 0) > 40) throw new Error('Bir formülde en fazla 40 atom olabilir');
+  return comp;
+}
+
+// Parçaların bileşimlerinden hedef bileşimi tam olarak karşılayan alt kümeyi bulur (derinlemesine arama).
+function coverTarget(types, target) {
+  const keys = Object.keys(target);
+  const need = keys.map(k => target[k]);
+  const usable = types.filter(t => Object.keys(t.comp).every(k => target[k] !== undefined));
+  const failed = new Set();
+  const chosen = [];
+  const search = (ti, remaining) => {
+    if (remaining.every(v => v === 0)) return true;
+    if (ti >= usable.length) return false;
+    const memoKey = `${ti}:${remaining.join(',')}`;
+    if (failed.has(memoKey)) return false;
+    const type = usable[ti];
+    let maxUse = type.idx.length;
+    for (const k of Object.keys(type.comp)) {
+      maxUse = Math.min(maxUse, Math.floor(remaining[keys.indexOf(k)] / type.comp[k]));
+    }
+    for (let m = maxUse; m >= 0; m -= 1) {
+      const next = remaining.map((v, j) => v - m * (type.comp[keys[j]] ?? 0));
+      if (next.some(v => v < 0)) continue;
+      chosen.push({ ti, m });
+      if (search(ti + 1, next)) return true;
+      chosen.pop();
+    }
+    failed.add(memoKey);
+    return false;
+  };
+  if (!search(0, need)) return null;
+  const indices = [];
+  for (const { ti, m } of chosen) indices.push(...usable[ti].idx.slice(0, m));
+  return indices;
+}
+
+// Parçalar arasında en büyük birleşen alt küme: { indices, comp, product } ya da null
+export function bestReaction(comps) {
+  if (!comps || comps.length < 2 || comps.length > 40) return null;
+  const types = new Map();
+  comps.forEach((c, i) => {
+    const key = Object.keys(c).sort().map(k => `${k}${c[k]}`).join('');
+    if (!types.has(key)) types.set(key, { comp: c, idx: [] });
+    types.get(key).idx.push(i);
+  });
+  const typeList = [...types.values()];
+  let best = null;
+  for (const compound of COMPOUNDS) {
+    for (const k of [1, 2, 3]) {
+      const target = Object.fromEntries(Object.entries(compound.comp).map(([e, n]) => [e, n * k]));
+      const atoms = Object.values(target).reduce((a, b) => a + b, 0);
+      if (best && atoms <= best.atoms) continue;
+      const indices = coverTarget(typeList, target);
+      if (indices && indices.length >= 2) {
+        best = { indices, comp: target, product: findProduct(target), atoms };
+      }
+    }
+  }
+  return best ? { indices: best.indices, comp: best.comp, product: best.product } : null;
 }

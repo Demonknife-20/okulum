@@ -1532,3 +1532,8 @@ h1,h2,h3{letter-spacing:0!important}
 .pad-wall .pin{width:230px;max-width:230px}
 .pad-stream .pin,.pin-grid .pin{min-width:0}
 .pin-pdf{width:100%;max-width:100%}
+
+/* v55: formül ile atom ekleme ve toplu birleştirme */
+.chem-add{display:flex;gap:8px}
+.chem-add input{flex:1;min-width:0}
+.chem-actions{display:flex;gap:8px;flex-wrap:wrap}

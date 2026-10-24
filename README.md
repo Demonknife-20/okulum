@@ -488,3 +488,11 @@ Müdür tüm okulu, öğretmen kendi derslerini, öğrenci yalnızca kendi devam
 - **90 bileşik** tablosu: gazlar, asitler, oksitler, tuzlar, bazlar, basit organik bileşikler.
 - Birleşme tam bileşime göre çalışır; iki ya da üç katı bileşikler de tanınır (örn. 2H₂O).
 - Testler: `test/chem.test.mjs` (element sayısı, satır/sütun konumları, tepkimeler, tekrar kontrolü).
+
+## Sürüm 55: kimyada çok parçalı birleşme
+
+- Birbirine yakın birden fazla parça bırakıldığında, aralarından bileşiği oluşturabilen en büyük alt küme birleşir (sülfürik asit, glikoz gibi).
+- **Atomları ekle:** Formül yazılır (`C6H12O6`, `Ca(OH)2`), gerekli atomlar çalışma alanına konur.
+- **Hepsini birleştir:** Alandaki tüm parçalar için tepkime aranır ve bulunanlar tek tek uygulanır.
+- 102 bileşik (glikoz, sakkaroz, asetik asit, sitrik asit, C vitamini, üre, amonyum klorür, gliserin, benzen ve diğerleri eklendi).
+- Testler: formül ayrıştırma, 24 atomdan glikoz, sülfürik asit, su.
