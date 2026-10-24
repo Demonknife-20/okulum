@@ -481,3 +481,10 @@ Müdür tüm okulu, öğretmen kendi derslerini, öğrenci yalnızca kendi devam
 - Kimya: periyodik tablodan element seçilir, çalışma alanında sürüklenir; yakın iki parça uygun bileşimdeyse birleşir ve formülü ile adı gösterilir. Keşfedilenler listesi tutulur. Parça çöp alanına bırakılarak silinir.
 - Birleşme kuralları `public/chem.js` içinde (36 element, 25 bileşik). Kapsam sınırlıdır; tepkime denkleştirme ve enerji yoktur.
 - Padlet kartlarında uzun kelime ve gömülü içerik kartın dışına taşmaz.
+
+## Sürüm 54: kimya — tüm elementler ve daha çok birleşim
+
+- Periyodik tabloda **118 element** (lantanit ve aktinit satırları dahil).
+- **90 bileşik** tablosu: gazlar, asitler, oksitler, tuzlar, bazlar, basit organik bileşikler.
+- Birleşme tam bileşime göre çalışır; iki ya da üç katı bileşikler de tanınır (örn. 2H₂O).
+- Testler: `test/chem.test.mjs` (element sayısı, satır/sütun konumları, tepkimeler, tekrar kontrolü).

@@ -37,3 +37,25 @@ test('formül: rakamlar alt simgeye çevrilir', () => {
   assert.equal(prettyFormula('H2SO4'), 'H₂SO₄');
   assert.equal(prettyFormula('Al2O3'), 'Al₂O₃');
 });
+
+import { COMPOUNDS } from '../public/chem.js';
+
+test('bileşik tablosu: aynı bileşim iki kez tanımlı değil', () => {
+  const keys = COMPOUNDS.map(c => Object.keys(c.comp).sort().map(k => `${k}${c.comp[k]}`).join(''));
+  assert.equal(new Set(keys).size, keys.length);
+});
+
+test('element tablosu: 118 element, lantanit ve aktinit satırları ayrı', () => {
+  assert.equal(ELEMENTS.length, 118);
+  const z = ELEMENTS.map(e => e[2]);
+  assert.deepEqual(z, Array.from({ length: 118 }, (_, i) => i + 1));
+  const lanthanum = ELEMENTS.find(e => e[0] === 'La');
+  assert.deepEqual([lanthanum[3], lanthanum[4]], [3, 8]);
+  const uranium = ELEMENTS.find(e => e[0] === 'U');
+  assert.deepEqual([uranium[3], uranium[4]], [6, 9]);
+});
+
+test('birleşme: kalsiyum + oksijen → sönmemiş kireç; sodyum + oksijen → sodyum oksit', () => {
+  assert.equal(findProduct(combineComp(atomComp('Ca'), atomComp('O'))).formula, 'CaO');
+  assert.equal(findProduct(combineComp(atomComp('Na'), combineComp(atomComp('Na'), atomComp('O')))).formula, 'Na₂O');
+});
