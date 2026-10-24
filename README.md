@@ -550,3 +550,10 @@ Müdür tüm okulu, öğretmen kendi derslerini, öğrenci yalnızca kendi devam
 ## Sürüm 64: yapay zekâ günlükleme
 
 - Sınav taslağı istekleri yapılandırılmış günlüğe yazılır (`evt: ai.quiz_draft`, sonuç türü, rol, soru sayısı). Konu, örnek soru ve model çıktısı günlüğe yazılmaz.
+
+## Sürüm 65: animasyonlar
+
+- **Silme:** Parça çalışma alanından silinirken kara delik belirir, parça dönerek küçülüp içine çekilir.
+- **Birleşme:** Parçalar birleşme noktasına çekilir; kıvılcımlar ve buhar bulutu çıkar, ardından birleşmiş ürün belirir.
+- **Tema:** Açık/koyu geçişi tıklanan düğmeden yayılan bir daire olarak yapılır (View Transitions destekleyen tarayıcılarda).
+- "Hareket azalt" tercihi açıksa tüm bu animasyonlar kapanır.

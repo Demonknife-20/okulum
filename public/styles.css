@@ -1640,3 +1640,12 @@ a:hover{text-decoration:underline}
 .py-actions{display:flex;gap:8px;flex-wrap:wrap}
 .py-output{margin:0;min-height:90px;max-height:260px;overflow:auto;padding:12px 14px;border-radius:10px;background:#15201b;color:#dfeee6;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;line-height:1.55;white-space:pre-wrap;word-break:break-word}
 .py-output.py-error{color:#ffb4a8}
+
+/* v65: animasyonlar. Hareket azaltma açıksa JS animasyon yapmaz; WAAPI ile çalışan efektler CSS animasyonundan bağımsızdır. */
+.chem-hole{position:absolute;width:96px;height:96px;margin:0;border-radius:50%;background:radial-gradient(circle,#000 52%,rgba(70,30,120,.75) 68%,transparent 72%);box-shadow:0 0 36px 12px rgba(110,60,170,.45);pointer-events:none;z-index:5}
+.chem-spark{position:absolute;width:7px;height:7px;margin:-3px 0 0 -3px;border-radius:50%;background:#f5b93a;box-shadow:0 0 8px #f5b93a;pointer-events:none;z-index:6}
+.chem-steam{position:absolute;width:46px;height:46px;margin:-23px 0 0 -23px;border-radius:50%;background:rgba(255,255,255,.8);filter:blur(5px);pointer-events:none;z-index:4}
+::view-transition-old(root),::view-transition-new(root){animation:none}
+html.vt-theme::view-transition-new(root){animation:vt-wipe .75s cubic-bezier(.2,.7,.2,1) both;z-index:2}
+html.vt-theme::view-transition-old(root){z-index:1}
+@keyframes vt-wipe{from{clip-path:circle(0px at var(--vt-x) var(--vt-y))}to{clip-path:circle(150vmax at var(--vt-x) var(--vt-y))}}

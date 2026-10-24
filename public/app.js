@@ -26,10 +26,21 @@ function applyTheme(theme) {
   document.querySelector('meta[name=theme-color]').content = theme === 'dark' ? '#0f1714' : '#f3f5f1';
   $('#themeBtn').innerHTML = icon(theme === 'dark' ? 'sun' : 'moon');
 }
-ACTIONS.theme = () => {
+ACTIONS.theme = el => {
   const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
-  applyTheme(next);
-  try { localStorage.setItem('okulum-theme', next); } catch { /* depolama kapalı olabilir */ }
+  const change = () => {
+    applyTheme(next);
+    try { localStorage.setItem('okulum-theme', next); } catch { /* depolama kapalı olabilir */ }
+  };
+  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (!document.startViewTransition || reduce) { change(); return; }
+  // Geçiş, tıklanan düğmeden yayılır (CSSOM ile; satır içi stil yok)
+  const rect = (el || document.getElementById('themeBtn')).getBoundingClientRect();
+  document.documentElement.style.setProperty('--vt-x', `${rect.left + rect.width / 2}px`);
+  document.documentElement.style.setProperty('--vt-y', `${rect.top + rect.height / 2}px`);
+  document.documentElement.classList.add('vt-theme');
+  const transition = document.startViewTransition(change);
+  transition.finished.finally(() => document.documentElement.classList.remove('vt-theme'));
 };
 
 // ---------- Mobil menü ----------
