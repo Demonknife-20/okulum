@@ -1537,3 +1537,79 @@ h1,h2,h3{letter-spacing:0!important}
 .chem-add{display:flex;gap:8px}
 .chem-add input{flex:1;min-width:0}
 .chem-actions{display:flex;gap:8px;flex-wrap:wrap}
+
+/* v57: tutarlı tasarım sistemi. Tüm sayfalarda aynı ölçek, boşluk, köşe ve yüzeyler. */
+:root{
+  --f-body: "Inter", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  --f-display: var(--f-body);
+  --fs-xs: 12px; --fs-sm: 13px; --fs-md: 14px; --fs-lg: 16px; --fs-xl: 20px; --fs-2xl: 28px;
+  --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 24px; --sp-6: 32px;
+  --r-sm: 6px; --r-md: 8px; --r-lg: 10px;
+  --ease: ease;
+}
+body{font-family:var(--f-body);font-size:var(--fs-md);line-height:1.5;color:var(--ink);-webkit-font-smoothing:antialiased}
+h1{font-size:var(--fs-2xl);font-weight:700;line-height:1.2;margin:0 0 var(--sp-2)}
+h2{font-size:var(--fs-xl);font-weight:650;line-height:1.3;margin:0 0 var(--sp-3)}
+h3{font-size:var(--fs-lg);font-weight:600;line-height:1.35;margin:0 0 var(--sp-2)}
+p{margin:0 0 var(--sp-3)}
+small,.muted{font-size:var(--fs-sm);color:var(--muted)}
+
+/* Kartlar ve paneller */
+.panel,.card,.stat{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:0}
+.panel .pad{padding:var(--sp-4) var(--sp-5)}
+
+/* Tablolar: okunaklı satırlar, sakin başlıklar */
+table{width:100%;border-collapse:collapse;font-size:var(--fs-md)}
+th{font-size:var(--fs-xs);font-weight:600;letter-spacing:.02em;text-transform:uppercase;color:var(--muted);text-align:left;padding:var(--sp-2) var(--sp-4);background:var(--surface-2);border-bottom:1px solid var(--line)}
+td{padding:var(--sp-3) var(--sp-4);border-bottom:1px solid var(--line);vertical-align:middle}
+tr:last-child td{border-bottom:0}
+tbody tr:hover td{background:var(--surface-2)}
+
+/* Düğmeler: tek boyut ailesi */
+.btn{font-family:var(--f-body);font-size:var(--fs-md);font-weight:600;height:36px;padding:0 var(--sp-4);border-radius:var(--r-md);display:inline-flex;align-items:center;gap:var(--sp-2);cursor:pointer;transition:background .15s,border-color .15s,color .15s}
+.btn.sm{height:30px;padding:0 var(--sp-3);font-size:var(--fs-sm)}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.icon-btn{width:34px;height:34px;border-radius:var(--r-md);display:inline-grid;place-items:center;border:1px solid var(--line-2);background:var(--surface);color:var(--ink);cursor:pointer}
+.icon-btn.sm{width:30px;height:30px}
+
+/* Form alanları */
+label.field{display:grid;gap:var(--sp-1)}
+label.field > span{font-size:var(--fs-sm);font-weight:600;color:var(--ink)}
+input[type=text],input[type=email],input[type=password],input[type=number],input[type=search],input:not([type]),select,textarea{font-family:var(--f-body);font-size:var(--fs-md);min-height:38px;padding:var(--sp-2) var(--sp-3);border-radius:var(--r-md)}
+textarea{min-height:76px;line-height:1.5}
+input::placeholder,textarea::placeholder{color:color-mix(in srgb,var(--muted) 80%,transparent)}
+
+/* Rozetler ve etiketler */
+.badge{font-size:var(--fs-xs);font-weight:600;padding:2px var(--sp-2);border-radius:var(--r-sm);line-height:1.6}
+
+/* Sekmeler ve gezinme */
+.nav-item{font-size:var(--fs-md);font-weight:500;height:38px;padding:0 var(--sp-3);gap:var(--sp-3)}
+.nav-item.active{font-weight:600}
+.sidebar .nav-section,.sidebar .nav-label{font-size:var(--fs-xs);font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+
+/* Boş durumlar: sade ve yardımcı */
+.empty{display:grid;gap:var(--sp-2);justify-items:center;text-align:center;padding:var(--sp-6) var(--sp-4);color:var(--muted)}
+.empty strong{color:var(--ink);font-size:var(--fs-lg)}
+
+/* Bildirimler (toast) ve pencereler */
+.toast{border-radius:var(--r-md);box-shadow:none;border:1px solid var(--line-2);font-size:var(--fs-md);padding:var(--sp-3) var(--sp-4)}
+.modal,.dialog{border-radius:var(--r-lg);border:1px solid var(--line);box-shadow:none;background:var(--surface)}
+.modal-backdrop,.backdrop{background:rgba(20,24,22,.45)}
+
+/* Odak ve erişilebilirlik */
+a{color:var(--brand)}
+a:hover{text-decoration:underline}
+::selection{background:var(--brand-soft);color:var(--ink)}
+
+/* Koyu tema ayarları */
+[data-theme=dark] th{background:var(--surface-2)}
+[data-theme=dark] .btn.ghost{background:var(--surface)}
+
+/* Mobil: sıkışık ekranlarda boşluklar ve dokunma alanları */
+@media (max-width:760px){
+  h1{font-size:var(--fs-xl)}
+  .panel .pad{padding:var(--sp-3) var(--sp-4)}
+  .btn{height:40px}
+  .icon-btn{width:40px;height:40px}
+  td,th{padding:var(--sp-2) var(--sp-3)}
+}

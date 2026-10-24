@@ -38,11 +38,24 @@ test('formül: rakamlar alt simgeye çevrilir', () => {
   assert.equal(prettyFormula('Al2O3'), 'Al₂O₃');
 });
 
-import { COMPOUNDS } from '../public/chem.js';
+import { COMPOUNDS, ALL_COMPOUNDS } from '../public/chem.js';
 
 test('bileşik tablosu: aynı bileşim iki kez tanımlı değil', () => {
-  const keys = COMPOUNDS.map(c => Object.keys(c.comp).sort().map(k => `${k}${c.comp[k]}`).join(''));
+  const keys = ALL_COMPOUNDS.map(c => Object.keys(c.comp).sort().map(k => `${k}${c.comp[k]}`).join(''));
   assert.equal(new Set(keys).size, keys.length);
+  assert.ok(ALL_COMPOUNDS.length >= 1000, `en az 1000 bileşik bekleniyordu, bulunan: ${ALL_COMPOUNDS.length}`);
+});
+
+test('üretilen bileşikler: yük dengesi doğru formül ve ad verir', () => {
+  const find = name => {
+    const c = ALL_COMPOUNDS.find(x => x.name.startsWith(name));
+    return { formula: prettyFormula(c.formula) };
+  };
+  assert.equal(find('Demir(III) klorür').formula, 'FeCl₃');
+  assert.equal(find('Kalsiyum nitrat').formula, 'Ca(NO₃)₂');
+  assert.equal(find('Alüminyum sülfat').formula, 'Al₂(SO₄)₃');
+  assert.equal(find('Amonyum sülfat').formula, '(NH₄)₂SO₄');
+  assert.equal(find('Sodyum siyanür').formula, 'NaCN');
 });
 
 test('element tablosu: 118 element, lantanit ve aktinit satırları ayrı', () => {

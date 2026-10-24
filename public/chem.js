@@ -150,7 +150,166 @@ export const COMPOUNDS = [
   { comp: { N: 2, H: 4, O: 3 }, formula: 'NH4NO3', name: 'Amonyum nitrat (gübre)' },
   { comp: { H: 3, B: 1, O: 3 }, formula: 'H3BO3', name: 'Borik asit' },
   { comp: { H: 1, Cl: 1, O: 4 }, formula: 'HClO4', name: 'Perklorik asit' },
+  { comp: { C: 2, H: 4, O: 1 }, formula: 'C2H4O', name: 'Asetaldehit' },
+  { comp: { C: 3, H: 6, O: 1 }, formula: 'C3H6O', name: 'Aseton (oje sökücü)' },
+  { comp: { C: 4, H: 8, O: 1 }, formula: 'C4H8O', name: 'Bütanon (metil etil keton)' },
+  { comp: { C: 4, H: 8, O: 2 }, formula: 'C4H8O2', name: 'Etil asetat (oje ve yapıştırıcı çözücüsü)' },
+  { comp: { C: 6, H: 6, O: 1 }, formula: 'C6H6O', name: 'Fenol (karbolik asit)' },
+  { comp: { C: 7, H: 8 }, formula: 'C7H8', name: 'Toluen' },
+  { comp: { C: 8, H: 18 }, formula: 'C8H18', name: 'İzooktan (benzin bileşeni)' },
+  { comp: { C: 6, H: 14 }, formula: 'C6H14', name: 'Hekzan' },
+  { comp: { N: 2, H: 4 }, formula: 'N2H4', name: 'Hidrazin' },
+  { comp: { N: 1, H: 2, O: 1 }, formula: 'NH2OH', name: 'Hidroksilamin' },
+  { comp: { C: 3, H: 9, N: 1 }, formula: 'C3H9N', name: 'Trimetilamin' },
+  { comp: { S: 2, Cl: 2 }, formula: 'S2Cl2', name: 'Kükürt diklorür' },
+  { comp: { S: 8 }, formula: 'S8', name: 'Kükürt (kristal, halkalı)' },
+  { comp: { P: 4 }, formula: 'P4', name: 'Beyaz fosfor' },
+  { comp: { C: 1, S: 2 }, formula: 'CS2', name: 'Karbon disülfür' },
+  { comp: { C: 1, Cl: 4 }, formula: 'CCl4', name: 'Karbon tetraklorür' },
+  { comp: { C: 2, Cl: 4 }, formula: 'C2Cl4', name: 'Perkloroetilen (kuru temizleme çözücüsü)' },
 ];
+
+// ---- Kurallardan üretilen bileşikler: tuzlar (yük dengesi), organik seriler, ek asitler ----
+const ROMAN = ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII'];
+// Katyonlar: bileşim, sembol, ad, olası yükler
+const CATIONS = [
+  { comp: { Li: 1 }, symbol: 'Li', name: 'Lityum', charges: [1] },
+  { comp: { Na: 1 }, symbol: 'Na', name: 'Sodyum', charges: [1] },
+  { comp: { K: 1 }, symbol: 'K', name: 'Potasyum', charges: [1] },
+  { comp: { Rb: 1 }, symbol: 'Rb', name: 'Rubidyum', charges: [1] },
+  { comp: { Cs: 1 }, symbol: 'Cs', name: 'Sezyum', charges: [1] },
+  { comp: { Ag: 1 }, symbol: 'Ag', name: 'Gümüş', charges: [1], noHydride: true },
+  { comp: { N: 1, H: 4 }, symbol: 'NH4', name: 'Amonyum', charges: [1], noHydride: true },
+  { comp: { Be: 1 }, symbol: 'Be', name: 'Berilyum', charges: [2] },
+  { comp: { Mg: 1 }, symbol: 'Mg', name: 'Magnezyum', charges: [2] },
+  { comp: { Ca: 1 }, symbol: 'Ca', name: 'Kalsiyum', charges: [2] },
+  { comp: { Sr: 1 }, symbol: 'Sr', name: 'Stronsiyum', charges: [2] },
+  { comp: { Ba: 1 }, symbol: 'Ba', name: 'Baryum', charges: [2] },
+  { comp: { Zn: 1 }, symbol: 'Zn', name: 'Çinko', charges: [2], noHydride: true },
+  { comp: { Cd: 1 }, symbol: 'Cd', name: 'Kadmiyum', charges: [2], noHydride: true },
+  { comp: { Al: 1 }, symbol: 'Al', name: 'Alüminyum', charges: [3] },
+  { comp: { Ga: 1 }, symbol: 'Ga', name: 'Galyum', charges: [3], noHydride: true },
+  { comp: { In: 1 }, symbol: 'In', name: 'İndiyum', charges: [3], noHydride: true },
+  { comp: { Sc: 1 }, symbol: 'Sc', name: 'Skandiyum', charges: [3], noHydride: true },
+  { comp: { Y: 1 }, symbol: 'Y', name: 'İtriyum', charges: [3], noHydride: true },
+  { comp: { La: 1 }, symbol: 'La', name: 'Lantan', charges: [3], noHydride: true },
+  { comp: { Fe: 1 }, symbol: 'Fe', name: 'Demir', charges: [2, 3], noHydride: true },
+  { comp: { Cu: 1 }, symbol: 'Cu', name: 'Bakır', charges: [1, 2], noHydride: true },
+  { comp: { Co: 1 }, symbol: 'Co', name: 'Kobalt', charges: [2, 3], noHydride: true },
+  { comp: { Ni: 1 }, symbol: 'Ni', name: 'Nikel', charges: [2], noHydride: true },
+  { comp: { Cr: 1 }, symbol: 'Cr', name: 'Krom', charges: [2, 3], noHydride: true },
+  { comp: { Mn: 1 }, symbol: 'Mn', name: 'Mangan', charges: [2], noHydride: true },
+  { comp: { Sn: 1 }, symbol: 'Sn', name: 'Kalay', charges: [2, 4], noHydride: true },
+  { comp: { Pb: 1 }, symbol: 'Pb', name: 'Kurşun', charges: [2, 4], noHydride: true },
+  { comp: { Hg: 1 }, symbol: 'Hg', name: 'Cıva', charges: [2], noHydride: true },
+  { comp: { Au: 1 }, symbol: 'Au', name: 'Altın', charges: [1, 3], noHydride: true },
+  { comp: { Ti: 1 }, symbol: 'Ti', name: 'Titanyum', charges: [2, 3, 4], noHydride: true },
+];
+// Anyonlar: bileşim, sembol, ad, yük (mutlak değer)
+const ANIONS = [
+  { comp: { O: 1 }, symbol: 'O', name: 'oksit', charge: 2, mono: true },
+  { comp: { S: 1 }, symbol: 'S', name: 'sülfür', charge: 2, mono: true },
+  { comp: { F: 1 }, symbol: 'F', name: 'florür', charge: 1, mono: true },
+  { comp: { Cl: 1 }, symbol: 'Cl', name: 'klorür', charge: 1, mono: true },
+  { comp: { Br: 1 }, symbol: 'Br', name: 'bromür', charge: 1, mono: true },
+  { comp: { I: 1 }, symbol: 'I', name: 'iyodür', charge: 1, mono: true },
+  { comp: { H: 1 }, symbol: 'H', name: 'hidrür', charge: 1, mono: true, hydride: true },
+  { comp: { N: 1, O: 3 }, symbol: 'NO3', name: 'nitrat', charge: 1 },
+  { comp: { S: 1, O: 4 }, symbol: 'SO4', name: 'sülfat', charge: 2 },
+  { comp: { S: 1, O: 3 }, symbol: 'SO3', name: 'sülfit', charge: 2 },
+  { comp: { C: 1, O: 3 }, symbol: 'CO3', name: 'karbonat', charge: 2 },
+  { comp: { H: 1, C: 1, O: 3 }, symbol: 'HCO3', name: 'bikarbonat', charge: 1 },
+  { comp: { P: 1, O: 4 }, symbol: 'PO4', name: 'fosfat', charge: 3 },
+  { comp: { O: 1, H: 1 }, symbol: 'OH', name: 'hidroksit', charge: 1 },
+  { comp: { Cl: 1, O: 3 }, symbol: 'ClO3', name: 'klorat', charge: 1 },
+  { comp: { Cl: 1, O: 4 }, symbol: 'ClO4', name: 'perklorat', charge: 1 },
+  { comp: { Mn: 1, O: 4 }, symbol: 'MnO4', name: 'permanganat', charge: 1 },
+  { comp: { C: 2, H: 3, O: 2 }, symbol: 'CH3COO', name: 'asetat', charge: 1 },
+  { comp: { C: 1, N: 1 }, symbol: 'CN', name: 'siyanür', charge: 1 },
+  { comp: { H: 1, C: 1, O: 2 }, symbol: 'HCOO', name: 'formiat', charge: 1 },
+  { comp: { C: 2, O: 4 }, symbol: 'C2O4', name: 'oksalat', charge: 2 },
+  { comp: { O: 2 }, symbol: 'O2', name: 'peroksit', charge: 2, mono: true },
+  { comp: { Cr: 1, O: 4 }, symbol: 'CrO4', name: 'kromat', charge: 2 },
+  { comp: { B: 1, O: 3 }, symbol: 'BO3', name: 'borat', charge: 3 },
+  { comp: { C: 2 }, symbol: 'C2', name: 'karbür', charge: 2, mono: true },
+  { comp: { I: 1, O: 3 }, symbol: 'IO3', name: 'iyodat', charge: 1 },
+  { comp: { Br: 1, O: 3 }, symbol: 'BrO3', name: 'bromat', charge: 1 },
+  { comp: { S: 1, C: 1, N: 1 }, symbol: 'SCN', name: 'tiyosiyanat', charge: 1 },
+  { comp: { H: 1, S: 1 }, symbol: 'HS', name: 'hidrojen sülfür (hidrosülfür)', charge: 1 },
+];
+
+const gcdOf = (a, b) => (b ? gcdOf(b, a % b) : a);
+const countAtoms = comp => Object.values(comp).reduce((a, b) => a + b, 0);
+const scaleComp = (comp, n) => Object.fromEntries(Object.entries(comp).map(([e, v]) => [e, v * n]));
+const mergeComp = (a, b) => combineComp(a, b);
+
+function generatedSalts() {
+  const out = [];
+  for (const cation of CATIONS) {
+    for (const charge of cation.charges) {
+      for (const anion of ANIONS) {
+        if (anion.hydride && cation.noHydride) continue;
+        const g = gcdOf(charge, anion.charge);
+        const x = anion.charge / g; // katyon sayısı
+        const y = charge / g;       // anyon sayısı
+        const comp = mergeComp(scaleComp(cation.comp, x), scaleComp(anion.comp, y));
+        const cationPart = (cation.symbol.length > 2 || countAtoms(cation.comp) > 1) && x > 1
+          ? `(${cation.symbol})${x}` : `${cation.symbol}${x > 1 ? x : ''}`;
+        const anionPart = anion.mono
+          ? `${anion.symbol}${y > 1 ? y : ''}`
+          : (y > 1 ? `(${anion.symbol})${y}` : anion.symbol);
+        const roman = cation.charges.length > 1 ? `(${ROMAN[charge]})` : '';
+        out.push({ comp, formula: cationPart + anionPart, name: `${cation.name}${roman} ${anion.name}` });
+      }
+    }
+  }
+  return out;
+}
+
+function generatedOrganics() {
+  const out = [];
+  const alkanes = ['Metan', 'Etan', 'Propan', 'Bütan', 'Pentan', 'Hekzan', 'Heptan', 'Oktan', 'Nonan', 'Dekan'];
+  alkanes.forEach((name, i) => {
+    const n = i + 1;
+    out.push({ comp: { C: n, H: 2 * n + 2 }, formula: `C${n}H${2 * n + 2}`, name: `${name} (alkan)` });
+  });
+  const alkenes = ['Eten (etilen)', 'Propen (propilen)', 'Büten', 'Penten', 'Heksen'];
+  alkenes.forEach((name, i) => {
+    const n = i + 2;
+    out.push({ comp: { C: n, H: 2 * n }, formula: `C${n}H${2 * n}`, name: `${name} (alken)` });
+  });
+  const alcohols = ['Metanol', 'Etanol', 'Propanol', 'Bütanol', 'Pentanol'];
+  alcohols.forEach((name, i) => {
+    const n = i + 1;
+    out.push({ comp: { C: n, H: 2 * n + 2, O: 1 }, formula: `C${n}H${2 * n + 1}OH`, name: `${name} (alkol)` });
+  });
+  const acids = ['Formik asit (karınca asidi)', 'Asetik asit (sirke)', 'Propiyonik asit', 'Bütirik asit', 'Valerik asit'];
+  acids.forEach((name, i) => {
+    const n = i + 1;
+    const formula = n === 1 ? 'HCOOH' : `C${n - 1}H${2 * n - 1}COOH`;
+    out.push({ comp: { C: n, H: 2 * n, O: 2 }, formula, name: `${name} (karboksilik asit)` });
+  });
+  out.push({ comp: { H: 1, N: 1, O: 2 }, formula: 'HNO2', name: 'Nitröz asit' });
+  out.push({ comp: { H: 2, S: 1, O: 3 }, formula: 'H2SO3', name: 'Sülfüroz asit' });
+  out.push({ comp: { H: 1, Cl: 1, O: 1 }, formula: 'HClO', name: 'Hipokloröz asit (çamaşır suyu)' });
+  out.push({ comp: { H: 1, Cl: 1, O: 3 }, formula: 'HClO3', name: 'Klorik asit' });
+  out.push({ comp: { H: 2, O: 1 }, formula: 'H2O', name: 'Su' });
+  return out;
+}
+
+// Kopyasız birleşik liste: elle yazılanlar önceliklidir
+export const ALL_COMPOUNDS = (() => {
+  const seen = new Set();
+  const keyOf = comp => Object.keys(comp).sort().map(k => `${k}${comp[k]}`).join('');
+  const list = [];
+  for (const c of [...COMPOUNDS, ...generatedOrganics(), ...generatedSalts()]) {
+    const key = keyOf(c.comp);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    list.push(c);
+  }
+  return list;
+})();
 
 const SUB = { 0: '₀', 1: '₁', 2: '₂', 3: '₃', 4: '₄', 5: '₅', 6: '₆', 7: '₇', 8: '₈', 9: '₉' };
 // Formülü alt simgelerle yazar: H2O → H₂O
@@ -173,13 +332,13 @@ const sameComp = (a, b) => {
 
 // Bileşime karşılık gelen ürün. Tam eşleşme ya da 2–3 katı (örn. 2H₂O).
 export function findProduct(comp) {
-  const exact = COMPOUNDS.find(c => sameComp(c.comp, comp));
+  const exact = ALL_COMPOUNDS.find(c => sameComp(c.comp, comp));
   if (exact) return { formula: prettyFormula(exact.formula), name: exact.name, count: 1 };
   for (const k of [2, 3]) {
     const values = Object.values(comp);
     if (values.some(v => v % k !== 0)) continue;
     const divided = Object.fromEntries(Object.entries(comp).map(([key, v]) => [key, v / k]));
-    const match = COMPOUNDS.find(c => sameComp(c.comp, divided));
+    const match = ALL_COMPOUNDS.find(c => sameComp(c.comp, divided));
     if (match) return { formula: prettyFormula(match.formula), name: match.name, count: k };
   }
   return null;
@@ -260,10 +419,13 @@ export function bestReaction(comps) {
     types.get(key).idx.push(i);
   });
   const typeList = [...types.values()];
+  const available = {};
+  for (const c of comps) for (const [e, n] of Object.entries(c)) available[e] = (available[e] ?? 0) + n;
   let best = null;
-  for (const compound of COMPOUNDS) {
+  for (const compound of ALL_COMPOUNDS) {
     for (const k of [1, 2, 3]) {
       const target = Object.fromEntries(Object.entries(compound.comp).map(([e, n]) => [e, n * k]));
+      if (Object.entries(target).some(([e, n]) => (available[e] ?? 0) < n)) continue;
       const atoms = Object.values(target).reduce((a, b) => a + b, 0);
       if (best && atoms <= best.atoms) continue;
       const indices = coverTarget(typeList, target);

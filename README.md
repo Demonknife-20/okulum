@@ -496,3 +496,15 @@ Müdür tüm okulu, öğretmen kendi derslerini, öğrenci yalnızca kendi devam
 - **Hepsini birleştir:** Alandaki tüm parçalar için tepkime aranır ve bulunanlar tek tek uygulanır.
 - 102 bileşik (glikoz, sakkaroz, asetik asit, sitrik asit, C vitamini, üre, amonyum klorür, gliserin, benzen ve diğerleri eklendi).
 - Testler: formül ayrıştırma, 24 atomdan glikoz, sülfürik asit, su.
+
+## Sürüm 56: 1000+ bileşik
+
+- Bileşik sayısı: 102 elle yazılmış + kurallardan üretilen 1100'den fazla → toplam 1200'ün üzerinde.
+- Üretilen bileşikler: metallerin iyon yükleri ve anyonlardan yük dengesiyle üretilen tuzlar (oksit, klorür, sülfat, nitrat, karbonat, fosfat, asetat, siyanür vb.), alkan, alken, alkol ve karboksilik asit serileri, ek asitler.
+- Uyarı: Üretilen listede nadir ya da kararsız bileşikler de bulunabilir; kullanımdan önce öğretmen kontrolü önerilir.
+
+## Sürüm 57: tasarım sistemi ve bileşik ekleme
+
+- Tüm sayfalarda tek bir ölçek: yazı boyutları, boşluklar, köşe yarıçapları ve renkler (`:root` değişkenleri).
+- Tablolar, düğmeler, form alanları, rozetler, boş durumlar, bildirimler ve pencereler aynı kurallara bağlı; mobilde dokunma alanları büyütülür.
+- Bileşik listesi 1216'ya çıktı (aseton, etil asetat, fenol, toluen, karbon tetraklorür gibi eklemeler).
