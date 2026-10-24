@@ -1981,6 +1981,18 @@ function quizForm() {
       <label class="switch switch-line"><input type="checkbox" name="published"><span class="switch-ui" aria-hidden="true"></span><span><strong>Hemen yayınla</strong><small>Kapalıysa taslak olarak kaydedilir.</small></span></label>
     </div>
     <h3 class="sub-title">Sorular</h3>
+    <details class="ai-box">
+      <summary><span>Yapay zekâ ile soru taslağı</span><small>Konuyu yazın, sorular taslak olarak eklensin. Kaydetmeden önce kontrol edin.</small></summary>
+      <div class="ai-box-body">
+        <label class="field"><span>Konu</span><input name="aiTopic" maxlength="200" placeholder="Örn. Kesirlerde toplama ve çıkarma"></label>
+        <label class="field"><span>Örnek soru (isteğe bağlı)</span><textarea name="aiExample" rows="2" maxlength="800" placeholder="Tarzı göstermek için bir soru yazabilirsiniz"></textarea></label>
+        <div class="grid-2">
+          <label class="field"><span>Soru sayısı</span><select name="aiCount">${[3, 5, 8, 10].map(n => `<option value="${n}" ${n === 5 ? 'selected' : ''}>${n} soru</option>`).join('')}</select></label>
+          <label class="switch switch-line"><input type="checkbox" name="aiImages"><span class="switch-ui" aria-hidden="true"></span><span><strong>Gerekirse şekil ekle</strong><small>Geometri ve fen soruları için basit bir şekil üretilir.</small></span></label>
+        </div>
+        <button class="btn ghost" type="button" data-action="quiz-ai-run">${icon('spark')}<span>Taslağı oluştur</span></button>
+      </div>
+    </details>
     <div id="quizQuestions">${quizQuestionBlock()}</div>
     <button class="btn ghost" type="button" data-action="quiz-add-q">${icon('plus')}<span>Soru ekle</span></button>
     <label class="switch switch-line"><input type="checkbox" name="shuffleOptions"><span class="switch-ui" aria-hidden="true"></span><span><strong>Seçenekleri karıştır</strong><small>Her öğrenciye şıklar farklı sırada gösterilir. Puanlama değişmez.</small></span></label>
@@ -2002,6 +2014,71 @@ ACTIONS['quiz-remove-q'] = el => {
   if (blocks.length <= 1) throw new Error('Sınavda en az bir soru olmalı.');
   el.closest('.quiz-q').remove();
   renumberQuestions();
+};
+
+// Yapay zekâ taslağını form alanlarına yerleştirir; görseller PNG olarak eklenir
+async function fillQuizDrafts(questions) {
+  const box = document.querySelector('#quizQuestions');
+  box.innerHTML = '';
+  for (const draft of questions) {
+    box.insertAdjacentHTML('beforeend', quizQuestionBlock());
+    const block = box.lastElementChild;
+    block.querySelector('[name=qtext]').value = draft.text;
+    const rows = [...block.querySelectorAll('.quiz-opt')];
+    rows.forEach((row, index) => {
+      row.querySelector('input[name=opt]').value = draft.options[index] ?? '';
+    });
+    const radio = rows[draft.correctIndex]?.querySelector('input[type=radio]');
+    if (radio) radio.checked = true;
+    if (draft.svg) {
+      const file = await svgToPngFile(draft.svg);
+      if (file) {
+        const transfer = new DataTransfer();
+        transfer.items.add(file);
+        block.querySelector('[name=qimage]').files = transfer.files;
+      }
+    }
+  }
+  renumberQuestions();
+}
+
+// SVG'yi sınav görseli için PNG'ye çevirir (veri adresi üzerinden; dış kaynak yüklenmez)
+function svgToPngFile(svg) {
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 800;
+      canvas.height = 600;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, 800, 600);
+      ctx.drawImage(img, 0, 0, 800, 600);
+      canvas.toBlob(blob => resolve(blob ? new File([blob], 'soru-sekli.png', { type: 'image/png' }) : null), 'image/png');
+    };
+    img.onerror = () => resolve(null);
+    img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+  });
+}
+
+ACTIONS['quiz-ai-run'] = async el => {
+  const box = el.closest('.ai-box');
+  const topic = box.querySelector('[name=aiTopic]').value.trim();
+  const example = box.querySelector('[name=aiExample]').value.trim();
+  const count = Number(box.querySelector('[name=aiCount]').value);
+  const withImages = box.querySelector('[name=aiImages]').checked;
+  if (topic.length < 3) {
+    toast('Önce bir konu yazın (en az 3 karakter)', 'error');
+    return;
+  }
+  el.disabled = true;
+  try {
+    const { questions } = await api('/ai/quiz-draft', { method: 'POST', body: { topic, example, count, withImages } });
+    await fillQuizDrafts(questions);
+    toast(`${questions.length} soru taslağı eklendi. Kontrol edip kaydedin.`);
+  } finally {
+    el.disabled = false;
+  }
 };
 
 FORMS['quiz-create'] = async form => {

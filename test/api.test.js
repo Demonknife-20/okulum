@@ -1646,6 +1646,17 @@ test('pano sıralaması: yönetici sırayı belirler, öğrenci değiştiremez, 
   await call('DELETE', `/api/boards/${other.data.id}`, { cookie: state.ayse });
 });
 
+test('yapay zekâ sınav taslağı: öğrenci kullanamaz; anahtar yoksa öğretmen 503 alır', async () => {
+  const student = await call('POST', '/api/ai/quiz-draft', { cookie: state.ece, body: { topic: 'Kesirler' } });
+  assert.equal(student.status, 403, 'öğrenci sınav taslağı üretemez');
+  const short = await call('POST', '/api/ai/quiz-draft', { cookie: state.ayse, body: { topic: 'ab' } });
+  assert.ok([400, 503].includes(short.status));
+  const teacher = await call('POST', '/api/ai/quiz-draft', { cookie: state.ayse, body: { topic: 'Kesirler' } });
+  // Onay yoksa 403; onay varsa taklit servisin yanıtı geçerli taslak olmadığı için kontrollü 502 döner. 500 olmamalı.
+  assert.ok([403, 502].includes(teacher.status), `kontrollü hata bekleniyordu, gelen: ${teacher.status}`);
+  assert.ok(teacher.data && typeof teacher.data.error === 'string', 'hata mesajı Türkçe metin olarak döner');
+});
+
 test('hız sınırı: çok sayıda başarısız girişten sonra 429', async () => {
   const statuses = [];
   for (let i = 0; i < 14; i += 1) {

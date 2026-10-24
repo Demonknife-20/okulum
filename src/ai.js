@@ -61,14 +61,14 @@ function systemPrompt(role) {
   return [...common, ...(byRole[role] || byRole.student)].join('\n');
 }
 
-async function askGemini({ role, history, message }) {
+async function askGemini({ role, history, message, maxTokens = 900 }) {
   const body = {
     systemInstruction: { parts: [{ text: systemPrompt(role) }] },
     contents: [
       ...history.map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] })),
       { role: 'user', parts: [{ text: message }] },
     ],
-    generationConfig: { temperature: 0.5, maxOutputTokens: 900 },
+    generationConfig: { temperature: 0.5, maxOutputTokens: maxTokens },
   };
   let res;
   try {
@@ -157,4 +157,11 @@ function startRetention() {
   setInterval(() => purgeExpired().catch(error => console.error('Saklama temizliği hatası:', error.message)), 24 * 60 * 60 * 1000).unref();
 }
 
-module.exports = { NOTICE, NOTICE_VERSION, DAILY_LIMIT, GLOBAL_DAILY, enabled, askGemini, streamGemini, AiError, systemPrompt, startRetention, isInjection, INJECTION_REPLY };
+// Sınav taslağı: sorular doğrulanmış biçimde döner (bkz. quizdraft.js)
+async function draftQuiz({ topic, example, count, withImages }) {
+  const { buildQuizPrompt, parseQuizDraft } = require('./quizdraft');
+  const text = await askGemini({ role: 'teacher', history: [], message: buildQuizPrompt({ topic, example, count, withImages }), maxTokens: 3500 });
+  return parseQuizDraft(text);
+}
+
+module.exports = { draftQuiz, NOTICE, NOTICE_VERSION, DAILY_LIMIT, GLOBAL_DAILY, enabled, askGemini, streamGemini, AiError, systemPrompt, startRetention, isInjection, INJECTION_REPLY };

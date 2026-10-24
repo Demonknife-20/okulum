@@ -460,3 +460,17 @@ Müdür tüm okulu, öğretmen kendi derslerini, öğrenci yalnızca kendi devam
 - Menüde **Deneyler** sayfası: fizik (eğik atış: hız, açı, Dünya/Ay/Mars) ve kimya (güçlü asit-baz titrasyonu: derişim, hacim, pH eğrisi).
 - Hesaplar `public/labs.js` içinde, birim testleri `test/labs.test.mjs`.
 - Tarayıcıda bilinen değerlerle doğrulandı (örn. 20 m/s, 45°, Dünya: menzil 40,77 m; 0,1 M HCl + 0,1 M NaOH eşdeğerliğinde pH 7).
+
+## Sürüm 51: Yapay zekâ sınav taslağı ve sade tasarım
+
+- **Sınav formunda "Yapay zekâ ile soru taslağı":** Konu yazılır, isteğe bağlı örnek soru eklenir, soru sayısı (3, 5, 8, 10) seçilir. Sorular taslak olarak eklenir; öğretmen kontrol edip kaydeder.
+- **Görselli sorular (isteğe bağlı):** Model basit bir SVG şekil üretebilir. Görsel güvenlik kontrolünden geçer (betik, bağlantı, dış kaynak yok), tarayıcıda PNG'ye çevrilip soruya eklenir.
+- **Sınırlar:** Yalnızca öğretmen ve yönetici kullanır; asistan kullanım bildirimi onaylanmış olmalıdır. Günlük soru hakkı ve genel günlük sınır asistanla ortaktır.
+- **Tasarım:** Gradyan, cam efekti ve ağır gölgeler kaldırıldı; tek vurgu rengi ve düz yüzeyler.
+- Testler: `test/quizdraft.test.mjs` (taslak doğrulama ve SVG temizliği), API testleri (yetki ve kontrollü hatalar).
+
+## Sürüm 52: düz tasarım
+
+- Nokta ızgara arka plan, gradyanlar, cam efekti, parlama ve animasyonlar kaldırıldı.
+- Tek renk yüzeyler, 1 piksel kenarlıklar, 8–10 piksel köşeler, sade düğmeler. Koyu tema aynı mantıkla.
+- Eski kurallar dosyada duruyor; v52 katmanı en sonda olduğu için onları geçersiz kılıyor.

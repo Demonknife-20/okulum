@@ -1622,6 +1622,33 @@ on('POST', '/api/ai/chat', async ({ body, user }) => {
   return ok({ conversationId, reply, redacted: p.redacted });
 });
 
+// Sınav taslağı: öğretmen konu (ve isteğe bağlı örnek soru) yazar, yapay zekâ soruları üretir; kayıt yapılmaz
+on('POST', '/api/ai/quiz-draft', async ({ body, user }) => {
+  if (!['teacher', 'principal'].includes(user.role)) fail(403, 'Sınav taslağı yalnızca öğretmenler içindir.');
+  if (!ai.enabled()) fail(503, 'Asistan henüz etkin değil. Okul yöneticinizle konuşun.');
+  const { rowCount: accepted } = await q('select 1 from ai_consents where user_id = $1 and version = $2', [user.id, ai.NOTICE_VERSION]);
+  if (!accepted) fail(403, 'Asistanı kullanmadan önce kullanım bildirimini kabul etmelisiniz.');
+  const topic = String(body.topic ?? '').trim();
+  const example = String(body.example ?? '').trim();
+  const count = Math.min(10, Math.max(1, Number(body.count) || 5));
+  if (topic.length < 3 || topic.length > 200) fail(400, 'Konu 3 ile 200 karakter arasında olmalı.');
+  if (example.length > 800) fail(400, 'Örnek soru en fazla 800 karakter olabilir.');
+  if (ai.isInjection(topic) || ai.isInjection(example)) fail(400, 'Bu içerik sınav taslağı için kullanılamaz.');
+  const { rows: [usage] } = await q('select used from ai_usage where user_id = $1 and day = current_date', [user.id]);
+  if ((usage?.used ?? 0) >= ai.DAILY_LIMIT) fail(429, `Bugünkü ${ai.DAILY_LIMIT} soru hakkınızı kullandınız. Yarın tekrar deneyin.`);
+  const { rows: [all] } = await q('select coalesce(sum(used), 0)::int as n from ai_usage where day = current_date');
+  if (all.n >= ai.GLOBAL_DAILY) fail(429, 'Asistan bugün çok yoğun. Lütfen yarın tekrar deneyin.');
+  await aiSpend(user.id);
+  try {
+    const questions = await ai.draftQuiz({ topic, example, count, withImages: body.withImages === true });
+    return ok({ questions });
+  } catch (error) {
+    if (error instanceof ai.AiError) fail(error.status, error.message);
+    if (error && error.name === 'DraftError') fail(502, error.message);
+    throw error;
+  }
+});
+
 // Akış (SSE): yanıt parça parça gelir. Olaylar: delta (metin parçası), done (kayıt kimliği), error (hata).
 // Doğrulama hataları normal JSON olarak döner; akış yalnızca yanıt başladıktan sonra açılır.
 on('POST', '/api/ai/chat/stream', async ({ body, user, res }) => {
