@@ -474,3 +474,10 @@ Müdür tüm okulu, öğretmen kendi derslerini, öğrenci yalnızca kendi devam
 - Nokta ızgara arka plan, gradyanlar, cam efekti, parlama ve animasyonlar kaldırıldı.
 - Tek renk yüzeyler, 1 piksel kenarlıklar, 8–10 piksel köşeler, sade düğmeler. Koyu tema aynı mantıkla.
 - Eski kurallar dosyada duruyor; v52 katmanı en sonda olduğu için onları geçersiz kılıyor.
+
+## Sürüm 53: laboratuvarlar ve kimya oyunu
+
+- Menüde üç ayrı laboratuvar: **Matematik Laboratuvarı**, **Fizik Laboratuvarı**, **Kimya Laboratuvarı**.
+- Kimya: periyodik tablodan element seçilir, çalışma alanında sürüklenir; yakın iki parça uygun bileşimdeyse birleşir ve formülü ile adı gösterilir. Keşfedilenler listesi tutulur. Parça çöp alanına bırakılarak silinir.
+- Birleşme kuralları `public/chem.js` içinde (36 element, 25 bileşik). Kapsam sınırlıdır; tepkime denkleştirme ve enerji yoktur.
+- Padlet kartlarında uzun kelime ve gömülü içerik kartın dışına taşmaz.

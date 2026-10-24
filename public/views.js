@@ -2,6 +2,7 @@ import { renderMarkdown } from './markdown.js';
 import { enablePush, disablePush, isSubscribed } from './push.js';
 import { mountGraph } from './graph.js';
 import { projectile, trajectory, titrationPH, equivalenceVolume, titrationSeries } from './labs.js';
+import { ELEMENTS, findProduct, combineComp, atomComp } from './chem.js';
 import { helpHtml } from './help.js';
 import { state, api, $, $$, esc, ROLE, icon, fmtDate, todayIso, pct, initials, tone, readFile, toast, openModal, closeModal, confirmDialog, refreshMe, refresh, val, setBusy, setQuery, parseHash, paintWidths, refreshBadges } from './core.js';
 
@@ -3292,13 +3293,189 @@ function labChemHtml() {
   </div>`;
 }
 
-async function pageDeneyler() {
+async function pageFizik() {
   return {
-    html: `${head('Deney laboratuvarı', 'Fizik ve kimya deneylerinde değerleri değiştirin; sonuçlar ve grafik anında güncellenir.', '')}
-      ${panel('Fizik · Eğik atış', 'Başlangıç hızı, açı ve ortama göre atışın menzilini, yüksekliğini ve süresini hesaplayın.', labPhysicsHtml())}
-      ${panel('Kimya · Asit-baz titrasyonu', 'Güçlü asit (HCl) çözeltisine güçlü baz (NaOH) eklerken pH değişimini izleyin.', labChemHtml())}`,
+    html: `${head('Fizik laboratuvarı', 'Başlangıç hızı, açı ve ortama göre eğik atışın menzilini, yüksekliğini ve süresini hesaplayın.', '')}
+      ${panel('Eğik atış', 'Değerleri değiştirin; yörünge grafiği anında güncellenir.', labPhysicsHtml())}`,
     after: setupLabs,
   };
+}
+
+async function pageKimya() {
+  return {
+    html: `${head('Kimya laboratuvarı', 'Periyodik tablodan elementleri çalışma alanına alın, birleştirin ve oluşan bileşiği görün.', '')}
+      ${panel('Periyodik tablo ve birleşme', 'Bir elemente tıklayın ya da sürükleyin. İki parçayı birbirine yaklaştırıp bırakın.', chemGameHtml())}
+      ${panel('Asit-baz titrasyonu', 'Güçlü asit (HCl) çözeltisine güçlü baz (NaOH) eklerken pH değişimini izleyin.', labChemHtml())}`,
+    after: () => {
+      setupLabs();
+      setupChemGame();
+    },
+  };
+}
+
+// ---------- Kimya oyunu: periyodik tablo ve birleşme ----------
+function chemGameHtml() {
+  const cells = ELEMENTS.map(([symbol, name, number, group, period]) => (
+    `<button type="button" class="el-cell" data-el="${symbol}" data-group="${group}" data-period="${period}" aria-label="${esc(name)} (${symbol})"><b>${symbol}</b><small>${number}</small></button>`
+  )).join('');
+  return `<div class="chem-game">
+    <div class="chem-table-wrap"><div class="chem-table" data-table>${cells}</div></div>
+    <div class="chem-main">
+      <div class="chem-stage" data-stage>
+        <p class="chem-empty" data-empty>Tablodan bir element seçin.</p>
+        <div class="chem-trash" data-trash>Silmek için buraya bırakın</div>
+      </div>
+      <div class="chem-bar">
+        <span class="chem-hint" data-chem-hint>Parçaları birbirine yaklaştırıp bırakın. Uygun olanlar birleşir.</span>
+        <button class="btn ghost sm" type="button" data-chem-clear>Alanı temizle</button>
+      </div>
+      <div class="chem-known"><strong>Keşfedilenler</strong><ul data-known><li class="muted">Henüz bir bileşik oluşmadı.</li></ul></div>
+    </div>
+  </div>`;
+}
+
+function setupChemGame() {
+  const table = document.querySelector('[data-table]');
+  const stage = document.querySelector('[data-stage]');
+  if (!table || !stage) return;
+  // Tablo yerleşimi: grup ve periyot CSS ızgarasına CSSOM ile uygulanır
+  table.querySelectorAll('.el-cell').forEach(cell => {
+    cell.style.gridColumn = cell.dataset.group;
+    cell.style.gridRow = cell.dataset.period;
+  });
+  const hint = document.querySelector('[data-chem-hint]');
+  const known = document.querySelector('[data-known]');
+  const trash = stage.querySelector('[data-trash]');
+  const empty = stage.querySelector('[data-empty]');
+  const items = new Map();
+  const found = new Map();
+  let nextId = 1;
+  let drag = null;
+
+  const setHint = text => { hint.textContent = text; };
+  const refreshEmpty = () => { empty.hidden = items.size > 0; };
+
+  const place = item => {
+    const el = item.el;
+    el.style.left = `${item.x}px`;
+    el.style.top = `${item.y}px`;
+  };
+
+  const addItem = (comp, label, sub, kind, x, y) => {
+    const id = nextId;
+    nextId += 1;
+    const el = document.createElement('div');
+    el.className = `chem-item ${kind}`;
+    el.dataset.id = String(id);
+    el.innerHTML = `<strong></strong><small></small>`;
+    el.querySelector('strong').textContent = label;
+    el.querySelector('small').textContent = sub;
+    stage.appendChild(el);
+    const item = { id, el, comp, label, sub, kind, x, y };
+    items.set(id, item);
+    place(item);
+    refreshEmpty();
+    return item;
+  };
+
+  const removeItem = item => {
+    item.el.remove();
+    items.delete(item.id);
+    refreshEmpty();
+  };
+
+  const renderKnown = () => {
+    if (!found.size) return;
+    known.innerHTML = [...found.values()].map(p => `<li><b></b><span></span></li>`).join('');
+    [...found.values()].forEach((p, i) => {
+      const li = known.children[i];
+      li.querySelector('b').textContent = p.formula;
+      li.querySelector('span').textContent = p.name;
+    });
+  };
+
+  // Element seçimi: çalışma alanının ortasına ya da sürüklenerek bırakılan yere eklenir
+  table.addEventListener('pointerdown', event => {
+    const cell = event.target.closest('.el-cell');
+    if (!cell) return;
+    event.preventDefault();
+    const rect = stage.getBoundingClientRect();
+    const x = Math.max(8, Math.min(rect.width - 90, rect.width / 2 - 40 + (Math.random() * 60 - 30)));
+    const y = Math.max(8, Math.min(rect.height - 90, rect.height / 2 - 30 + (Math.random() * 60 - 30)));
+    const symbol = cell.dataset.el;
+    const name = ELEMENTS.find(e => e[0] === symbol)[1];
+    const item = addItem(atomComp(symbol), symbol, name, 'atom', x, y);
+    setHint(`${name} eklendi. Başka bir parçayla birleştirmeyi deneyin.`);
+    startDrag(item, event);
+  });
+
+  const startDrag = (item, event) => {
+    const rect = stage.getBoundingClientRect();
+    drag = { item, dx: event.clientX - rect.left - item.x, dy: event.clientY - rect.top - item.y, moved: false };
+    item.el.setPointerCapture(event.pointerId);
+    item.el.classList.add('dragging');
+  };
+
+  stage.addEventListener('pointerdown', event => {
+    const el = event.target.closest('.chem-item');
+    if (!el) return;
+    const item = items.get(Number(el.dataset.id));
+    if (item) startDrag(item, event);
+  });
+
+  stage.addEventListener('pointermove', event => {
+    if (!drag) return;
+    const rect = stage.getBoundingClientRect();
+    drag.item.x = Math.max(0, Math.min(rect.width - 80, event.clientX - rect.left - drag.dx));
+    drag.item.y = Math.max(0, Math.min(rect.height - 60, event.clientY - rect.top - drag.dy));
+    drag.moved = true;
+    place(drag.item);
+  });
+
+  const finishDrag = event => {
+    if (!drag) return;
+    const current = drag;
+    drag = null;
+    current.item.el.classList.remove('dragging');
+    if (!current.moved) return;
+    const tr = trash.getBoundingClientRect();
+    if (event.clientX >= tr.left && event.clientX <= tr.right && event.clientY >= tr.top && event.clientY <= tr.bottom) {
+      setHint(`${current.item.label} alandan kaldırıldı.`);
+      removeItem(current.item);
+      return;
+    }
+    tryReact(current.item);
+  };
+  stage.addEventListener('pointerup', finishDrag);
+  stage.addEventListener('pointercancel', () => { drag = null; });
+
+  // İki parça yeterince yakınsa birleşme denenir
+  const tryReact = item => {
+    const NEAR = 64;
+    const other = [...items.values()].find(o => o !== item
+      && Math.hypot(o.x - item.x, o.y - item.y) < NEAR);
+    if (!other) return;
+    const product = findProduct(combineComp(item.comp, other.comp));
+    if (!product) {
+      setHint(`${item.label} ile ${other.label} birleşmedi.`);
+      return;
+    }
+    const x = (item.x + other.x) / 2;
+    const y = (item.y + other.y) / 2;
+    removeItem(item);
+    removeItem(other);
+    const comp = combineComp(item.comp, other.comp);
+    addItem(comp, product.formula, product.name, 'molecule', x, y);
+    if (!found.has(product.formula)) found.set(product.formula, product);
+    renderKnown();
+    setHint(`Tepkime oluştu: ${product.count > 1 ? product.count : ''}${product.formula} · ${product.name}`);
+  };
+
+  document.querySelector('[data-chem-clear]').addEventListener('click', () => {
+    [...items.values()].forEach(removeItem);
+    setHint('Alan temizlendi.');
+  });
+  refreshEmpty();
 }
 
 function fitCanvas(canvas) {
@@ -3369,7 +3546,6 @@ function drawTitration(canvas, series, veq, current) {
 function setupLabs() {
   const fizikBox = document.querySelector('[data-lab=fizik]');
   const kimyaBox = document.querySelector('[data-lab=kimya]');
-  if (!fizikBox || !kimyaBox) return;
 
   const updatePhysics = () => {
     const v = Number(fizikBox.querySelector('[data-in=v]').value);
@@ -3404,13 +3580,20 @@ function setupLabs() {
     drawTitration(document.querySelector('[data-canvas=kimya]'), titrationSeries(ca, va, cb, maxV, 0.5), veq, { v: vb, pH });
   };
 
-  fizikBox.addEventListener('input', updatePhysics);
-  fizikBox.addEventListener('change', updatePhysics);
-  kimyaBox.addEventListener('input', updateChem);
-  kimyaBox.addEventListener('change', updateChem);
-  updatePhysics();
-  updateChem();
-  window.addEventListener('resize', () => { updatePhysics(); updateChem(); });
+  if (fizikBox) {
+    fizikBox.addEventListener('input', updatePhysics);
+    fizikBox.addEventListener('change', updatePhysics);
+    updatePhysics();
+  }
+  if (kimyaBox) {
+    kimyaBox.addEventListener('input', updateChem);
+    kimyaBox.addEventListener('change', updateChem);
+    updateChem();
+  }
+  window.addEventListener('resize', () => {
+    if (fizikBox) updatePhysics();
+    if (kimyaBox) updateChem();
+  });
 }
 
 // ---------- GeoGebra (v32): kendi grafik aracımız, sınıf çalışmaları ----------
@@ -3505,7 +3688,7 @@ const PAGES = {
   yardim: async () => ({ html: helpHtml() }),
   panolar: pagePanolar, pano: pageBoard, asistan: pageAsistan,
   cocuklar: pageCocuklar, sinavlar: pageSinavlar, sinav: pageSinav, notlar: pageNotlar,
-  davranis: pageDavranis, puanlarim: pagePuanlarim, program: pageProgram, takvim: pageTakvim, karne: pageKarne, canli: pageCanli, analiz: pageAnaliz, izin: pageIzin, gece: pageGece, geogebra: pageGeogebra, deneyler: pageDeneyler,
+  davranis: pageDavranis, puanlarim: pagePuanlarim, program: pageProgram, takvim: pageTakvim, karne: pageKarne, canli: pageCanli, analiz: pageAnaliz, izin: pageIzin, gece: pageGece, geogebra: pageGeogebra, deneyler: pageFizik, fizik: pageFizik, kimya: pageKimya,
 };
 export function renderView(page, params) {
   if (page === 'overview' && state.me.role === 'parent') return pageParentOverview();
