@@ -532,3 +532,21 @@ Müdür tüm okulu, öğretmen kendi derslerini, öğrenci yalnızca kendi devam
 - **Mantık kapıları:** AND, OR, XOR, NOT, NAND, NOR ve parantezli ifadeler; doğruluk tablosu. Değerlendirme eval kullanmaz.
 - **Kabarcık sıralama:** Sayılar çubuk grafikte gösterilir; İleri/Geri ile adım adım izlenir (en fazla 20 sayı).
 - Testler: `test/computing.test.mjs`.
+
+## Sürüm 62: Python terminali
+
+- Bilgisayar Laboratuvarı'nda Python yazıp çalıştırma. Kod tarayıcıda yorumlanır; sunucuya gönderilmez.
+- Desteklenenler: değişkenler, `print`, aritmetik (`+ - * / // % **`), karşılaştırma, `and/or/not`, metinler, listeler, `if/elif/else`, `while`, `for … in range(…)`, `break`, `continue`, `pass`, `def` ve `return`; `len`, `range`, `int`, `float`, `str`, `abs`, `min`, `max`.
+- Hatalar satır numarasıyla gösterilir; sonsuz döngü adım sınırıyla durur.
+- Sınır: Tam Python değildir. `import`, sınıflar, `try/except` ve `/` sonucunun ondalık gösterimi (`4/2` → `2.0`) desteklenmez; sonuç `2` olarak yazılır.
+- Testler: `test/pyterm.test.mjs`. `npm test` artık tüm birim test dosyalarını çalıştırır.
+
+## Sürüm 63: kod tarafı düzeltmeleri
+
+- **Python:** `/` her zaman ondalık sonuç verir (`4/2` → `2.0`); ondalık sabitler ve `float()`, `min`, `max`, `range` ile uyumlu.
+- **Kimya:** Birleşme aramasına işlem bütçesi (200 000 adım) eklendi; büyük karışımlarda arama takılmaz. Tablo elementleri Enter/Boşluk ile eklenir; çalışma alanındaki parçalar ok tuşlarıyla taşınır, Delete ile silinir, Enter ile birleşme denenir.
+- **Erişilebilirlik:** Parçalar `role=button` ve açıklayıcı `aria-label` ile sunulur.
+
+## Sürüm 64: yapay zekâ günlükleme
+
+- Sınav taslağı istekleri yapılandırılmış günlüğe yazılır (`evt: ai.quiz_draft`, sonuç türü, rol, soru sayısı). Konu, örnek soru ve model çıktısı günlüğe yazılmaz.

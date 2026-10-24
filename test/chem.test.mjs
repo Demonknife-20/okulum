@@ -103,3 +103,13 @@ test('simgeler: element ve bileşik emojileri; patlayıcı bileşikler listede y
   assert.equal(iconFor('Demir', { Fe: 1 }), '🧲');
   assert.equal(ALL_COMPOUNDS.some(c => c.formula === 'C7H5N3O6'), false, 'patlayıcı bileşik listeye eklenmez');
 });
+
+test('arama bütçesi: büyük karışım takılmadan sonuç döner', () => {
+  const big = [];
+  for (const [sym, n] of [['C', 9], ['H', 20], ['O', 12], ['N', 6], ['S', 4], ['Na', 6], ['Cl', 6], ['Ca', 4], ['Fe', 4], ['P', 4]]) {
+    for (let i = 0; i < n; i += 1) big.push({ [sym]: 1 });
+  }
+  const started = Date.now();
+  bestReaction(big);
+  assert.ok(Date.now() - started < 3000, 'arama 3 saniyeden kısa sürmeli');
+});

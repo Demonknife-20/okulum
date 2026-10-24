@@ -4,6 +4,7 @@ import { mountGraph } from './graph.js';
 import { projectile, trajectory, titrationPH, equivalenceVolume, titrationSeries } from './labs.js';
 import { ELEMENTS, bestReaction, parseFormulaComp, atomComp, iconFor } from './chem.js';
 import { parseBase, toBase, truthTable, bubbleSortSteps } from './computing.js';
+import { runPython } from './pyterm.js';
 import { helpHtml } from './help.js';
 import { state, api, $, $$, esc, ROLE, icon, fmtDate, todayIso, pct, initials, tone, readFile, toast, openModal, closeModal, confirmDialog, refreshMe, refresh, val, setBusy, setQuery, parseHash, paintWidths, refreshBadges } from './core.js';
 
@@ -3333,6 +3334,19 @@ async function pageBilgisayar() {
         <p class="lab-error" data-res="hata" role="alert"></p>
         <div class="table-scroll"><table class="truth-table"><thead data-res="baslik"></thead><tbody data-res="satirlar"></tbody></table></div>
       </div>`)}
+      ${panel('Python terminali', 'Python yazın ve Çalıştır deyin. Desteklenenler: değişkenler, print, if, for, while, def, liste ve metin.', `<div class="pad lab-computing" data-comp="python">
+        <div class="py-toolbar"><label class="field"><span>Hazır örnek</span><select data-py="ornek">
+          <option value="">Seçin</option>
+          <option value="merhaba">Merhaba dünya</option>
+          <option value="fizzbuzz">FizzBuzz</option>
+          <option value="fonksiyon">Fonksiyon</option>
+          <option value="liste">Liste ve döngü</option>
+          <option value="asal">Asal sayılar</option>
+        </select></label></div>
+        <textarea class="py-code" data-py="kod" rows="8" spellcheck="false" aria-label="Python kodu">print("Merhaba dünya")</textarea>
+        <div class="py-actions"><button class="btn primary sm" type="button" data-action="py-run">Çalıştır</button><button class="btn ghost sm" type="button" data-action="py-clear">Çıktıyı temizle</button></div>
+        <pre class="py-output" data-py="cikti" role="log" aria-live="polite"></pre>
+      </div>`)}
       ${panel('Kabarcık sıralama', 'Sayıları virgülle yazın ve adımları izleyin.', `<div class="pad lab-computing" data-comp="siralama">
         <label class="field"><span>Sayılar</span><input data-in="liste" value="5,1,4,2,8" autocomplete="off"></label>
         <div class="sort-bars" data-res="cubuklar"></div>
@@ -3428,6 +3442,20 @@ function setupComputing() {
     renderSort();
   };
 
+  const ornekler = {
+    merhaba: 'print("Merhaba dünya")\nad = "Öğrenci"\nprint("Selam", ad)',
+    fizzbuzz: 'for i in range(1, 16):\n    if i % 15 == 0:\n        print("FizzBuzz")\n    elif i % 3 == 0:\n        print("Fizz")\n    elif i % 5 == 0:\n        print("Buzz")\n    else:\n        print(i)',
+    fonksiyon: 'def alan(r):\n    return 3 * r * r\n\nfor r in [1, 2, 3]:\n    print("yarıçap", r, "alan", alan(r))',
+    liste: 'notlar = [70, 85, 92, 60]\ntoplam = 0\nfor n in notlar:\n    toplam = toplam + n\nprint("ortalama", toplam / len(notlar))',
+    asal: 'for n in range(2, 30):\n    asal = True\n    for d in range(2, n):\n        if n % d == 0:\n            asal = False\n            break\n    if asal:\n        print(n)',
+  };
+  const pySelect = document.querySelector('[data-py=ornek]');
+  if (pySelect) {
+    pySelect.addEventListener('change', () => {
+      if (ornekler[pySelect.value]) document.querySelector('[data-py=kod]').value = ornekler[pySelect.value];
+      pySelect.value = '';
+    });
+  }
   sayi.addEventListener('input', updateNumber);
   sayi.addEventListener('change', updateNumber);
   mantik.addEventListener('input', updateLogic);
@@ -3436,6 +3464,22 @@ function setupComputing() {
   updateLogic();
   resetSort();
 }
+
+ACTIONS['py-run'] = () => {
+  const code = document.querySelector('[data-py=kod]').value;
+  const out = document.querySelector('[data-py=cikti]');
+  const result = runPython(code);
+  const lines = result.output.map(line => `${line}`);
+  if (!result.ok) lines.push(result.error);
+  out.textContent = lines.length ? lines.join('\n') : '(çıktı yok)';
+  out.classList.toggle('py-error', !result.ok);
+};
+
+ACTIONS['py-clear'] = () => {
+  const out = document.querySelector('[data-py=cikti]');
+  out.textContent = '';
+  out.classList.remove('py-error');
+};
 
 ACTIONS['sort-next'] = () => {
   if (SORT_STATE.index < SORT_STATE.steps.length - 1) SORT_STATE.index += 1;
@@ -3508,6 +3552,9 @@ function setupChemGame() {
     const el = document.createElement('div');
     el.className = `chem-item ${kind}`;
     el.dataset.id = String(id);
+    el.tabIndex = 0;
+    el.setAttribute('role', 'button');
+    el.setAttribute('aria-label', `${label}, ${sub}. Taşımak için ok tuşları, silmek için Delete, birleştirmek için Enter.`);
     el.innerHTML = `<span class="chem-ico" aria-hidden="true"></span><strong></strong><small></small>`;
     el.querySelector('.chem-ico').textContent = iconFor(sub, comp);
     el.querySelector('strong').textContent = label;
@@ -3536,6 +3583,41 @@ function setupChemGame() {
       li.querySelector('span').textContent = p.name;
     });
   };
+
+  // Klavye: tablodaki bir elemente Enter/Boşluk ile (fare olayı olmadan) çalışma alanına eklenir
+  table.addEventListener('click', event => {
+    if (event.detail !== 0) return;
+    const cell = event.target.closest('.el-cell');
+    if (!cell) return;
+    const rect = stage.getBoundingClientRect();
+    const symbol = cell.dataset.el;
+    const name = ELEMENTS.find(e => e[0] === symbol)[1];
+    addItem(atomComp(symbol), symbol, name, 'atom', rect.width / 2 - 40, rect.height / 2 - 30);
+    setHint(`${name} eklendi. Parçayı seçip ok tuşlarıyla taşıyın, Enter ile birleştirin.`);
+  });
+
+  // Klavye: seçili parça ok tuşlarıyla taşınır, Delete ile silinir, Enter ile birleşme denenir
+  stage.addEventListener('keydown', event => {
+    const el = event.target.closest('.chem-item');
+    if (!el) return;
+    const item = items.get(Number(el.dataset.id));
+    if (!item) return;
+    const step = event.shiftKey ? 30 : 10;
+    const moves = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] };
+    if (moves[event.key]) {
+      event.preventDefault();
+      item.x = Math.max(0, item.x + moves[event.key][0]);
+      item.y = Math.max(0, item.y + moves[event.key][1]);
+      place(item);
+    } else if (event.key === 'Delete' || event.key === 'Backspace') {
+      event.preventDefault();
+      setHint(`${item.label} alandan kaldırıldı.`);
+      removeItem(item);
+    } else if (event.key === 'Enter') {
+      event.preventDefault();
+      reactAround(item);
+    }
+  });
 
   // Element seçimi: çalışma alanının ortasına ya da sürüklenerek bırakılan yere eklenir
   table.addEventListener('pointerdown', event => {

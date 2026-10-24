@@ -1639,12 +1639,24 @@ on('POST', '/api/ai/quiz-draft', async ({ body, user }) => {
   const { rows: [all] } = await q('select coalesce(sum(used), 0)::int as n from ai_usage where day = current_date');
   if (all.n >= ai.GLOBAL_DAILY) fail(429, 'Asistan bugün çok yoğun. Lütfen yarın tekrar deneyin.');
   await aiSpend(user.id);
+  // Günlük: yalnızca olay bilgisi ve sayılar; konu, örnek soru ve model çıktısı yazılmaz
+  const logEvent = (outcome, extra = {}) => {
+    console.log(JSON.stringify({ evt: 'ai.quiz_draft', outcome, role: user.role, count, withImages: body.withImages === true, topicLen: topic.length, ...extra, at: new Date().toISOString() }));
+  };
   try {
     const questions = await ai.draftQuiz({ topic, example, count, withImages: body.withImages === true });
+    logEvent('ok', { produced: questions.length });
     return ok({ questions });
   } catch (error) {
-    if (error instanceof ai.AiError) fail(error.status, error.message);
-    if (error && error.name === 'DraftError') fail(502, error.message);
+    if (error instanceof ai.AiError) {
+      logEvent('provider_error', { status: error.status });
+      fail(error.status, error.message);
+    }
+    if (error && error.name === 'DraftError') {
+      logEvent('invalid_output');
+      fail(502, error.message);
+    }
+    logEvent('internal_error');
     throw error;
   }
 });

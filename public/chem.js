@@ -377,13 +377,18 @@ export function parseFormulaComp(text) {
 }
 
 // Parçaların bileşimlerinden hedef bileşimi tam olarak karşılayan alt kümeyi bulur (derinlemesine arama).
-function coverTarget(types, target) {
+// Arama bütçesi: çok büyük karışımlarda aramanın takılmasını önler
+const SEARCH_BUDGET = 200000;
+
+function coverTarget(types, target, budget) {
   const keys = Object.keys(target);
   const need = keys.map(k => target[k]);
   const usable = types.filter(t => Object.keys(t.comp).every(k => target[k] !== undefined));
   const failed = new Set();
   const chosen = [];
   const search = (ti, remaining) => {
+    budget.nodes += 1;
+    if (budget.nodes > budget.limit) return false;
     if (remaining.every(v => v === 0)) return true;
     if (ti >= usable.length) return false;
     const memoKey = `${ti}:${remaining.join(',')}`;
@@ -419,6 +424,7 @@ export function bestReaction(comps) {
     types.get(key).idx.push(i);
   });
   const typeList = [...types.values()];
+  const budget = { nodes: 0, limit: SEARCH_BUDGET };
   const available = {};
   for (const c of comps) for (const [e, n] of Object.entries(c)) available[e] = (available[e] ?? 0) + n;
   let best = null;
@@ -428,7 +434,8 @@ export function bestReaction(comps) {
       if (Object.entries(target).some(([e, n]) => (available[e] ?? 0) < n)) continue;
       const atoms = Object.values(target).reduce((a, b) => a + b, 0);
       if (best && atoms <= best.atoms) continue;
-      const indices = coverTarget(typeList, target);
+      if (budget.nodes > budget.limit) break;
+      const indices = coverTarget(typeList, target, budget);
       if (indices && indices.length >= 2) {
         best = { indices, comp: target, product: findProduct(target), atoms };
       }
