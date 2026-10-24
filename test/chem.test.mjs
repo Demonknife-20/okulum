@@ -38,7 +38,7 @@ test('formül: rakamlar alt simgeye çevrilir', () => {
   assert.equal(prettyFormula('Al2O3'), 'Al₂O₃');
 });
 
-import { COMPOUNDS, ALL_COMPOUNDS } from '../public/chem.js';
+import { ALL_COMPOUNDS } from '../public/chem.js';
 
 test('bileşik tablosu: aynı bileşim iki kez tanımlı değil', () => {
   const keys = ALL_COMPOUNDS.map(c => Object.keys(c.comp).sort().map(k => `${k}${c.comp[k]}`).join(''));
@@ -93,4 +93,13 @@ test('küme birleşmesi: 24 atomdan glikoz, parçalardan sülfürik asit ve su',
   assert.equal(bestReaction([{ H: 1 }, { H: 1 }, { O: 1 }]).product.formula, 'H₂O');
   assert.equal(bestReaction([{ H: 2 }]), null, 'tek parça tepkime vermez');
   assert.equal(bestReaction([{ Na: 1 }, { Au: 1 }]), null, 'eşleşmeyen parçalar birleşmez');
+});
+
+import { iconFor } from '../public/chem.js';
+
+test('simgeler: element ve bileşik emojileri; patlayıcı bileşikler listede yok', () => {
+  assert.equal(iconFor('Su', { H: 2, O: 1 }), '💧');
+  assert.equal(iconFor('Sofra tuzu'), '🧂');
+  assert.equal(iconFor('Demir', { Fe: 1 }), '🧲');
+  assert.equal(ALL_COMPOUNDS.some(c => c.formula === 'C7H5N3O6'), false, 'patlayıcı bileşik listeye eklenmez');
 });

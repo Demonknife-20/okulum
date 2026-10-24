@@ -1696,3 +1696,16 @@ test('gizlilik: taslak sayfa yayınlanır ve yer tutucuları açıkça işaretle
   assert.match(html, /Taslak:/, 'hukuki onay öncesi taslak olduğu belirtilir');
   assert.match(html, /\[Verilerin ne kadar süre saklandığı/, 'saklama süresi uydurulmaz, yer tutucu kalır');
 });
+
+test('pansiyon yetkisi: liste ve onay aynı kuralı kullanır; sınıfı olmayan öğretmen karar düğmesi görmez', async () => {
+  const list = await call('GET', '/api/leaves', { cookie: state.ali });
+  assert.equal(list.status, 200);
+  for (const leave of list.data.leaves) {
+    assert.equal(leave.canDecide, false, 'öğrettiği sınıfta olmayan öğretmen onay düğmesi görmemeli');
+    assert.equal(leave.canExit, false);
+  }
+  const principalList = await call('GET', '/api/leaves', { cookie: state.principal });
+  for (const leave of principalList.data.leaves.filter(l => l.status === 'bekliyor')) {
+    assert.equal(leave.canDecide, true, 'müdür bekleyen her izni onaylayabilir');
+  }
+});

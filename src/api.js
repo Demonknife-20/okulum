@@ -3380,13 +3380,19 @@ on('GET', '/api/leaves', async ({ query, user }) => {
     from leave_requests l join users u on u.id = l.student_id
     left join enrollments e on e.student_id = l.student_id left join classes c on c.id = e.class_id
     where ${where} order by l.starts_at desc limit 300`, params);
-  const staff = user.role === 'principal' || user.role === 'teacher';
+  // Yetki, onay uç noktasıyla aynı kuraldır: müdür her öğrenci, öğretmen yalnızca öğrettiği sınıfların öğrencileri
+  let manageable = null;
+  if (user.role === 'teacher') {
+    const { rows: mine } = await q('select distinct e.student_id from enrollments e join teaching t on t.class_id = e.class_id where t.teacher_id = $1', [user.id]);
+    manageable = new Set(mine.map(m => m.student_id));
+  }
+  const canManage = r => user.role === 'principal' || (manageable !== null && manageable.has(r.studentId));
   return ok({
     leaves: rows.map(r => ({
       ...r,
-      canDecide: staff && r.status === 'bekliyor',
-      canExit: staff && r.status === 'onaylandi',
-      canReturn: staff && r.status === 'disarida',
+      canDecide: canManage(r) && r.status === 'bekliyor',
+      canExit: canManage(r) && r.status === 'onaylandi',
+      canReturn: canManage(r) && r.status === 'disarida',
       canCancel: r.status === 'bekliyor' && r.requestedBy === user.id,
     })),
   });

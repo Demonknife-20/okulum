@@ -26,11 +26,6 @@ const BAN_MS = 60 * 60 * 1000;
 const bans = new Map();
 const isBanned = key => (bans.get(key) ?? 0) > Date.now();
 setInterval(() => { const now = Date.now(); for (const [key, until] of bans) if (until <= now) bans.delete(key); }, 10 * 60 * 1000).unref();
-const ROBOTS = `User-agent: *
-Disallow: /api/
-Disallow: /gizli-dizin/
-Crawl-delay: 10
-`;
 // Site adresi: PUBLIC_URL tanımlıysa o, değilse istek adresi (Render'da https).
 const siteBase = req => {
   if (process.env.PUBLIC_URL) return process.env.PUBLIC_URL.replace(/\/$/, '');

@@ -50,3 +50,27 @@ test('istem: konu ve örnek tırnak içinde verilir; görsel kuralı seçime gö
   assert.match(noImg, /svg" alanını boş bırak/);
   assert.doesNotMatch(noImg, /Örnek soru/);
 });
+
+test('svg izin listesi: meşru şekiller geçer, kaçınmaya çalışan yapılar reddedilir', () => {
+  const ok = '<svg viewBox="0 0 400 300"><g fill="none" stroke="#000"><circle cx="10" cy="10" r="5"/><text x="5" y="20" font-size="14">A</text></g></svg>';
+  assert.equal(sanitizeSvg(ok), ok);
+  const bad = [
+    '<svg onload="alert(1)"><circle r="5"/></svg>',
+    '<svg ONLOAD="x()"><circle r="5"/></svg>',
+    '<svg><circle r="5" href="javascript:alert(1)"/></svg>',
+    '<svg><circle r="5" fill="url(#x)"/></svg>',
+    '<svg><circle r="5" fill="javascript:x"/></svg>',
+    '<svg><circle r="5" fill="&#106;avascript:x"/></svg>',
+    '<svg><script>alert(1)</script></svg>',
+    '<svg><a href="https://x.com"><circle r="5"/></a></svg>',
+    '<svg><circle r="5"></svg>',
+    '<svg><circle r="5"/></g></svg>',
+    '<svg><circle r="5"/><!-- x --></svg>',
+    '<svg><circle r="5"/>düz < metin</svg>',
+    '<svg><style>@import "x";</style></svg>',
+    '<svg><foreignObject><div>x</div></foreignObject></svg>',
+    '<svg><circle r="5"/></svg><svg><rect/></svg>',
+    '<svg><circle r="5" data-x="1"/></svg>',
+  ];
+  for (const svg of bad) assert.equal(sanitizeSvg(svg), null, `reddedilmeliydi: ${svg}`);
+});

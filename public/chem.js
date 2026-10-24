@@ -436,3 +436,29 @@ export function bestReaction(comps) {
   }
   return best ? { indices: best.indices, comp: best.comp, product: best.product } : null;
 }
+
+// ---- Emoji simgeleri: elementler ve bileşikler için (görsel yerine, kolay ve telifsiz) ----
+const ELEMENT_ICONS = {
+  H: '💨', He: '🎈', C: '⚫', N: '🌬️', O: '🫁', F: '🟡', Ne: '💡', Na: '🧂', Mg: '⚪', Al: '🥫', Si: '🔷',
+  P: '🟠', S: '🟡', Cl: '🟢', Ar: '🫧', K: '🍌', Ca: '🦴', Fe: '🧲', Cu: '🪙', Zn: '🔩', Ag: '🥈', Au: '🥇',
+  Pb: '🔘', Hg: '🌡️', I: '🟣', Br: '🟤', Sn: '🥄', Ti: '🚀', Cr: '💎', Mn: '🟪', Co: '🔵', Ni: '⚙️', Li: '🔋',
+};
+const NAME_ICONS = [
+  [/^Su$/, '💧'], [/^Sofra tuzu/, '🧂'], [/Glikoz|sakkaroz|şeker/i, '🍬'], [/C vitamini/i, '🍊'],
+  [/Sirke|Asetik/i, '🫙'], [/Limon|Sitrik/i, '🍋'], [/Alkol|Etanol|Metanol|Propanol|Bütanol|Pentanol/i, '🍷'],
+  [/Aseton|Etil asetat|Bütanon|Asetaldehit|Formaldehit/i, '🧴'], [/Benzen|Toluen|Fenol/i, '🛢️'],
+  [/gazı|Gaz/i, '💨'], [/Metan|Etan|Propan|Bütan|Asetilen|alkan|Heksan|Hekzan|Heptan|Oktan|İzooktan/i, '🔥'],
+  [/alken|Eten|Propen|Büten|Penten|Heksen|Etilen/i, '🧪'], [/asit|Asit/i, '🧪'],
+  [/hidroksit|Sud kostik|Potas|kireç|Magnezya sütü/i, '🧼'], [/klorür|sülfat|nitrat|karbonat|fosfat|bromür|iyodür|florür|sülfür|tuz|bikarbonat|siyanür|asetat|formiat|oksalat|kromat|borat|permanganat|perklorat|klorat|iyodat|bromat|tiyosiyanat|karbür|peroksit/i, '🧂'],
+  [/oksit|Oksit/i, '⚗️'], [/Pas|Manyetit/i, '🟤'], [/Kum|kuvars/i, '🏖️'], [/Gümüş/i, '🥈'], [/Altın/i, '🥇'],
+  [/Amonyum|Amonyak|Üre|Hidrazin|Hidroksilamin/i, '🧴'],
+];
+
+// Element ya da bileşik için emoji
+export function iconFor(name, comp) {
+  if (comp && Object.keys(comp).length === 1 && Object.values(comp)[0] === 1 && ELEMENT_ICONS[Object.keys(comp)[0]]) {
+    return ELEMENT_ICONS[Object.keys(comp)[0]];
+  }
+  const found = NAME_ICONS.find(([pattern]) => pattern.test(name));
+  return found ? found[1] : '⚗️';
+}

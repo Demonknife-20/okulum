@@ -508,3 +508,27 @@ Müdür tüm okulu, öğretmen kendi derslerini, öğrenci yalnızca kendi devam
 - Tüm sayfalarda tek bir ölçek: yazı boyutları, boşluklar, köşe yarıçapları ve renkler (`:root` değişkenleri).
 - Tablolar, düğmeler, form alanları, rozetler, boş durumlar, bildirimler ve pencereler aynı kurallara bağlı; mobilde dokunma alanları büyütülür.
 - Bileşik listesi 1216'ya çıktı (aseton, etil asetat, fenol, toluen, karbon tetraklorür gibi eklemeler).
+
+## Sürüm 58: kimya simgeleri
+
+- Element ve bileşiklere emoji simgesi (örn. su 💧, sofra tuzu 🧂, glikoz 🍬, demir 🧲). Keşfedilenler listesinde de görünür.
+- Patlayıcı maddeler (ör. TNT) bileşik listesine eklenmez.
+
+## Sürüm 59: güvenlik ve tutarlılık düzeltmeleri
+
+- **SVG temizliği:** Düzenli ifadelerle "içermiyor" kontrolü yerine her etiket ve özellik tek tek ayrıştırılır; izin listesinde olmayan etiket ya da özellik (onload, href, data-*, stil, dış kaynak) reddedilir. Testler: `test/quizdraft.test.mjs`.
+- **Pansiyon yetkisi:** İzin listesindeki onay/çıkış/dönüş düğmeleri artık onay uç noktasıyla aynı kuralı kullanır. Öğretmen yalnızca öğrettiği sınıfların öğrencilerinin izinlerini onaylayabilir; müdür hepsini onaylar.
+- **E2E betikleri:** Chromium yolu, veritabanı adresi ve ekran görüntüsü klasörü ortam değişkenleriyle (`CHROME_PATH`, `E2E_DB`, `E2E_SHOTS`) verilebilir hâle getirildi.
+
+## Sürüm 60: kalite ve GeoGebra
+
+- **Şema testi:** Sıfırdan kurulumda tüm migrasyonların sırayla ve bir kez uygulandığı otomatik olarak doğrulanır (`test/schema.test.mjs`).
+- **Lint:** `npm run lint` (ESLint 9 yapılandırması `eslint.config.mjs`); CI'da test öncesi çalışır.
+- **GeoGebra:** SVG dışa aktarma (**SVG indir**). Çember ile doğru kesişimi: `K1=Kesişim(c,h,1)` ve `K2=Kesişim(c,h,2)`.
+
+## Sürüm 61: Bilgisayar laboratuvarı
+
+- **Sayı sistemleri:** Onluk, ikili, sekizli, onaltılı arasında anında dönüşüm; geçersiz rakamlarda açıklayıcı uyarı.
+- **Mantık kapıları:** AND, OR, XOR, NOT, NAND, NOR ve parantezli ifadeler; doğruluk tablosu. Değerlendirme eval kullanmaz.
+- **Kabarcık sıralama:** Sayılar çubuk grafikte gösterilir; İleri/Geri ile adım adım izlenir (en fazla 20 sayı).
+- Testler: `test/computing.test.mjs`.

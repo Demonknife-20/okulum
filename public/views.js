@@ -2,7 +2,8 @@ import { renderMarkdown } from './markdown.js';
 import { enablePush, disablePush, isSubscribed } from './push.js';
 import { mountGraph } from './graph.js';
 import { projectile, trajectory, titrationPH, equivalenceVolume, titrationSeries } from './labs.js';
-import { ELEMENTS, bestReaction, parseFormulaComp, atomComp } from './chem.js';
+import { ELEMENTS, bestReaction, parseFormulaComp, atomComp, iconFor } from './chem.js';
+import { parseBase, toBase, truthTable, bubbleSortSteps } from './computing.js';
 import { helpHtml } from './help.js';
 import { state, api, $, $$, esc, ROLE, icon, fmtDate, todayIso, pct, initials, tone, readFile, toast, openModal, closeModal, confirmDialog, refreshMe, refresh, val, setBusy, setQuery, parseHash, paintWidths, refreshBadges } from './core.js';
 
@@ -3313,6 +3314,139 @@ async function pageKimya() {
   };
 }
 
+// ---------- Bilgisayar laboratuvarı: sayı sistemleri, mantık kapıları, sıralama ----------
+async function pageBilgisayar() {
+  return {
+    html: `${head('Bilgisayar laboratuvarı', 'Sayı sistemlerini, mantık kapılarını ve sıralama algoritmasını adım adım inceleyin.', '')}
+      ${panel('Sayı sistemleri', 'Bir sayıyı seçtiğiniz tabandan yazın; diğer tabanlardaki karşılığı anında görünür.', `<div class="pad lab-computing" data-comp="sayi">
+        <div class="grid-2">
+          <label class="field"><span>Sayı</span><input data-in="sayi" value="255" autocomplete="off"></label>
+          <label class="field"><span>Taban</span><select data-in="taban">
+            <option value="10" selected>Onluk (10)</option><option value="2">İkili (2)</option><option value="8">Sekizli (8)</option><option value="16">Onaltılı (16)</option>
+          </select></label>
+        </div>
+        <ul class="lab-results"><li>İkili: <b data-res="ikili">–</b></li><li>Sekizli: <b data-res="sekizli">–</b></li><li>Onluk: <b data-res="onlu">–</b></li><li>Onaltılı: <b data-res="onaltili">–</b></li></ul>
+        <p class="lab-error" data-res="hata" role="alert"></p>
+      </div>`)}
+      ${panel('Mantık kapıları', 'Değişkenleri A, B, C… olarak yazın. Kullanılabilir: AND, OR, XOR, NOT, NAND, NOR, parantez.', `<div class="pad lab-computing" data-comp="mantik">
+        <label class="field"><span>İfade</span><input data-in="ifade" value="(A AND B) OR NOT C" autocomplete="off"></label>
+        <p class="lab-error" data-res="hata" role="alert"></p>
+        <div class="table-scroll"><table class="truth-table"><thead data-res="baslik"></thead><tbody data-res="satirlar"></tbody></table></div>
+      </div>`)}
+      ${panel('Kabarcık sıralama', 'Sayıları virgülle yazın ve adımları izleyin.', `<div class="pad lab-computing" data-comp="siralama">
+        <label class="field"><span>Sayılar</span><input data-in="liste" value="5,1,4,2,8" autocomplete="off"></label>
+        <div class="sort-bars" data-res="cubuklar"></div>
+        <div class="sort-controls"><button class="btn ghost sm" type="button" data-action="sort-prev">Geri</button><span data-res="adim">Adım 0</span><button class="btn ghost sm" type="button" data-action="sort-next">İleri</button></div>
+        <p class="lab-error" data-res="hata" role="alert"></p>
+      </div>`)}`,
+    after: setupComputing,
+  };
+}
+
+const SORT_STATE = { steps: [], index: 0 };
+
+// Adım çubuklarını çizer; yükseklikler CSSOM ile atanır (satır içi stil yok)
+function renderSortBars() {
+  const root = document.querySelector('[data-comp=siralama]');
+  if (!root) return;
+  const bars = root.querySelector('[data-res=cubuklar]');
+  const adim = root.querySelector('[data-res=adim]');
+  const step = SORT_STATE.steps[SORT_STATE.index];
+  if (!step) return;
+  const max = Math.max(1, ...step.array.map(Math.abs));
+  bars.innerHTML = step.array.map((_v, i) => {
+    const active = step.compare && step.compare.includes(i);
+    const cls = active ? (step.swapped ? 'bar swap' : 'bar compare') : 'bar';
+    return `<div class="${cls}"><span></span><small></small></div>`;
+  }).join('');
+  bars.querySelectorAll('.bar').forEach((el, i) => {
+    el.querySelector('span').style.height = `${Math.max(6, (Math.abs(step.array[i]) / max) * 100)}%`;
+    el.querySelector('small').textContent = step.array[i];
+  });
+  adim.textContent = step.done ? 'Sıralama tamam' : `Adım ${SORT_STATE.index} / ${SORT_STATE.steps.length - 1}`;
+}
+
+function setupComputing() {
+  const sayi = document.querySelector('[data-comp=sayi]');
+  const mantik = document.querySelector('[data-comp=mantik]');
+  const siralama = document.querySelector('[data-comp=siralama]');
+
+  const updateNumber = () => {
+    const value = sayi.querySelector('[data-in=sayi]').value;
+    const base = Number(sayi.querySelector('[data-in=taban]').value);
+    const errorEl = sayi.querySelector('[data-res=hata]');
+    try {
+      const n = parseBase(value, base);
+      sayi.querySelector('[data-res=ikili]').textContent = toBase(n, 2);
+      sayi.querySelector('[data-res=sekizli]').textContent = toBase(n, 8);
+      sayi.querySelector('[data-res=onlu]').textContent = toBase(n, 10);
+      sayi.querySelector('[data-res=onaltili]').textContent = toBase(n, 16);
+      errorEl.textContent = '';
+    } catch (error) {
+      errorEl.textContent = error.message;
+    }
+  };
+
+  const updateLogic = () => {
+    const expression = mantik.querySelector('[data-in=ifade]').value;
+    const errorEl = mantik.querySelector('[data-res=hata]');
+    const head = mantik.querySelector('[data-res=baslik]');
+    const body = mantik.querySelector('[data-res=satirlar]');
+    try {
+      const { vars, rows } = truthTable(expression);
+      if (!vars.length) throw new Error('En az bir değişken yazın (A, B, C…)');
+      head.innerHTML = `<tr>${vars.map(() => `<th></th>`).join('')}<th>Sonuç</th></tr>`;
+      head.querySelectorAll('th').forEach((th, i) => { th.textContent = i < vars.length ? vars[i] : 'Sonuç'; });
+      body.innerHTML = rows.map(r => `<tr>${vars.map(() => `<td></td>`).join('')}<td class="${r.result ? 'is-true' : 'is-false'}"></td></tr>`).join('');
+      body.querySelectorAll('tr').forEach((tr, ri) => {
+        const cells = tr.querySelectorAll('td');
+        vars.forEach((v, ci) => { cells[ci].textContent = rows[ri].values[v] ? '1' : '0'; });
+        cells[vars.length].textContent = rows[ri].result ? '1' : '0';
+      });
+      errorEl.textContent = '';
+    } catch (error) {
+      head.innerHTML = '';
+      body.innerHTML = '';
+      errorEl.textContent = error.message;
+    }
+  };
+
+  const renderSort = renderSortBars;
+
+  const resetSort = () => {
+    const errorEl = siralama.querySelector('[data-res=hata]');
+    const raw = siralama.querySelector('[data-in=liste]').value;
+    const numbers = raw.split(',').map(x => x.trim()).filter(Boolean).map(Number);
+    if (!numbers.length || numbers.some(n => !Number.isFinite(n)) || numbers.length > 20) {
+      errorEl.textContent = 'En fazla 20 sayı, virgülle ayırarak yazın';
+      SORT_STATE.steps = [];
+      return;
+    }
+    errorEl.textContent = '';
+    SORT_STATE.steps = bubbleSortSteps(numbers);
+    SORT_STATE.index = 0;
+    renderSort();
+  };
+
+  sayi.addEventListener('input', updateNumber);
+  sayi.addEventListener('change', updateNumber);
+  mantik.addEventListener('input', updateLogic);
+  siralama.addEventListener('input', resetSort);
+  updateNumber();
+  updateLogic();
+  resetSort();
+}
+
+ACTIONS['sort-next'] = () => {
+  if (SORT_STATE.index < SORT_STATE.steps.length - 1) SORT_STATE.index += 1;
+  renderSortBars();
+};
+
+ACTIONS['sort-prev'] = () => {
+  if (SORT_STATE.index > 0) SORT_STATE.index -= 1;
+  renderSortBars();
+};
+
 // ---------- Kimya oyunu: periyodik tablo ve birleşme ----------
 function chemGameHtml() {
   const cells = ELEMENTS.map(([symbol, name, number, group, period]) => (
@@ -3374,7 +3508,8 @@ function setupChemGame() {
     const el = document.createElement('div');
     el.className = `chem-item ${kind}`;
     el.dataset.id = String(id);
-    el.innerHTML = `<strong></strong><small></small>`;
+    el.innerHTML = `<span class="chem-ico" aria-hidden="true"></span><strong></strong><small></small>`;
+    el.querySelector('.chem-ico').textContent = iconFor(sub, comp);
     el.querySelector('strong').textContent = label;
     el.querySelector('small').textContent = sub;
     stage.appendChild(el);
@@ -3393,9 +3528,10 @@ function setupChemGame() {
 
   const renderKnown = () => {
     if (!found.size) return;
-    known.innerHTML = [...found.values()].map(p => `<li><b></b><span></span></li>`).join('');
+    known.innerHTML = [...found.values()].map(_p => `<li><i class="chem-ico" aria-hidden="true"></i><b></b><span></span></li>`).join('');
     [...found.values()].forEach((p, i) => {
       const li = known.children[i];
+      li.querySelector('i').textContent = iconFor(p.name, null);
       li.querySelector('b').textContent = p.formula;
       li.querySelector('span').textContent = p.name;
     });
@@ -3756,7 +3892,7 @@ const PAGES = {
   yardim: async () => ({ html: helpHtml() }),
   panolar: pagePanolar, pano: pageBoard, asistan: pageAsistan,
   cocuklar: pageCocuklar, sinavlar: pageSinavlar, sinav: pageSinav, notlar: pageNotlar,
-  davranis: pageDavranis, puanlarim: pagePuanlarim, program: pageProgram, takvim: pageTakvim, karne: pageKarne, canli: pageCanli, analiz: pageAnaliz, izin: pageIzin, gece: pageGece, geogebra: pageGeogebra, deneyler: pageFizik, fizik: pageFizik, kimya: pageKimya,
+  davranis: pageDavranis, puanlarim: pagePuanlarim, program: pageProgram, takvim: pageTakvim, karne: pageKarne, canli: pageCanli, analiz: pageAnaliz, izin: pageIzin, gece: pageGece, geogebra: pageGeogebra, deneyler: pageFizik, fizik: pageFizik, kimya: pageKimya, bilgisayar: pageBilgisayar,
 };
 export function renderView(page, params) {
   if (page === 'overview' && state.me.role === 'parent') return pageParentOverview();

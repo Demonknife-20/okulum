@@ -166,3 +166,29 @@ test('uzaklık: iki nokta arasındaki uzaklık ölçülür ve nesne olarak tanı
   const missing = buildModel(['A=(0,0)', 'u=Uzaklık(A,Q)']);
   assert.equal(missing.errors[1], 'Nokta tanımlı değil: Q');
 });
+
+import { exportSvg } from '../public/graph.js';
+
+test('svg dışa aktarma: nesneler vektör olarak çıkar, etiketler kaçırılır', () => {
+  const model = buildModel(['A=(0,0)', 'B=(2,1)', 'd=Doğru(A,B)', 'c=Çember(A,B)', 'f(x)=x^2']);
+  const svg = exportSvg({ model, view: { cx: 0, cy: 0, scale: 50 }, width: 400, height: 300, showAxes: true });
+  assert.match(svg, /^<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg"/);
+  assert.match(svg, /<polyline/, 'fonksiyon eğrisi');
+  assert.match(svg, /<circle/, 'nokta ve çember');
+  assert.match(svg, />A</, 'nokta adı');
+  assert.doesNotMatch(svg, /<script/i);
+});
+
+test('çember ile doğru kesişimi: iki nokta, sıra numarasıyla seçilir; kesişmeyen doğru hata verir', () => {
+  const lines = ['C=(0,0)', 'D=(2,0)', 'c=Çember(C,D)', 'E=(-5,1)', 'F=(5,1)', 'h=Doğru(E,F)', 'K1=Kesişim(c,h,1)', 'K2=Kesişim(c,h,2)'];
+  const model = buildModel(lines);
+  assert.equal(model.errors.length, 0, JSON.stringify(model.errors));
+  const k1 = model.points.get('K1');
+  const k2 = model.points.get('K2');
+  assert.ok(Math.abs(k1.x + Math.sqrt(3)) < 1e-9 && Math.abs(k1.y - 1) < 1e-9, 'ilk nokta soldaki');
+  assert.ok(Math.abs(k2.x - Math.sqrt(3)) < 1e-9 && Math.abs(k2.y - 1) < 1e-9, 'ikinci nokta sağdaki');
+  const miss = buildModel(['C=(0,0)', 'D=(2,0)', 'c=Çember(C,D)', 'E=(-5,5)', 'F=(5,5)', 'h=Doğru(E,F)', 'K=Kesişim(c,h,1)']);
+  assert.match(miss.errors[6], /kesmiyor/);
+  const bad = buildModel(['C=(0,0)', 'D=(2,0)', 'c=Çember(C,D)', 'E=(-5,1)', 'F=(5,1)', 'h=Doğru(E,F)', 'K=Kesişim(c,h,5)']);
+  assert.match(bad.errors[6], /1 ya da 2/);
+});

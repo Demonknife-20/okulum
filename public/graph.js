@@ -165,13 +165,13 @@ function parsePointLiteral(rhs) {
 
 // Komut satırı: "Doğru(A,B)", "l=Işın(A,B)", "s=Parça(A,B)"
 export function parseCommand(line) {
-  const match = /^\s*(?:([A-Za-z]\w*)\s*=\s*)?([A-Za-zÇĞİÖŞÜçğıöşü]+)\s*\(\s*([A-Za-z]\w*)\s*,\s*([A-Za-z]\w*)\s*(?:,\s*([A-Za-z]\w*)\s*)?\)\s*$/.exec(String(line));
+  const match = /^\s*(?:([A-Za-z]\w*)\s*=\s*)?([A-Za-zÇĞİÖŞÜçğıöşü]+)\s*\(\s*([A-Za-z]\w*)\s*,\s*([A-Za-z]\w*)\s*(?:,\s*([A-Za-z]\w*|\d+)\s*)?\)\s*$/.exec(String(line));
   if (!match) return null;
   const kind = COMMANDS[match[2].toLocaleLowerCase('tr-TR')];
   if (!kind) throw new Error(`Bilinmeyen komut: ${match[2]}`);
   const hasThird = match[5] !== undefined;
   if (kind === 'angle' && !hasThird) throw new Error('Açı için üç nokta gerekir: Açı(kenar, köşe, kenar)');
-  if (kind !== 'angle' && hasThird) throw new Error(`${match[2]} en fazla iki nokta alır`);
+  if (kind !== 'angle' && kind !== 'intersect' && hasThird) throw new Error(`${match[2]} en fazla iki nokta alır`);
   return { kind, name: match[1] || null, a: match[3], b: match[4], c: match[5] || null };
 }
 
@@ -226,6 +226,34 @@ export function lineGeometry(object, points, objects) {
   return [[a.x, a.y], [b.x, b.y]];
 }
 
+// Çember ile doğru kesişimi: üçüncü argüman 1 (ilk nokta) ya da 2 (ikinci nokta)
+function circleLineIntersection(command, points, objects, first, second) {
+  const circle = first?.kind === 'circle' ? first : second;
+  const line = first?.kind === 'circle' ? second : first;
+  if (!line || !LINE_KINDS.includes(line.kind)) throw new Error('Çember için bir doğru, ışın ya da parça seçin');
+  const which = command.c === '2' ? 1 : 0;
+  if (command.c !== null && command.c !== '1' && command.c !== '2') throw new Error('Çember kesişiminde üçüncü argüman 1 ya da 2 olmalı');
+  const center = points.get(circle.a);
+  const through = points.get(circle.b);
+  const geo = lineGeometry(line, points, objects);
+  if (!center || !through || !geo) throw new Error('Kesişim için nokta tanımları eksik');
+  const [p1, p2] = geo;
+  const r = Math.hypot(through.x - center.x, through.y - center.y);
+  const dx = p2[0] - p1[0];
+  const dy = p2[1] - p1[1];
+  const fx = p1[0] - center.x;
+  const fy = p1[1] - center.y;
+  const a = dx * dx + dy * dy;
+  const b = 2 * (dx * fx + dy * fy);
+  const c = fx * fx + fy * fy - r * r;
+  const disc = b * b - 4 * a * c;
+  if (disc < -1e-12) throw new Error('Doğru çemberi kesmiyor');
+  const root = Math.sqrt(Math.max(0, disc));
+  const ts = [(-b - root) / (2 * a), (-b + root) / (2 * a)].sort((u, v) => u - v);
+  const t = ts[which];
+  return [p1[0] + t * dx, p1[1] + t * dy];
+}
+
 // Türetilmiş noktanın koordinatı: Orta(A,B) ya da Kesişim(a,b)
 export function derivedPoint(command, points, objects) {
   if (command.kind === 'midpoint') {
@@ -233,6 +261,11 @@ export function derivedPoint(command, points, objects) {
     const b = points.get(command.b);
     if (!a || !b) throw new Error(`Nokta tanımlı değil: ${!a ? command.a : command.b}`);
     return [(a.x + b.x) / 2, (a.y + b.y) / 2];
+  }
+  const anyFirst = objects.find(o => o.name === command.a && o.kind !== 'fn');
+  const anySecond = objects.find(o => o.name === command.b && o.kind !== 'fn');
+  if (anyFirst?.kind === 'circle' || anySecond?.kind === 'circle') {
+    return circleLineIntersection(command, points, objects, anyFirst, anySecond);
   }
   const first = objects.find(o => o.name === command.a && LINE_KINDS.includes(o.kind));
   const second = objects.find(o => o.name === command.b && LINE_KINDS.includes(o.kind));
@@ -377,6 +410,7 @@ export function mountGraph(root, initial = { lines: [] }, options = {}) {
         <button type="button" class="gx-tool on" data-gx="axes" aria-pressed="true">Eksenler</button>
         <button type="button" class="gx-tool" data-gx="coords" aria-pressed="false">Koordinat</button>
         <button type="button" class="gx-tool" data-gx="png">PNG indir</button>
+        <button type="button" class="gx-tool" data-gx="svg">SVG indir</button>
         <span class="gx-sep"></span>
         <button type="button" class="gx-tool" data-gx="zoomin" aria-label="Yakınlaştır">+</button>
         <button type="button" class="gx-tool" data-gx="zoomout" aria-label="Uzaklaştır">−</button>
@@ -843,6 +877,15 @@ export function mountGraph(root, initial = { lines: [] }, options = {}) {
     event.currentTarget.setAttribute('aria-pressed', String(showCoords));
     scheduleDraw();
   });
+  root.querySelector('[data-gx="svg"]').addEventListener('click', () => {
+    const svg = exportSvg({ model, view, width: canvas.clientWidth || 800, height: canvas.clientHeight || 600, showAxes });
+    const blob = new Blob([svg], { type: 'image/svg+xml' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = 'matematik-laboratuvari.svg';
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+  });
   root.querySelector('[data-gx="png"]').addEventListener('click', () => {
     canvas.toBlob(blob => {
       if (!blob) return;
@@ -992,4 +1035,72 @@ export function mountGraph(root, initial = { lines: [] }, options = {}) {
       emit();
     },
   };
+}
+
+// Grafiği SVG olarak dışa aktarır (saf fonksiyon: tarayıcı bağlamı gerekmez).
+// model: buildModel çıktısı; view: { cx, cy, scale }; width/height: piksel boyutu.
+export function exportSvg({ model, view, width, height, showAxes = true }) {
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const toS = (x, y) => [width / 2 + (x - view.cx) * view.scale, height / 2 - (y - view.cy) * view.scale];
+  const reach = (Math.hypot(width, height) / view.scale) * 2 + Math.hypot(view.cx, view.cy) + 1;
+  const parts = [];
+  if (showAxes) {
+    const [ox, oy] = toS(0, 0);
+    parts.push(`<line x1="0" y1="${oy}" x2="${width}" y2="${oy}" stroke="#7c8f86" stroke-width="1"/>`);
+    parts.push(`<line x1="${ox}" y1="0" x2="${ox}" y2="${height}" stroke="#7c8f86" stroke-width="1"/>`);
+  }
+  const colorOf = index => COLORS[index % COLORS.length];
+  model.objects.forEach((object, index) => {
+    const color = colorOf(object.row ?? index);
+    if (object.kind === 'fn') {
+      const points = [];
+      for (let px = 0; px <= width; px += 2) {
+        const x = view.cx + (px - width / 2) / view.scale;
+        let y;
+        try { y = object.fn(x); } catch { y = NaN; }
+        if (!Number.isFinite(y)) continue;
+        const [sx, sy] = toS(x, y);
+        points.push(`${sx.toFixed(1)},${sy.toFixed(1)}`);
+      }
+      if (points.length) parts.push(`<polyline points="${points.join(' ')}" fill="none" stroke="${color}" stroke-width="2.2"/>`);
+      return;
+    }
+    if (object.kind === 'circle') {
+      const c = model.points.get(object.a);
+      const t = model.points.get(object.b);
+      if (!c || !t) return;
+      const [cx, cy] = toS(c.x, c.y);
+      const r = Math.hypot(t.x - c.x, t.y - c.y) * view.scale;
+      parts.push(`<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${r.toFixed(1)}" fill="none" stroke="${color}" stroke-width="2.2"/>`);
+      parts.push(`<text x="${(cx + 6).toFixed(1)}" y="${(cy - r - 6).toFixed(1)}" fill="${color}" font-size="13" font-family="sans-serif">${esc(object.name)}</text>`);
+      return;
+    }
+    if (object.kind === 'distance' || object.kind === 'angle') return;
+    const geometry = lineGeometry(object, model.points, model.objects);
+    if (!geometry) return;
+    const [a, b] = geometry;
+    let start = a;
+    let end = b;
+    if (object.kind !== 'segment') {
+      const dx = b[0] - a[0];
+      const dy = b[1] - a[1];
+      const len = Math.hypot(dx, dy) || 1;
+      const ux = dx / len;
+      const uy = dy / len;
+      start = object.kind === 'ray' ? a : [a[0] - ux * reach, a[1] - uy * reach];
+      end = [a[0] + ux * reach, a[1] + uy * reach];
+    }
+    const [x1, y1] = toS(start[0], start[1]);
+    const [x2, y2] = toS(end[0], end[1]);
+    parts.push(`<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke="${color}" stroke-width="2.2"/>`);
+    const mid = object.kind === 'segment' ? [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2] : a;
+    const [mx, my] = toS(mid[0], mid[1]);
+    parts.push(`<text x="${(mx + 6).toFixed(1)}" y="${(my - 6).toFixed(1)}" fill="${color}" font-size="13" font-family="sans-serif">${esc(object.name)}</text>`);
+  });
+  for (const point of model.points.values()) {
+    const [px, py] = toS(point.x, point.y);
+    parts.push(`<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="5" fill="${colorOf(point.row ?? 0)}" stroke="#ffffff" stroke-width="1.5"/>`);
+    parts.push(`<text x="${(px + 8).toFixed(1)}" y="${(py - 8).toFixed(1)}" fill="#11231d" font-size="13" font-family="sans-serif" font-weight="600">${esc(point.name)}</text>`);
+  }
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect width="100%" height="100%" fill="#ffffff"/>${parts.join('')}</svg>`;
 }

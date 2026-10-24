@@ -8,18 +8,51 @@ class DraftError extends Error {
   }
 }
 
-// Görsel: yalnızca güvenli SVG öğeleri; betik, dış kaynak, bağlantı ve stil içe aktarma kabul edilmez
-const FORBIDDEN_SVG = /<\s*\/?\s*(script|foreignobject|image|use|iframe|object|embed|style|a|animate|set|link|meta)\b|\bon[a-z]+\s*=|javascript:|\bhref\b|xlink|@import|url\s*\(|<!entity|<!doctype/i;
-const ALLOWED_SVG_TAGS = new Set(['svg', 'g', 'line', 'circle', 'ellipse', 'rect', 'path', 'polygon', 'polyline', 'text', 'tspan', 'defs', 'marker']);
+// Görsel: yalnızca izin verilen etiketler ve özellikler. Her etiket ve özellik tek tek ayrıştırılır;
+// tanınmayan her şey reddedilir (düzenli ifade ile "içermiyor" kontrolü yapılmaz).
+const ALLOWED_SVG_TAGS = new Set(['svg', 'g', 'line', 'circle', 'ellipse', 'rect', 'path', 'polygon', 'polyline', 'text', 'tspan']);
+const ALLOWED_SVG_ATTRS = new Set([
+  'viewbox', 'width', 'height', 'x', 'y', 'x1', 'y1', 'x2', 'y2', 'cx', 'cy', 'r', 'rx', 'ry', 'd', 'points',
+  'fill', 'stroke', 'stroke-width', 'stroke-dasharray', 'opacity', 'font-size', 'font-family', 'font-weight',
+  'text-anchor', 'dominant-baseline', 'transform', 'fill-opacity', 'stroke-opacity',
+]);
+const SAFE_ATTR_VALUE = /^[^<>"'`\\]{0,200}$/;
+const UNSAFE_VALUE = /javascript:|data:|url\s*\(|expression\s*\(|&|\\/i;
+const TAG_TOKEN = /<(\/?)([a-zA-Z][a-zA-Z0-9]*)((?:\s+[a-zA-Z_:][-a-zA-Z0-9_:.]*(?:\s*=\s*(?:"[^"<>]*"|'[^'<>]*'|[^\s"'=<>`]+))?)*)\s*(\/?)>/g;
+const ATTR_TOKEN = /([a-zA-Z_:][-a-zA-Z0-9_:.]*)(?:\s*=\s*(?:"([^"<>]*)"|'([^'<>]*)'|([^\s"'=<>`]+)))?/g;
 
 function sanitizeSvg(raw) {
   if (typeof raw !== 'string') return null;
   const svg = raw.trim();
-  if (!svg) return null;
-  if (!/^<svg[\s>]/i.test(svg) || !/<\/svg>\s*$/i.test(svg)) return null;
-  if (svg.length > 12000 || FORBIDDEN_SVG.test(svg)) return null;
-  const tags = [...svg.matchAll(/<\s*\/?\s*([a-z][a-z0-9]*)/gi)].map(m => m[1].toLowerCase());
-  if (tags.some(tag => !ALLOWED_SVG_TAGS.has(tag))) return null;
+  if (!svg || svg.length > 12000) return null;
+  if (!/^<svg[\s>]/i.test(svg) || !/<\/svg>$/i.test(svg)) return null;
+  let tagCount = 0;
+  let openCount = 0;
+  let valid = true;
+  const stack = [];
+  // Metinde kalan her '<' bir etiket olmalı; etiket dışı '<' ya da '&' kabul edilmez
+  const stripped = svg.replace(TAG_TOKEN, (match, closing, name, attrs, selfClosing) => {
+    tagCount += 1;
+    const tag = name.toLowerCase();
+    if (!ALLOWED_SVG_TAGS.has(tag)) { valid = false; return ''; }
+    if (closing) {
+      if (stack.pop() !== tag) valid = false;
+      return '';
+    }
+    if (!selfClosing) stack.push(tag);
+    if (tag === 'svg') openCount += 1;
+    let attrMatch;
+    ATTR_TOKEN.lastIndex = 0;
+    while ((attrMatch = ATTR_TOKEN.exec(attrs)) !== null) {
+      const attr = attrMatch[1].toLowerCase();
+      const value = attrMatch[2] ?? attrMatch[3] ?? attrMatch[4] ?? '';
+      if (!ALLOWED_SVG_ATTRS.has(attr)) { valid = false; break; }
+      if (!SAFE_ATTR_VALUE.test(value) || UNSAFE_VALUE.test(value)) { valid = false; break; }
+    }
+    return '';
+  });
+  if (!valid || stack.length || openCount !== 1 || tagCount === 0) return null;
+  if (/[<>&]/.test(stripped)) return null;
   return svg;
 }
 
