@@ -595,3 +595,9 @@ Müdür tüm okulu, öğretmen kendi derslerini, öğrenci yalnızca kendi devam
 
 - **Python:** `import math` (sqrt, floor, ceil, pow, pi, e) ve nokta ile öznitelik erişimi. Desteklenmeyen modüller `ImportError` verir.
 - **Güvenlik testi:** Satır içi stil yasağı artık gerçek sunucu CSP yanıtı üzerinden doğrulanıyor (kaynak metni taranmıyor).
+
+## Sürüm 75: Python paneli düzeltmeleri
+
+- Kod metni görünmüyordu: metin kutusunun opak arka planı renkli vurgu katmanını örtüyordu. Arka plan şeffaf yapıldı.
+- Çıktı artık satır satır yazılıyor (Efektler kapalıysa anlık).
+- Sıralama çubukları artık daire değil, dikdörtgen.

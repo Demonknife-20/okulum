@@ -3567,8 +3567,23 @@ ACTIONS['py-run'] = () => {
   const lines = result.output.map(line => `${line}`);
   if (!result.ok) lines.push(result.error);
   document.querySelector('[data-py=ipucu]').textContent = result.ok ? '' : pyHint(result.error);
-  out.textContent = lines.length ? lines.join('\n') : '(çıktı yok)';
   out.classList.toggle('py-error', !result.ok);
+  // Önceki yazım sürüyorsa durdur
+  if (out.dataset.typing) { clearInterval(Number(out.dataset.typing)); out.dataset.typing = ''; }
+  if (!lines.length) { out.textContent = '(çıktı yok)'; return; }
+  if (!fxEnabled()) { out.textContent = lines.join('\n'); return; }
+  // Terminal gibi: satır satır yazılır
+  out.textContent = '';
+  let index = 0;
+  const timer = setInterval(() => {
+    out.textContent += (index > 0 ? '\n' : '') + lines[index];
+    index += 1;
+    if (index >= lines.length) {
+      clearInterval(timer);
+      out.dataset.typing = '';
+    }
+  }, 110);
+  out.dataset.typing = String(timer);
 };
 
 ACTIONS['py-clear'] = () => {

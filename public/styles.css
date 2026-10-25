@@ -1688,3 +1688,8 @@ html.fx-off *,html.fx-off *::before,html.fx-off *::after{transition:none!importa
 .pin[draggable=true]{cursor:grab}
 .pin.pin-dragging{opacity:.55}
 .pin.drop-target{outline:2px dashed var(--brand);outline-offset:4px}
+
+/* v75: Python kod alanı: vurgu katmanı görünsün diye metin kutusu şeffaf */
+.py-code,.py-code:focus,.py-code:hover{background:transparent!important;color:transparent!important;border:0!important}
+.sort-bars .bar,.sort-bars .bar span{border-radius:0!important}
+.sort-bars .bar span{border-radius:4px 4px 0 0!important}
