@@ -1,3 +1,4 @@
+import { fxEnabled } from './fx.js';
 import { $, $$, esc, state, api, icon, ROLE, initials, tone, parseHash, toast, closeModal, setBusy, paintWidths, refreshBadges, markSeen, notFoundHtml } from './core.js';
 import { ACTIONS, FORMS, CHANGES, INPUTS, renderView, stopTimers } from './views.js';
 import { renderPublic } from './public.js';
@@ -32,8 +33,7 @@ ACTIONS.theme = el => {
     applyTheme(next);
     try { localStorage.setItem('okulum-theme', next); } catch { /* depolama kapalı olabilir */ }
   };
-  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  if (!document.startViewTransition || reduce) { change(); return; }
+  if (!document.startViewTransition || !fxEnabled()) { change(); return; }
   // Geçiş, tıklanan düğmeden yayılır (CSSOM ile; satır içi stil yok)
   const rect = (el || document.getElementById('themeBtn')).getBoundingClientRect();
   document.documentElement.style.setProperty('--vt-x', `${rect.left + rect.width / 2}px`);

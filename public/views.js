@@ -5,6 +5,7 @@ import { projectile, trajectory, titrationPH, equivalenceVolume, titrationSeries
 import { ELEMENTS, bestReaction, parseFormulaComp, atomComp, iconFor } from './chem.js';
 import { parseBase, toBase, truthTable, bubbleSortSteps } from './computing.js';
 import { runPython } from './pyterm.js';
+import { fxEnabled, setFx } from './fx.js';
 import { helpHtml } from './help.js';
 import { state, api, $, $$, esc, ROLE, icon, fmtDate, todayIso, pct, initials, tone, readFile, toast, openModal, closeModal, confirmDialog, refreshMe, refresh, val, setBusy, setQuery, parseHash, paintWidths, refreshBadges } from './core.js';
 
@@ -3510,6 +3511,7 @@ function chemGameHtml() {
       <div class="chem-bar">
         <span class="chem-hint" data-chem-hint>Parçaları birbirine yaklaştırıp bırakın. Uygun olanlar birleşir.</span>
         <div class="chem-actions">
+          <button class="btn ghost sm" type="button" data-action="fx-toggle" aria-pressed="false">Efektler</button>
           <button class="btn primary sm" type="button" data-chem-all>Hepsini birleştir</button>
           <button class="btn ghost sm" type="button" data-chem-clear>Alanı temizle</button>
         </div>
@@ -3568,7 +3570,7 @@ function setupChemGame() {
   };
 
 
-  const motionOK = () => !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const motionOK = () => fxEnabled();
   const effect = (cls, x, y, size) => {
     const node = document.createElement('div');
     node.className = cls;
@@ -3819,6 +3821,13 @@ function setupChemGame() {
     setHint('Alan temizlendi.');
   });
   document.querySelector('[data-chem-all]').addEventListener('click', reactAll);
+  const fxButton = document.querySelector('[data-action=fx-toggle]');
+  const paintFx = () => {
+    fxButton.textContent = fxEnabled() ? 'Efektler: açık' : 'Efektler: kapalı';
+    fxButton.setAttribute('aria-pressed', String(fxEnabled()));
+  };
+  paintFx();
+  ACTIONS['fx-toggle'] = () => { setFx(!fxEnabled()); paintFx(); setHint(fxEnabled() ? 'Efektler açık' : 'Efektler kapalı'); };
   document.querySelector('[data-chem-add]').addEventListener('submit', event => {
     event.preventDefault();
     const input = event.currentTarget.querySelector('[name=formula]');
