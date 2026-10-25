@@ -155,13 +155,19 @@ async function routeApp() {
   highlight(page === 'pano' ? 'panolar' : page === 'sinav' ? 'sinavlar' : page);
   $('#crumb').textContent = `${state.school?.name || 'Okulum'} / ${entry[1]}`;
   setRouteProgress(true);
+  const outgoing = view.children.length && fxEnabled()
+    ? view.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 140, fill: 'forwards' })
+    : null;
+  if (outgoing) await outgoing.finished.catch(() => {});
   view.innerHTML = skeleton();
+  if (outgoing) outgoing.cancel();
   try {
     const { html, after } = await renderView(page, params);
     if (seq !== routeSeq) return;
     view.innerHTML = html;
     after?.();
     enterView(view);
+    if (fxEnabled()) view.animate([{ opacity: 0, transform: 'translateY(6px)' }, { opacity: 1, transform: 'none' }], { duration: 220, easing: 'ease-out' });
     paintWidths(view);
     labelTables(view);
     if (page === 'assignments') markSeen(state.me.role === 'student' ? ['assignments', 'grades'] : ['submissions']);

@@ -573,3 +573,25 @@ Müdür tüm okulu, öğretmen kendi derslerini, öğrenci yalnızca kendi devam
 ## Sürüm 70: spiral kara delik çekimi
 
 - Silinen parça kara deliğin etrafında daralan bir spiralde döner, sünerek uzar, incelir ve yutulur.
+
+## Sürüm 71: editör, Padlet sıralama, sayfa geçişi
+
+- **Silme animasyonu:** Önceki (düz dönerek küçülen) hareket geri getirildi.
+- **Python editörü:** Anahtar kelime ve metin renklendirmesi, Enter ile otomatik girinti, Tab ile 4 boşluk, hazır parçalar (print, if, for, while, def, liste) ve hataya göre Türkçe ipucu.
+- **Padlet:** Yönetici, akış ve ızgarada kartları sürükleyip başka bir kartın üzerine bırakarak sıralayabilir.
+- **Sayfa geçişi:** Eski sayfa solarak gider, yeni sayfa süzülerek gelir (Efektler açıkken).
+
+## Sürüm 72: erişilebilirlik ve doğrulama
+
+- **Efektler ayrımı:** Bilgisayarda "hareketi azalt" açıksa Efektler düğmesi bunu açıklar ve efektlerin neden kapalı başladığını gösterir; düğme uygulama efektlerini ayrıca açıp kapatır.
+- **Padlet sürükle-bırak:** Tarayıcıda uçtan uca doğrulandı (kart başka kartın önüne yerleşiyor, sıra sunucuya kaydediliyor).
+
+## Sürüm 73: api.js bölünmeye başladı
+
+- Pansiyon bölümü (izin defteri ve gece yoklaması rotaları ile yardımcıları) `src/api/boarding.js` modülüne taşındı. `api.js` bu modülü bağımlılıklarını vererek kaydeder.
+- Testler (55/55) ve lint bu bölünmeyle birlikte geçiyor.
+
+## Sürüm 74: birkaç kalem
+
+- **Python:** `import math` (sqrt, floor, ceil, pow, pi, e) ve nokta ile öznitelik erişimi. Desteklenmeyen modüller `ImportError` verir.
+- **Güvenlik testi:** Satır içi stil yasağı artık gerçek sunucu CSP yanıtı üzerinden doğrulanıyor (kaynak metni taranmıyor).

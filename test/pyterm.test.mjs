@@ -43,7 +43,7 @@ test('güvenlik: sonsuz döngü adım sınırıyla durur; import ve eval yoktur'
   const loop = run('while True:\n    pass');
   assert.equal(loop.ok, false);
   assert.match(loop.error, /çok uzun sürdü/);
-  assert.match(run('import os').error, /tanımlı değil|SyntaxError/);
+  assert.match(run('import os').error, /ImportError/);
   assert.match(run('eval("1")').error, /tanımlı değil/);
 });
 
@@ -55,4 +55,12 @@ test('bölme: "/" her zaman ondalık gösterilir; tam sayıya çevirme ve ondal�
   assert.deepEqual(run('print(2.5 * 2)').output, ['5.0']);
   assert.deepEqual(run('a = [10, 20, 30]\nprint(a[1 + 0], len(a) / 3)').output, ['20 1.0']);
   assert.deepEqual(run('print(max(1 / 2, 0.25))').output, ['0.5']);
+});
+
+test('import math: modül, sabitler, öznitelik erişimi ve bilinmeyen modül hatası', () => {
+  assert.deepEqual(run('import math\nprint(math.sqrt(16))').output, ['4.0']);
+  assert.deepEqual(run('import math\nprint(math.floor(7 / 2))').output, ['3']);
+  assert.deepEqual(run('import math\nprint(round(math.pi, 0))').ok, false);
+  assert.match(run('import os').error, /ImportError/);
+  assert.match(run('import math\nprint(math.yok)').error, /AttributeError/);
 });

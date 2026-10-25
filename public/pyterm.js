@@ -10,6 +10,18 @@ class PyFloat {
 }
 const num = v => (v instanceof PyFloat ? v.value : v);
 const wrapNum = (v, isFloat) => (isFloat ? new PyFloat(v) : v);
+
+// Desteklenen modüller (eğitim amaçlı küçük küme)
+const MODULES = {
+  math: {
+    pi: new PyFloat(Math.PI),
+    e: new PyFloat(Math.E),
+    sqrt: x => new PyFloat(Math.sqrt(num(x))),
+    floor: x => Math.floor(num(x)),
+    ceil: x => Math.ceil(num(x)),
+    pow: (x, y) => new PyFloat(num(x) ** num(y)),
+  },
+};
 const isNumber = v => typeof v === 'number' || v instanceof PyFloat;
 const MAX_OUTPUT_LINES = 500;
 
@@ -41,7 +53,7 @@ function tokenize(source) {
     text = text.slice(0, cut).trimEnd();
     if (!text) return;
     const tokens = [];
-    const re = /\s*(?:(\d+\.\d+|\d+)|("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')|([A-Za-z_]\w*)|(\*\*|\/\/|==|!=|<=|>=|[-+*/%<>=()[\],:]))/y;
+    const re = /\s*(?:(\d+\.\d+|\d+)|("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')|([A-Za-z_]\w*)|(\*\*|\/\/|==|!=|<=|>=|[-+*/%<>=()[\],:.]))/y;
     let pos = 0;
     while (pos < text.length) {
       re.lastIndex = pos;
@@ -121,6 +133,11 @@ function parse(lines) {
     if (kw === 'return') {
       i += 1;
       return { type: 'return', value: toks.length > 1 ? exprFrom(header(1, toks.length)) : null, line: line.lineNo };
+    }
+    if (kw === 'import') {
+      if (toks[1]?.t !== 'name' || toks.length !== 2) throw new PyError('SyntaxError', 'import yalnızca tek bir modül adı alır (ör. import math)', line.lineNo);
+      i += 1;
+      return { type: 'import', name: toks[1].v, line: line.lineNo };
     }
     if (kw === 'pass') {
       i += 1;
@@ -207,6 +224,11 @@ function exprFrom({ tokens, lineNo }) {
         }
         p += 1;
         node = { op: 'call', fn: node, args };
+      } else if (isOp('.')) {
+        p += 1;
+        if (!peek() || peek().t !== 'name') throw new PyError('SyntaxError', 'Nokta sonrası bir ad bekleniyordu', lineNo);
+        node = { op: 'attr', a: node, name: tokens[p].v };
+        p += 1;
       } else if (isOp('[')) {
         p += 1;
         const index = orExpr();
@@ -319,6 +341,11 @@ export function runPython(source) {
       case 'lit': return node.float ? new PyFloat(node.value) : node.value;
       case 'name': return lookup(env, node.name, currentLine);
       case 'list': return node.items.map(x => evalExpr(x, env));
+      case 'attr': {
+        const obj = evalExpr(node.a, env);
+        if (obj && typeof obj === 'object' && Object.prototype.hasOwnProperty.call(obj, node.name)) return obj[node.name];
+        throw new PyError('AttributeError', `'${node.name}' özniteliği yok`, currentLine);
+      }
       case 'neg': { const v = evalExpr(node.a, env); return v instanceof PyFloat ? new PyFloat(-v.value) : -v; }
       case 'not': return !truthy(evalExpr(node.a, env));
       case 'and': { const a = evalExpr(node.a, env); return truthy(a) ? evalExpr(node.b, env) : a; }
@@ -442,6 +469,11 @@ export function runPython(source) {
       }
       case 'return': throw new Return(stmt.value ? evalExpr(stmt.value, env) : null);
       case 'pass': return;
+      case 'import': {
+        if (!Object.prototype.hasOwnProperty.call(MODULES, stmt.name)) throw new PyError('ImportError', `'${stmt.name}' modülü yok. Desteklenen modül: math`, stmt.line);
+        env.vars[stmt.name] = MODULES[stmt.name];
+        return;
+      }
       case 'break': throw BREAK;
       case 'continue': throw CONTINUE;
       default: throw new PyError('SyntaxError', 'Bilinmeyen deyim', stmt.line);
@@ -460,4 +492,55 @@ export function runPython(source) {
     if (error === BREAK || error === CONTINUE) return { ok: false, output: out, error: 'break/continue yalnızca döngü içinde kullanılabilir' };
     return { ok: false, output: out, error: `İç hata: ${error.message}` };
   }
+}
+
+// ---------- Kod düzenleyici yardımcıları ----------
+const PY_KEYWORDS = new Set(['if', 'elif', 'else', 'while', 'for', 'in', 'def', 'return', 'break', 'continue', 'pass', 'and', 'or', 'not', 'True', 'False', 'None']);
+const PY_BUILTINS = new Set(['print', 'len', 'range', 'int', 'float', 'str', 'abs', 'min', 'max']);
+
+// Kodu HTML olarak renklendirir (metin kaçırılmış, güvenli)
+export function highlightPython(code) {
+  const esc = t => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return code.split('\n').map(line => {
+    let out = '';
+    let i = 0;
+    while (i < line.length) {
+      const ch = line[i];
+      if (ch === '#') { out += `<span class="tk-com">${esc(line.slice(i))}</span>`; break; }
+      if (ch === '"' || ch === "'") {
+        let j = i + 1;
+        while (j < line.length && line[j] !== ch) { if (line[j] === '\\') j += 1; j += 1; }
+        j = Math.min(j + 1, line.length);
+        out += `<span class="tk-str">${esc(line.slice(i, j))}</span>`;
+        i = j;
+        continue;
+      }
+      const word = /^[A-Za-z_]\w*/.exec(line.slice(i));
+      if (word) {
+        const w = word[0];
+        const cls = PY_KEYWORDS.has(w) ? 'tk-kw' : PY_BUILTINS.has(w) ? 'tk-fn' : '';
+        out += cls ? `<span class="${cls}">${w}</span>` : w;
+        i += w.length;
+        continue;
+      }
+      const num = /^\d+(\.\d+)?/.exec(line.slice(i));
+      if (num) { out += `<span class="tk-num">${num[0]}</span>`; i += num[0].length; continue; }
+      out += esc(ch);
+      i += 1;
+    }
+    return out;
+  }).join('\n') + '\n';
+}
+
+// Hataya göre öğreticí ipucu (Türkçe)
+export function pyHint(error) {
+  if (!error) return '';
+  if (/NameError/.test(error)) return 'İpucu: Kullandığın değişkeni önce bir değere eşitlemelisin (ad = ...). Adların yazımını kontrol et.';
+  if (/IndentationError/.test(error)) return 'İpucu: Bir blok (if, for, def) altındaki satırlar 4 boşlukla içeri başlamalı.';
+  if (/TypeError/.test(error)) return 'İpucu: Farklı türleri birleştiriyorsun. Metinle sayıyı toplamak için str() ya da int() kullan.';
+  if (/ZeroDivisionError/.test(error)) return 'İpucu: Bir sayıyı 0 ile bölemezsin. Bölenin 0 olmadığını kontrol et.';
+  if (/IndexError/.test(error)) return 'İpucu: Liste dizini sınırların dışında. len() ile uzunluğu kontrol et.';
+  if (/SyntaxError/.test(error)) return 'İpucu: if, for, while, def satırlarının sonunda ":" olmalı; parantezler kapalı olmalı.';
+  if (/çok uzun/.test(error)) return 'İpucu: Döngünün bitme koşulu hiç sağlanmıyor olabilir.';
+  return '';
 }

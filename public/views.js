@@ -4,7 +4,7 @@ import { mountGraph } from './graph.js';
 import { projectile, trajectory, titrationPH, equivalenceVolume, titrationSeries } from './labs.js';
 import { ELEMENTS, bestReaction, parseFormulaComp, atomComp, iconFor } from './chem.js';
 import { parseBase, toBase, truthTable, bubbleSortSteps } from './computing.js';
-import { runPython } from './pyterm.js';
+import { runPython, highlightPython, pyHint } from './pyterm.js';
 import { fxEnabled, setFx } from './fx.js';
 import { helpHtml } from './help.js';
 import { state, api, $, $$, esc, ROLE, icon, fmtDate, todayIso, pct, initials, tone, readFile, toast, openModal, closeModal, confirmDialog, refreshMe, refresh, val, setBusy, setQuery, parseHash, paintWidths, refreshBadges } from './core.js';
@@ -1300,7 +1300,7 @@ async function pageBoard(params) {
     ? ` data-x="${n.posX ?? autoX(index)}" data-y="${n.posY ?? autoY(index)}"`
     : '');
   const cards = notes.map((n, index) => `
-    <article class="pin pin-${esc(n.color)}${n.approved === false ? ' pin-pending' : ''}${layout === 'wall' && n.canMove ? ' pin-movable' : ''}" data-note="${esc(n.id)}"${cardPos(n, index)}>
+    <article class="pin pin-${esc(n.color)}${n.approved === false ? ' pin-pending' : ''}${layout === 'wall' && n.canMove ? ' pin-movable' : ''}" data-note="${esc(n.id)}"${cardPos(n, index)}${rights.moderate && layout !== 'wall' ? ' draggable="true"' : ''}>
       ${n.hasFile && isImage(n) ? `<img class="pin-img" src="/api/files/board-note/${esc(n.id)}?inline=1" alt="${esc(n.fileName || 'Pano resmi')}" loading="lazy" decoding="async">` : ''}
       ${n.pinned ? '<span class="badge pin-badge">Sabit</span>' : ''}
       ${n.title ? `<h3>${esc(n.title)}</h3>` : ''}
@@ -1342,8 +1342,48 @@ async function pageBoard(params) {
     ${notes.length
       ? surface
       : empty('Henüz not yok', rights.post ? 'İlk notu ekleyerek panoyu başlatın.' : 'Bu pano için henüz not eklenmedi.')}`,
-    after: setupWall,
+    after: () => { setupWall(); setupReorder(); },
   };
+}
+
+// Akış ve ızgarada kartı sürükleyip başka kartın üzerine bırakarak sıralama (yalnızca yönetici)
+function setupReorder() {
+  const container = document.querySelector('.pad-stream, .pad-surface');
+  if (!container || container.dataset.reorder) return;
+  container.dataset.reorder = '1';
+  let dragging = null;
+  container.addEventListener('dragstart', event => {
+    const card = event.target.closest('.pin[draggable=true]');
+    if (!card) return;
+    dragging = card.dataset.note;
+    card.classList.add('pin-dragging');
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', dragging);
+  });
+  container.addEventListener('dragover', event => {
+    if (!dragging) return;
+    const card = event.target.closest('.pin');
+    if (!card) return;
+    event.preventDefault();
+    container.querySelectorAll('.drop-target').forEach(el => el.classList.remove('drop-target'));
+    card.classList.add('drop-target');
+  });
+  container.addEventListener('dragend', () => {
+    dragging = null;
+    container.querySelectorAll('.pin-dragging, .drop-target').forEach(el => el.classList.remove('pin-dragging', 'drop-target'));
+  });
+  container.addEventListener('drop', async event => {
+    if (!dragging) return;
+    const target = event.target.closest('.pin');
+    event.preventDefault();
+    if (!target || target.dataset.note === dragging) return;
+    const ids = currentNotes.map(n => n.id);
+    const from = ids.indexOf(dragging);
+    ids.splice(from, 1);
+    ids.splice(ids.indexOf(target.dataset.note), 0, dragging);
+    dragging = null;
+    await saveNoteOrder(ids);
+  });
 }
 
 // Duvar düzeninde kartları sürükleyerek yerleştirme; yeni konum sunucuya kaydedilir
@@ -3344,7 +3384,19 @@ async function pageBilgisayar() {
           <option value="liste">Liste ve döngü</option>
           <option value="asal">Asal sayılar</option>
         </select></label></div>
-        <textarea class="py-code" data-py="kod" rows="8" spellcheck="false" aria-label="Python kodu">print("Merhaba dünya")</textarea>
+        <div class="py-snippets" role="toolbar" aria-label="Hazır kod parçaları">
+          <button class="btn ghost sm" type="button" data-action="py-snippet" data-snip="print">print</button>
+          <button class="btn ghost sm" type="button" data-action="py-snippet" data-snip="if">if</button>
+          <button class="btn ghost sm" type="button" data-action="py-snippet" data-snip="for">for</button>
+          <button class="btn ghost sm" type="button" data-action="py-snippet" data-snip="while">while</button>
+          <button class="btn ghost sm" type="button" data-action="py-snippet" data-snip="def">def</button>
+          <button class="btn ghost sm" type="button" data-action="py-snippet" data-snip="liste">liste</button>
+        </div>
+        <div class="py-editor">
+          <pre class="py-hl" aria-hidden="true" data-py="hl"></pre>
+          <textarea class="py-code" data-py="kod" rows="8" spellcheck="false" aria-label="Python kodu">print("Merhaba dünya")</textarea>
+        </div>
+        <p class="py-hint" data-py="ipucu" role="note"></p>
         <div class="py-actions"><button class="btn primary sm" type="button" data-action="py-run">Çalıştır</button><button class="btn ghost sm" type="button" data-action="py-clear">Çıktıyı temizle</button></div>
         <pre class="py-output" data-py="cikti" role="log" aria-live="polite"></pre>
       </div>`)}
@@ -3457,6 +3509,48 @@ function setupComputing() {
       pySelect.value = '';
     });
   }
+  const code = document.querySelector('[data-py=kod]');
+  const hl = document.querySelector('[data-py=hl]');
+  if (code && hl) {
+    const paint = () => {
+      hl.innerHTML = highlightPython(code.value);
+      hl.scrollTop = code.scrollTop;
+      hl.scrollLeft = code.scrollLeft;
+    };
+    const insertAtCursor = text => {
+      code.setRangeText(text, code.selectionStart, code.selectionEnd, 'end');
+      code.dispatchEvent(new Event('input'));
+    };
+    code.addEventListener('input', paint);
+    code.addEventListener('scroll', paint);
+    code.addEventListener('keydown', event => {
+      if (event.key === 'Tab') {
+        event.preventDefault();
+        insertAtCursor('    ');
+      } else if (event.key === 'Enter' && !event.shiftKey) {
+        // Yeni satır: önceki satırın girintisini korur; ":" ile biten satırdan sonra bir blok daha içeri girer
+        event.preventDefault();
+        const before = code.value.slice(0, code.selectionStart);
+        const line = before.slice(before.lastIndexOf('\n') + 1);
+        const indent = /^\s*/.exec(line)[0];
+        const extra = /:\s*(#.*)?$/.test(line.trim()) ? '    ' : '';
+        insertAtCursor(`\n${indent}${extra}`);
+      }
+    });
+    paint();
+    ACTIONS['py-snippet'] = el => {
+      const snippets = {
+        print: 'print()',
+        if: 'if koşul:\n    ',
+        for: 'for i in range(5):\n    ',
+        while: 'while koşul:\n    ',
+        def: 'def fonksiyon(x):\n    return x',
+        liste: 'liste = [1, 2, 3]',
+      };
+      code.focus();
+      insertAtCursor(snippets[el.dataset.snip] ?? '');
+    };
+  }
   sayi.addEventListener('input', updateNumber);
   sayi.addEventListener('change', updateNumber);
   mantik.addEventListener('input', updateLogic);
@@ -3472,6 +3566,7 @@ ACTIONS['py-run'] = () => {
   const result = runPython(code);
   const lines = result.output.map(line => `${line}`);
   if (!result.ok) lines.push(result.error);
+  document.querySelector('[data-py=ipucu]').textContent = result.ok ? '' : pyHint(result.error);
   out.textContent = lines.length ? lines.join('\n') : '(çıktı yok)';
   out.classList.toggle('py-error', !result.ok);
 };
@@ -3519,6 +3614,10 @@ function chemGameHtml() {
       <div class="chem-known"><strong>Keşfedilenler</strong><ul data-known><li class="muted">Henüz bir bileşik oluşmadı.</li></ul></div>
     </div>
   </div>`;
+}
+
+function hintEl(on) {
+  return on ? 'Efektler açık.' : 'Efektler kapalı.';
 }
 
 function setupChemGame() {
@@ -3594,6 +3693,8 @@ function setupChemGame() {
     ensureVisible();
     const hole = target ? null : { x: trash.offsetLeft + trash.offsetWidth / 2, y: trash.offsetTop + trash.offsetHeight / 2 };
     const to = target ?? hole;
+    const dx = to.x - (item.x + item.el.offsetWidth / 2);
+    const dy = to.y - (item.y + item.el.offsetHeight / 2);
     if (hole) {
       const node = effect('chem-hole', to.x, to.y);
       node.animate([
@@ -3602,29 +3703,10 @@ function setupChemGame() {
         { transform: 'translate(-50%,-50%) scale(1.2) rotate(200deg)', opacity: 0 },
       ], { duration: 1600, easing: 'ease-in-out', fill: 'forwards' }).finished.then(() => node.remove());
     }
-    // Spiral çekim: parça kara deliğin etrafında daralan bir spiralde döner, uzayarak incelir ve yutulur
-    const startX = item.x + item.el.offsetWidth / 2;
-    const startY = item.y + item.el.offsetHeight / 2;
-    const r0 = Math.hypot(startX - to.x, startY - to.y) || 1;
-    const theta0 = Math.atan2(startY - to.y, startX - to.x);
-    const frames = [];
-    const steps = 16;
-    for (let k = 0; k <= steps; k += 1) {
-      const t = k / steps;
-      const radius = r0 * Math.pow(1 - t, 1.5);
-      const theta = theta0 + Math.PI * 3 * t;
-      const px = to.x + radius * Math.cos(theta) - startX;
-      const py = to.y + radius * Math.sin(theta) - startY;
-      const stretch = 1 + 2.2 * t * t;          // sünme: yatayda uzar
-      const squeeze = Math.max(0.08, (1 - 0.7 * t * t) * (1 - 0.6 * t));
-      const fade = t < 0.75 ? 1 : Math.max(0, 1 - (t - 0.75) / 0.25);
-      frames.push({
-        transform: `translate(${px.toFixed(1)}px,${py.toFixed(1)}px) rotate(${(Math.atan2(py, px) * 180 / Math.PI).toFixed(1)}deg) scale(${stretch.toFixed(3)},${squeeze.toFixed(3)})`,
-        opacity: fade,
-        offset: t,
-      });
-    }
-    item.el.animate(frames, { duration: 1500, easing: 'cubic-bezier(0.45,0,0.85,0.35)', fill: 'forwards' }).finished.then(() => item.el.remove());
+    item.el.animate([
+      { transform: 'translate(0,0) scale(1) rotate(0deg)', opacity: 1 },
+      { transform: `translate(${dx}px,${dy}px) scale(0.15) rotate(540deg)`, opacity: 0 },
+    ], { duration: 1200, easing: 'cubic-bezier(0.5,0,0.9,0.4)', fill: 'forwards' }).finished.then(() => item.el.remove());
   };
 
   // Birleşme: patlama kıvılcımları, buhar bulutu, ardından ürün belirir
@@ -3892,12 +3974,19 @@ function setupChemGame() {
   });
   document.querySelector('[data-chem-all]').addEventListener('click', reactAll);
   const fxButton = document.querySelector('[data-action=fx-toggle]');
+  const osReduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   const paintFx = () => {
     fxButton.textContent = fxEnabled() ? 'Efektler: açık' : 'Efektler: kapalı';
     fxButton.setAttribute('aria-pressed', String(fxEnabled()));
+    fxButton.title = osReduce
+      ? 'Bilgisayarınızda "hareketi azalt" açık. Bu düğme uygulama efektlerini ayrıca açıp kapatır.'
+      : 'Uygulama efektleri: kara delik, patlama, tema geçişi ve sayfa animasyonları';
+    setHint(osReduce && !localStorage.getItem('okulum-fx')
+      ? 'Bilgisayarınızda hareket azaltma açık; efektler bu yüzden kapalı başladı. Açmak için Efektler düğmesine basın.'
+      : hintEl(fxEnabled()));
   };
   paintFx();
-  ACTIONS['fx-toggle'] = () => { setFx(!fxEnabled()); paintFx(); setHint(fxEnabled() ? 'Efektler açık' : 'Efektler kapalı'); };
+  ACTIONS['fx-toggle'] = () => { setFx(!fxEnabled()); paintFx(); };
   document.querySelector('[data-chem-add]').addEventListener('submit', event => {
     event.preventDefault();
     const input = event.currentTarget.querySelector('[name=formula]');

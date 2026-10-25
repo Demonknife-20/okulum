@@ -1709,3 +1709,12 @@ test('pansiyon yetkisi: liste ve onay aynı kuralı kullanır; sınıfı olmayan
     assert.equal(leave.canDecide, true, 'müdür bekleyen her izni onaylayabilir');
   }
 });
+
+test('satır içi stil: sunucu CSP, style-src için unsafe-inline izni vermez (gerçek yanıt başlığı)', async () => {
+  const page = await fetch(`${BASE}/`);
+  const csp = page.headers.get('content-security-policy') || '';
+  const styleSrc = (csp.split(';').find(d => d.trim().startsWith('style-src')) || '').trim();
+  assert.ok(styleSrc.length > 0, 'style-src yönergesi var');
+  assert.doesNotMatch(styleSrc, /unsafe-inline/, 'satır içi stil izni yok');
+  assert.match(csp, /script-src 'self'(;|$)/);
+});
