@@ -1656,3 +1656,18 @@ html.vt-theme::view-transition-old(root){z-index:1}
 /* v68: birleşme sahnesi: çarpışma flaşı ve gri duman */
 .chem-flash{position:absolute;width:150px;height:150px;margin:-75px 0 0 -75px;border-radius:50%;background:radial-gradient(circle,#ffffff 0%,#ffe9a8 30%,rgba(245,185,58,.4) 55%,transparent 72%);pointer-events:none;z-index:7}
 .chem-smoke{position:absolute;border-radius:50%;background:radial-gradient(circle,rgba(150,156,160,.95) 0%,rgba(120,126,130,.7) 55%,rgba(100,105,110,0) 72%);filter:blur(3px);pointer-events:none;z-index:3}
+
+/* v69: ortak hareket katmanı. Efektler kapalıyken (html.fx-off) tüm geçişler durur. */
+.panel,.stat,.btn,.icon-btn,.nav-item,.list-row,.chip,.badge,.el-cell,.chem-item,input,select,textarea{transition:background-color .2s ease,border-color .2s ease,color .2s ease,box-shadow .2s ease,transform .2s ease,opacity .2s ease}
+.btn:hover{transform:translateY(-1px)}
+.btn:active{transform:translateY(0) scale(.98)}
+.icon-btn:hover{transform:scale(1.06)}
+.nav-item{transition:background-color .2s ease,color .2s ease,transform .2s ease}
+.nav-item:hover{transform:translateX(2px)}
+.el-cell{transition:transform .18s ease,border-color .2s ease,box-shadow .2s ease}
+.el-cell:hover{transform:translateY(-2px);box-shadow:0 4px 12px rgba(0,0,0,.08)}
+.el-cell:focus-visible{transform:translateY(-2px)}
+.list-row{transition:background-color .2s ease}
+input:focus,select:focus,textarea:focus{box-shadow:0 0 0 3px color-mix(in srgb,var(--brand) 18%,transparent)}
+.toast{transition:opacity .25s ease,transform .25s ease}
+html.fx-off *,html.fx-off *::before,html.fx-off *::after{transition:none!important}

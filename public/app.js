@@ -1,4 +1,5 @@
 import { fxEnabled } from './fx.js';
+import { enterView } from './motion.js';
 import { $, $$, esc, state, api, icon, ROLE, initials, tone, parseHash, toast, closeModal, setBusy, paintWidths, refreshBadges, markSeen, notFoundHtml } from './core.js';
 import { ACTIONS, FORMS, CHANGES, INPUTS, renderView, stopTimers } from './views.js';
 import { renderPublic } from './public.js';
@@ -160,6 +161,7 @@ async function routeApp() {
     if (seq !== routeSeq) return;
     view.innerHTML = html;
     after?.();
+    enterView(view);
     paintWidths(view);
     labelTables(view);
     if (page === 'assignments') markSeen(state.me.role === 'student' ? ['assignments', 'grades'] : ['submissions']);

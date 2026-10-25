@@ -1,3 +1,4 @@
+import { slideIn, popIn } from './motion.js';
 // Ortak yardımcılar, durum ve API istemcisi. Hiçbir sayfa mantığı içermez.
 
 export const $ = (selector, root = document) => root.querySelector(selector);
@@ -113,6 +114,7 @@ export function toast(message, tone = 'ok') {
   el.textContent = message;
   el.dataset.tone = tone;
   el.classList.add('show');
+  slideIn(el);
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => el.classList.remove('show'), 3000);
 }
@@ -124,6 +126,7 @@ export function openModal(title, html, { wide = false } = {}) {
   $('#modalBody').innerHTML = html;
   $('#modalBox').classList.toggle('wide', wide);
   $('#modal').hidden = false;
+  popIn($('#modalBox'));
   requestAnimationFrame(() => $('#modalBody input:not([type=checkbox]):not([type=file]), #modalBody select, #modalBody textarea')?.focus());
 }
 export function closeModal() {

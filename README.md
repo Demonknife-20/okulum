@@ -562,3 +562,10 @@ Müdür tüm okulu, öğretmen kendi derslerini, öğrenci yalnızca kendi devam
 
 - Birleşme sırası: parçalar birbirinden uzaklaşır, hızla çarpışır, çarpışma anında parlak bir flaş ve kıvılcımlar çıkar, ardından gri duman bulutları yükselir ve yeni madde dumanın içinden belirir.
 - Efektler **Efektler** düğmesiyle kapatılabilir.
+
+## Sürüm 69: genel hareket katmanı
+
+- **Sayfa girişi:** Her sayfada kart, panel, satır ve bölümler kademeli olarak süzülerek gelir.
+- **Pencere ve bildirim:** Pencereler büyüyerek, bildirimler alttan kayarak açılır.
+- **Etkileşim:** Düğmeler, menü öğeleri, kutular ve kimya elementleri üzerine gelince ya da odaklanınca hafifçe hareket eder.
+- **Ayar:** Hepsi **Efektler** ayarına bağlıdır; kapalıyken animasyon çalışmaz.

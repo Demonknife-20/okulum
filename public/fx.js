@@ -11,4 +11,11 @@ export function fxEnabled() {
 
 export function setFx(on) {
   try { localStorage.setItem(KEY, on ? 'on' : 'off'); } catch { /* depolama kapalı */ }
+  applyFxClass();
 }
+
+// Kapalıyken CSS geçişleri de durur
+export function applyFxClass() {
+  document.documentElement.classList.toggle('fx-off', !fxEnabled());
+}
+applyFxClass();
