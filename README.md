@@ -569,3 +569,7 @@ Müdür tüm okulu, öğretmen kendi derslerini, öğrenci yalnızca kendi devam
 - **Pencere ve bildirim:** Pencereler büyüyerek, bildirimler alttan kayarak açılır.
 - **Etkileşim:** Düğmeler, menü öğeleri, kutular ve kimya elementleri üzerine gelince ya da odaklanınca hafifçe hareket eder.
 - **Ayar:** Hepsi **Efektler** ayarına bağlıdır; kapalıyken animasyon çalışmaz.
+
+## Sürüm 70: spiral kara delik çekimi
+
+- Silinen parça kara deliğin etrafında daralan bir spiralde döner, sünerek uzar, incelir ve yutulur.

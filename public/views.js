@@ -3594,8 +3594,6 @@ function setupChemGame() {
     ensureVisible();
     const hole = target ? null : { x: trash.offsetLeft + trash.offsetWidth / 2, y: trash.offsetTop + trash.offsetHeight / 2 };
     const to = target ?? hole;
-    const dx = to.x - (item.x + item.el.offsetWidth / 2);
-    const dy = to.y - (item.y + item.el.offsetHeight / 2);
     if (hole) {
       const node = effect('chem-hole', to.x, to.y);
       node.animate([
@@ -3604,10 +3602,29 @@ function setupChemGame() {
         { transform: 'translate(-50%,-50%) scale(1.2) rotate(200deg)', opacity: 0 },
       ], { duration: 1600, easing: 'ease-in-out', fill: 'forwards' }).finished.then(() => node.remove());
     }
-    item.el.animate([
-      { transform: 'translate(0,0) scale(1) rotate(0deg)', opacity: 1 },
-      { transform: `translate(${dx}px,${dy}px) scale(0.15) rotate(540deg)`, opacity: 0 },
-    ], { duration: 1200, easing: 'cubic-bezier(0.5,0,0.9,0.4)', fill: 'forwards' }).finished.then(() => item.el.remove());
+    // Spiral çekim: parça kara deliğin etrafında daralan bir spiralde döner, uzayarak incelir ve yutulur
+    const startX = item.x + item.el.offsetWidth / 2;
+    const startY = item.y + item.el.offsetHeight / 2;
+    const r0 = Math.hypot(startX - to.x, startY - to.y) || 1;
+    const theta0 = Math.atan2(startY - to.y, startX - to.x);
+    const frames = [];
+    const steps = 16;
+    for (let k = 0; k <= steps; k += 1) {
+      const t = k / steps;
+      const radius = r0 * Math.pow(1 - t, 1.5);
+      const theta = theta0 + Math.PI * 3 * t;
+      const px = to.x + radius * Math.cos(theta) - startX;
+      const py = to.y + radius * Math.sin(theta) - startY;
+      const stretch = 1 + 2.2 * t * t;          // sünme: yatayda uzar
+      const squeeze = Math.max(0.08, (1 - 0.7 * t * t) * (1 - 0.6 * t));
+      const fade = t < 0.75 ? 1 : Math.max(0, 1 - (t - 0.75) / 0.25);
+      frames.push({
+        transform: `translate(${px.toFixed(1)}px,${py.toFixed(1)}px) rotate(${(Math.atan2(py, px) * 180 / Math.PI).toFixed(1)}deg) scale(${stretch.toFixed(3)},${squeeze.toFixed(3)})`,
+        opacity: fade,
+        offset: t,
+      });
+    }
+    item.el.animate(frames, { duration: 1500, easing: 'cubic-bezier(0.45,0,0.85,0.35)', fill: 'forwards' }).finished.then(() => item.el.remove());
   };
 
   // Birleşme: patlama kıvılcımları, buhar bulutu, ardından ürün belirir
