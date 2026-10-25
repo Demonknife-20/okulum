@@ -1652,3 +1652,7 @@ html.vt-theme::view-transition-old(root){z-index:1}
 
 .chem-ring{position:absolute;width:120px;height:120px;border-radius:50%;border:3px solid #f5b93a;box-shadow:0 0 24px #f5b93a;pointer-events:none;z-index:5}
 .chem-spark{width:9px;height:9px;margin:-4.5px 0 0 -4.5px}
+
+/* v68: birleşme sahnesi: çarpışma flaşı ve gri duman */
+.chem-flash{position:absolute;width:150px;height:150px;margin:-75px 0 0 -75px;border-radius:50%;background:radial-gradient(circle,#ffffff 0%,#ffe9a8 30%,rgba(245,185,58,.4) 55%,transparent 72%);pointer-events:none;z-index:7}
+.chem-smoke{position:absolute;border-radius:50%;background:radial-gradient(circle,rgba(150,156,160,.95) 0%,rgba(120,126,130,.7) 55%,rgba(100,105,110,0) 72%);filter:blur(3px);pointer-events:none;z-index:3}

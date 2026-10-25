@@ -3755,18 +3755,71 @@ function setupChemGame() {
   };
 
   // Tepkimeyi uygular: kullanılan parçalar silinir, ürün ortalarına yerleşir
+  // Parça koreografisi: birbirinden uzaklaşır, hızla çarpışır ve merkezde yok olur
+  const choreograph = (part, cx, cy) => {
+    const px = part.x + part.el.offsetWidth / 2;
+    const py = part.y + part.el.offsetHeight / 2;
+    const dx = px - cx;
+    const dy = py - cy;
+    const len = Math.hypot(dx, dy) || 1;
+    const apartX = (dx / len) * 80;
+    const apartY = (dy / len) * 80;
+    const toX = cx - px;
+    const toY = cy - py;
+    part.el.animate([
+      { transform: 'translate(0px,0px) scale(1)', opacity: 1, easing: 'ease-out' },
+      { transform: `translate(${apartX}px,${apartY}px) scale(1.06)`, opacity: 1, offset: 0.45, easing: 'ease-in' },
+      { transform: `translate(${toX}px,${toY}px) scale(0.55)`, opacity: 1, offset: 0.85, easing: 'ease-in' },
+      { transform: `translate(${toX}px,${toY}px) scale(0.1)`, opacity: 0 },
+    ], { duration: 1100, fill: 'forwards' }).finished.then(() => part.el.remove());
+  };
+
+  // Çarpışma anındaki parlak flaş
+  const flash = (x, y) => {
+    const node = effect('chem-flash', x, y);
+    node.animate([
+      { transform: 'scale(0.1)', opacity: 1 },
+      { transform: 'scale(2.6)', opacity: 0 },
+    ], { duration: 500, easing: 'ease-out', fill: 'forwards' }).finished.then(() => node.remove());
+  };
+
+  // Gri duman bulutları: yükselir, genişler ve dağılır
+  const smoke = (x, y) => {
+    for (let i = 0; i < 8; i += 1) {
+      const size = 80 + Math.random() * 70;
+      const puff = effect('chem-smoke', x + (Math.random() * 60 - 30), y + (Math.random() * 30 - 15), size);
+      const rise = 90 + Math.random() * 80;
+      const delay = Math.random() * 300;
+      puff.animate([
+        { transform: `translate(${-size / 2}px,${-size / 2}px) scale(0.2)`, opacity: 0 },
+        { transform: `translate(${-size / 2}px,${-size / 2}px) scale(1)`, opacity: 0.95, offset: 0.3 },
+        { transform: `translate(${-size / 2}px,${-size / 2 - rise}px) scale(2.2)`, opacity: 0 },
+      ], { duration: 2600, delay, easing: 'ease-out', fill: 'both' }).finished.then(() => puff.remove());
+    }
+  };
+
+  // Birleşme: parçalar koreografiyle çarpışır, ardından patlama, duman ve yeni madde
   const applyReaction = (parts, result) => {
-    const cx = parts.reduce((sum, p) => sum + p.x, 0) / parts.length;
-    const cy = parts.reduce((sum, p) => sum + p.y, 0) / parts.length;
-    parts.forEach(part => vanish(part, { x: cx, y: cy }));
-    if (motionOK()) burst(cx, cy);
-    const product = addItem(result.comp, result.product.formula, result.product.name, 'molecule', cx, cy);
-    if (motionOK()) {
+    const centers = parts.map(p => ({ x: p.x + p.el.offsetWidth / 2, y: p.y + p.el.offsetHeight / 2 }));
+    const cx = centers.reduce((sum, c) => sum + c.x, 0) / centers.length;
+    const cy = centers.reduce((sum, c) => sum + c.y, 0) / centers.length;
+    const fx = motionOK();
+    parts.forEach(part => items.delete(part.id));
+    refreshEmpty();
+    if (fx) {
+      ensureVisible();
+      parts.forEach(part => choreograph(part, cx, cy));
+      setTimeout(() => { flash(cx, cy); burst(cx, cy); smoke(cx, cy); }, 1100);
+    } else {
+      parts.forEach(part => part.el.remove());
+    }
+    const product = addItem(result.comp, result.product.formula, result.product.name, 'molecule', cx - 30, cy - 15);
+    if (fx) {
       product.el.animate([
-        { transform: 'scale(0.2)', opacity: 0 },
-        { transform: 'scale(1.1)', opacity: 1, offset: 0.7 },
-        { transform: 'scale(1)', opacity: 1 },
-      ], { duration: 800, delay: 650, easing: 'ease-out', fill: 'backwards' });
+        { transform: 'scale(0.4)', opacity: 0, filter: 'blur(10px)' },
+        { transform: 'scale(1.08)', opacity: 1, filter: 'blur(0px)', offset: 0.7 },
+        { transform: 'scale(1)', opacity: 1, filter: 'blur(0px)' },
+      ], { duration: 900, delay: 1900, easing: 'ease-out', fill: 'backwards' });
     }
     if (!found.has(result.product.formula)) found.set(result.product.formula, result.product);
     renderKnown();

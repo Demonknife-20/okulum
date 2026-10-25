@@ -557,3 +557,8 @@ Müdür tüm okulu, öğretmen kendi derslerini, öğrenci yalnızca kendi devam
 - **Birleşme:** Parçalar birleşme noktasına çekilir; kıvılcımlar ve buhar bulutu çıkar, ardından birleşmiş ürün belirir.
 - **Tema:** Açık/koyu geçişi tıklanan düğmeden yayılan bir daire olarak yapılır (View Transitions destekleyen tarayıcılarda).
 - "Hareket azalt" tercihi açıksa tüm bu animasyonlar kapanır.
+
+## Sürüm 68: birleşme sahnesi
+
+- Birleşme sırası: parçalar birbirinden uzaklaşır, hızla çarpışır, çarpışma anında parlak bir flaş ve kıvılcımlar çıkar, ardından gri duman bulutları yükselir ve yeni madde dumanın içinden belirir.
+- Efektler **Efektler** düğmesiyle kapatılabilir.
