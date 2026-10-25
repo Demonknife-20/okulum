@@ -3580,10 +3580,16 @@ function setupChemGame() {
   };
 
   // Silinen ya da birleşen parça: hedefe (kara delik ya da birleşme noktası) çekilip küçülür
+  const ensureVisible = () => {
+    const r = stage.getBoundingClientRect();
+    if (r.top < 0 || r.bottom > window.innerHeight) stage.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  };
+
   const vanish = (item, target) => {
     items.delete(item.id);
     refreshEmpty();
     if (!motionOK()) { item.el.remove(); return; }
+    ensureVisible();
     const hole = target ? null : { x: trash.offsetLeft + trash.offsetWidth / 2, y: trash.offsetTop + trash.offsetHeight / 2 };
     const to = target ?? hole;
     const dx = to.x - (item.x + item.el.offsetWidth / 2);
@@ -3594,31 +3600,37 @@ function setupChemGame() {
         { transform: 'translate(-50%,-50%) scale(0)', opacity: 0 },
         { transform: 'translate(-50%,-50%) scale(1)', opacity: 1, offset: 0.35 },
         { transform: 'translate(-50%,-50%) scale(1.2) rotate(200deg)', opacity: 0 },
-      ], { duration: 900, easing: 'ease-in-out', fill: 'forwards' }).finished.then(() => node.remove());
+      ], { duration: 1600, easing: 'ease-in-out', fill: 'forwards' }).finished.then(() => node.remove());
     }
     item.el.animate([
       { transform: 'translate(0,0) scale(1) rotate(0deg)', opacity: 1 },
       { transform: `translate(${dx}px,${dy}px) scale(0.15) rotate(540deg)`, opacity: 0 },
-    ], { duration: 650, easing: 'cubic-bezier(0.5,0,0.9,0.4)', fill: 'forwards' }).finished.then(() => item.el.remove());
+    ], { duration: 1200, easing: 'cubic-bezier(0.5,0,0.9,0.4)', fill: 'forwards' }).finished.then(() => item.el.remove());
   };
 
   // Birleşme: patlama kıvılcımları, buhar bulutu, ardından ürün belirir
   const burst = (x, y) => {
-    for (let i = 0; i < 12; i += 1) {
+    ensureVisible();
+    const ring = effect('chem-ring', x, y);
+    ring.animate([
+      { transform: 'translate(-50%,-50%) scale(0.2)', opacity: 0.9 },
+      { transform: 'translate(-50%,-50%) scale(3)', opacity: 0 },
+    ], { duration: 900, easing: 'ease-out', fill: 'forwards' }).finished.then(() => ring.remove());
+    for (let i = 0; i < 16; i += 1) {
       const spark = effect('chem-spark', x, y);
-      const angle = (i / 12) * Math.PI * 2;
-      const dist = 60 + Math.random() * 40;
+      const angle = (i / 16) * Math.PI * 2;
+      const dist = 90 + Math.random() * 60;
       spark.animate([
         { transform: 'translate(0,0) scale(1)', opacity: 1 },
         { transform: `translate(${Math.cos(angle) * dist}px,${Math.sin(angle) * dist}px) scale(0.2)`, opacity: 0 },
-      ], { duration: 700, easing: 'ease-out', fill: 'forwards' }).finished.then(() => spark.remove());
+      ], { duration: 1100, easing: 'ease-out', fill: 'forwards' }).finished.then(() => spark.remove());
     }
     const steam = effect('chem-steam', x, y);
     steam.animate([
       { transform: 'translate(-50%,-50%) scale(0.3)', opacity: 0.8 },
       { transform: 'translate(-50%,-90%) scale(1.8)', opacity: 0.5, offset: 0.5 },
       { transform: 'translate(-50%,-150%) scale(2.6)', opacity: 0 },
-    ], { duration: 1100, easing: 'ease-out', fill: 'forwards' }).finished.then(() => steam.remove());
+    ], { duration: 1800, easing: 'ease-out', fill: 'forwards' }).finished.then(() => steam.remove());
   };
 
   const renderKnown = () => {
@@ -3752,7 +3764,7 @@ function setupChemGame() {
         { transform: 'scale(0.2)', opacity: 0 },
         { transform: 'scale(1.1)', opacity: 1, offset: 0.7 },
         { transform: 'scale(1)', opacity: 1 },
-      ], { duration: 520, delay: 380, easing: 'ease-out', fill: 'backwards' });
+      ], { duration: 800, delay: 650, easing: 'ease-out', fill: 'backwards' });
     }
     if (!found.has(result.product.formula)) found.set(result.product.formula, result.product);
     renderKnown();

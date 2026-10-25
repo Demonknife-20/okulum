@@ -1646,6 +1646,9 @@ a:hover{text-decoration:underline}
 .chem-spark{position:absolute;width:7px;height:7px;margin:-3px 0 0 -3px;border-radius:50%;background:#f5b93a;box-shadow:0 0 8px #f5b93a;pointer-events:none;z-index:6}
 .chem-steam{position:absolute;width:46px;height:46px;margin:-23px 0 0 -23px;border-radius:50%;background:rgba(255,255,255,.8);filter:blur(5px);pointer-events:none;z-index:4}
 ::view-transition-old(root),::view-transition-new(root){animation:none}
-html.vt-theme::view-transition-new(root){animation:vt-wipe .75s cubic-bezier(.2,.7,.2,1) both;z-index:2}
+html.vt-theme::view-transition-new(root){animation:vt-wipe 1.3s cubic-bezier(.4,0,.2,1) both;z-index:2}
 html.vt-theme::view-transition-old(root){z-index:1}
 @keyframes vt-wipe{from{clip-path:circle(0px at var(--vt-x) var(--vt-y))}to{clip-path:circle(150vmax at var(--vt-x) var(--vt-y))}}
+
+.chem-ring{position:absolute;width:120px;height:120px;border-radius:50%;border:3px solid #f5b93a;box-shadow:0 0 24px #f5b93a;pointer-events:none;z-index:5}
+.chem-spark{width:9px;height:9px;margin:-4.5px 0 0 -4.5px}
