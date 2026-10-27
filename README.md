@@ -608,3 +608,8 @@ Müdür tüm okulu, öğretmen kendi derslerini, öğrenci yalnızca kendi devam
 - Renkler: kağıt zemin, mürekkep yeşili tek vurgu, kalem sarısı yalnızca aksan rengi olarak tanımlı; koyu tema aynı mantıkta.
 - Köşeler: kontroller 6 px, paneller 14 px, tablolar düz; gölge ve gradyan yok.
 - Etiketler: büyük harf ve dekoratif çizgi kaldırıldı (`eyebrow`).
+
+## Sürüm 77: düzeltmeler
+
+- Python editörü kodun boyuna göre büyür; uzun kod artık kesilmez. "Kodu temizle" düğmesi eklendi.
+- Pano not kartında düğmeler sarılır; "Yorum" gibi etiketler kırılmaz.

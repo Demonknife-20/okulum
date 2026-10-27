@@ -1739,3 +1739,11 @@ input,select,textarea{border-radius:var(--r-md)!important}
   body{font-size:16px}
   h1{font-size:24px}
 }
+
+/* v77: Python editörü kodun boyuna göre büyür; not kartı düğmeleri sarılır */
+.py-editor{position:relative;border:1px solid var(--line-2);border-radius:10px;background:var(--surface-2);overflow:hidden}
+.py-hl{position:relative;display:block;min-height:200px;margin:0;padding:12px 14px;overflow:hidden;pointer-events:none;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:14px;line-height:1.5;tab-size:4;white-space:pre;border:0}
+.py-code{position:absolute;inset:0;width:100%;height:100%;margin:0;padding:12px 14px;border:0;overflow:auto;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:14px;line-height:1.5;tab-size:4;white-space:pre;resize:none}
+.note-actions{display:flex;flex-wrap:wrap;gap:6px;align-items:center;justify-content:flex-end}
+.pin-like,.pin-comments,.note-actions .btn{white-space:nowrap}
+.pin footer,.note-foot{flex-wrap:wrap;gap:8px}

@@ -3397,7 +3397,7 @@ async function pageBilgisayar() {
           <textarea class="py-code" data-py="kod" rows="8" spellcheck="false" aria-label="Python kodu">print("Merhaba dünya")</textarea>
         </div>
         <p class="py-hint" data-py="ipucu" role="note"></p>
-        <div class="py-actions"><button class="btn primary sm" type="button" data-action="py-run">Çalıştır</button><button class="btn ghost sm" type="button" data-action="py-clear">Çıktıyı temizle</button></div>
+        <div class="py-actions"><button class="btn primary sm" type="button" data-action="py-run">Çalıştır</button><button class="btn ghost sm" type="button" data-action="py-clear-code">Kodu temizle</button><button class="btn ghost sm" type="button" data-action="py-clear">Çıktıyı temizle</button></div>
         <pre class="py-output" data-py="cikti" role="log" aria-live="polite"></pre>
       </div>`)}
       ${panel('Kabarcık sıralama', 'Sayıları virgülle yazın ve adımları izleyin.', `<div class="pad lab-computing" data-comp="siralama">
@@ -3584,6 +3584,13 @@ ACTIONS['py-run'] = () => {
     }
   }, 110);
   out.dataset.typing = String(timer);
+};
+
+ACTIONS['py-clear-code'] = () => {
+  const code = document.querySelector('[data-py=kod]');
+  code.value = '';
+  code.dispatchEvent(new Event('input'));
+  code.focus();
 };
 
 ACTIONS['py-clear'] = () => {
