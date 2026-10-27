@@ -1693,3 +1693,49 @@ html.fx-off *,html.fx-off *::before,html.fx-off *::after{transition:none!importa
 .py-code,.py-code:focus,.py-code:hover{background:transparent!important;color:transparent!important;border:0!important}
 .sort-bars .bar,.sort-bars .bar span{border-radius:0!important}
 .sort-bars .bar span{border-radius:4px 4px 0 0!important}
+
+/* v76: Okulum tasarımı (frontend-design yönergeleri).
+   Konu: okul defteri ve sınıf panosu. Sakin kağıt zemin, mürekkep yeşili vurgu, sıcak serif başlıklar.
+   Kurallar: tek vurgu rengi; köşe ölçeği (denetim 6px, panel 14px, tablo düz); büyük harfli etiket ve
+   dekoratif çizgi yok; gradyan ve gölge yok; gövde metni satır uzunluğu sınırlı. */
+:root{
+  --f-display:'Fraunces',Georgia,'Times New Roman',serif;
+  --f-body:'Source Sans 3',system-ui,-apple-system,'Segoe UI',sans-serif;
+  --bg:#f6f4ee; --bg-2:#f6f4ee; --surface:#fffdf8; --surface-2:#f0ede4;
+  --line:#e3ddcd; --line-2:#cdc4ae; --ink:#1d2621; --muted:#6a6f63;
+  --brand:#2d6a4f; --brand-soft:#e3eee7; --grad-brand:#2d6a4f;
+  --accent:#b8862a;
+  --r-sm:6px; --r-md:6px; --r-lg:14px;
+}
+[data-theme=dark]{
+  --bg:#151a17; --bg-2:#151a17; --surface:#1c2320; --surface-2:#232b27;
+  --line:#2e3833; --line-2:#3b4741; --ink:#e8ebe4; --muted:#9aa39b;
+  --brand:#7fc4a0; --brand-soft:#1e3328; --grad-brand:#7fc4a0; --accent:#e0b355;
+}
+body{font-family:var(--f-body);font-size:16px;line-height:1.6;color:var(--ink)}
+h1,h2,h3,h4{font-family:var(--f-display);font-weight:600;letter-spacing:-.01em;line-height:1.2}
+h1{font-size:clamp(26px,3.2vw,32px)}
+h2{font-size:22px}
+h3{font-size:18px}
+p,.lead,.muted{max-width:68ch}
+
+/* Etiketler: büyük harf ve dekoratif çizgi yok; sadece bilgi */
+.eyebrow{font-family:var(--f-body)!important;text-transform:none!important;letter-spacing:0!important;font-size:14px!important;font-weight:600!important;color:var(--brand)!important}
+.eyebrow::before,.eyebrow::after{display:none!important;content:none!important}
+
+/* Yüzeyler: kağıt gibi; kenarlık var, gölge yok */
+.panel,.card,.stat,.ai-box,.chem-known,.lab-results{border-radius:var(--r-lg)!important;border:1px solid var(--line)!important;background:var(--surface)!important;box-shadow:none!important}
+table,.table-scroll{border-radius:0}
+.btn{border-radius:var(--r-md)!important;font-weight:600}
+.btn.primary{background:var(--brand)!important;border-color:var(--brand)!important}
+.btn.primary:hover{background:color-mix(in srgb,var(--brand) 88%,#000)!important}
+input,select,textarea{border-radius:var(--r-md)!important}
+:focus-visible{outline:2px solid var(--accent)!important;outline-offset:2px!important}
+
+/* Sadece tek bir vurgu: gövdede kalem sarısı yok, yalnızca başlık altı çizgisi yerine boşluk */
+.nav-item.active{background:var(--brand-soft)!important;color:var(--brand)!important}
+
+@media (max-width:760px){
+  body{font-size:16px}
+  h1{font-size:24px}
+}
