@@ -36,7 +36,7 @@ const panel = (title, meta, body) => `
     <header class="panel-head"><h2>${esc(title)}</h2>${meta ? `<span class="muted">${esc(meta)}</span>` : ''}</header>
     ${body}
   </section>`;
-const empty = (title, text, action = '') => `<div class="empty"><h3>${esc(title)}</h3><p>${esc(text)}</p>${action}</div>`;
+const empty = (title, text, action = '') => `<div class="empty"><p class="empty-title">${esc(title)}</p><p>${esc(text)}</p>${action}</div>`;
 const badge = (text, kind = 'neutral') => `<span class="badge ${kind}">${esc(text)}</span>`;
 const meter = (present, total) => {
   const v = pct(present, total);
@@ -50,7 +50,7 @@ const uniqueBy = (list, key) => [...new Map(list.map(item => [item[key], item]))
 const pager = (total, page, size, action) => {
   const pages = Math.max(1, Math.ceil(total / size));
   if (pages <= 1) return '';
-  return `<nav class="pager" aria-label="Sayfalar">
+  return `<nav class="pager" aria-label="Sayfa gezinmesi">
     <button class="btn ghost sm" type="button" data-action="${action}" data-page="${page - 1}" ${page <= 1 ? 'disabled' : ''}>← Önceki</button>
     <span class="muted">Sayfa ${page} / ${pages} · ${total} kayıt</span>
     <button class="btn ghost sm" type="button" data-action="${action}" data-page="${page + 1}" ${page >= pages ? 'disabled' : ''}>Sonraki →</button>
@@ -265,7 +265,7 @@ async function pageAssignments(params) {
     </tr>`).join('');
   const table = assignments.length
     ? `<div class="table-wrap"><table class="table">
-        <thead><tr><th>Ödev</th><th>Sınıf · Ders</th><th>Son teslim</th><th>Tür</th><th>Teslim</th><th></th></tr></thead>
+        <thead><tr><th>Ödev</th><th>Sınıf · Ders</th><th>Son teslim</th><th>Tür</th><th>Teslim</th><th><span class="sr-only">İşlemler</span></th></tr></thead>
         <tbody id="assignRows">${rows}</tbody></table></div>${pager(total, page, size, 'page-assign')}`
     : empty('Bu filtrede ödev yok', canCreate ? 'Yeni bir ödev oluşturarak başla.' : 'Öğretmenler ödev oluşturduğunda burada listelenir.');
   return { html: `
@@ -900,7 +900,7 @@ async function pagePeople() {
           <span class="muted" id="peopleCount"></span>
         </div>
         <div class="table-wrap"><table class="table">
-          <thead><tr><th>Ad soyad</th><th>Rol</th><th>Sınıf / ders</th><th>Okul no</th><th></th></tr></thead>
+          <thead><tr><th>Ad soyad</th><th>Rol</th><th>Sınıf / ders</th><th>Okul no</th><th><span class="sr-only">İşlemler</span></th></tr></thead>
           <tbody id="peopleBody"></tbody>
         </table></div>
         <div id="peoplePager"></div>
@@ -1131,7 +1131,7 @@ async function pagePanolar(params) {
         ${b.assignedOnly ? badge('Atamalı', 'warn') : ''}${b.moderated ? badge('Onaylı', 'brand') : ''}
         ${b.className ? `<span class="muted small">${esc(b.className)}</span>` : ''}
       </div>
-      <h3>${esc(b.title)}</h3>
+      <p class="pin-title">${esc(b.title)}</p>
       <p class="muted small">${esc(b.description || '')}</p>
       <footer class="board-card-foot"><span>${b.noteCount} not</span><span>${esc(b.createdBy || '')}</span></footer>
     </a>`).join('');
@@ -1303,7 +1303,7 @@ async function pageBoard(params) {
     <article class="pin pin-${esc(n.color)}${n.approved === false ? ' pin-pending' : ''}${layout === 'wall' && n.canMove ? ' pin-movable' : ''}" data-note="${esc(n.id)}"${cardPos(n, index)}${rights.moderate && layout !== 'wall' ? ' draggable="true"' : ''}>
       ${n.hasFile && isImage(n) ? `<img class="pin-img" src="/api/files/board-note/${esc(n.id)}?inline=1" alt="${esc(n.fileName || 'Pano resmi')}" loading="lazy" decoding="async">` : ''}
       ${n.pinned ? '<span class="badge pin-badge">Sabit</span>' : ''}
-      ${n.title ? `<h3>${esc(n.title)}</h3>` : ''}
+      ${n.title ? `<p class="pin-title">${esc(n.title)}</p>` : ''}
       ${n.body ? `<div class="md">${renderMarkdown(n.body)}</div>` : ''}
       ${n.link ? `<span class="badge media-badge">${esc(platformOf(n.link))}</span>` : ''}
       ${n.link ? `<a class="note-link" href="${esc(n.link)}" target="_blank" rel="noopener noreferrer">${icon('send')}<span>${esc(n.link.replace(/^https?:\/\//, '').slice(0, 60))}</span></a>` : ''}
@@ -1978,7 +1978,7 @@ async function pageSinavlar() {
   return { html: `${head('Sınavlar', 'Çoktan seçmeli sınavlar hazırlayın, süre ve zaman aralığı belirleyin. Sonuçlar otomatik hesaplanır.',
       canCreate ? `<button class="btn primary" type="button" data-action="quiz-new">${icon('plus')}<span>Yeni sınav</span></button>` : '')}
     <section class="panel">${quizzes.length
-      ? `<div class="table-wrap"><table class="table"><thead><tr><th>Sınav</th><th>Sınıf · Ders</th><th>Zaman aralığı</th><th>Durum</th><th>Teslim</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`
+      ? `<div class="table-wrap"><table class="table"><thead><tr><th>Sınav</th><th>Sınıf · Ders</th><th>Zaman aralığı</th><th>Durum</th><th>Teslim</th><th><span class="sr-only">İşlemler</span></th></tr></thead><tbody>${rows}</tbody></table></div>`
       : empty('Henüz sınav yok', canCreate ? 'İlk sınavınızı oluşturarak başlayın.' : 'Sınıfınız için sınav hazırlandığında burada görünür.')}</section>` };
 }
 
@@ -2477,7 +2477,7 @@ async function pageProgram(params) {
   const { slots } = await api(`/timetable${classId ? `?classId=${encodeURIComponent(classId)}` : ''}`);
   const columns = DAY_NAMES.map((day, i) => {
     const list = slots.filter(s => s.weekday === i + 1);
-    return `<section class="day-col"><h3>${day}</h3>${list.length ? list.map(s => `
+    return `<section class="day-col"><p class="day-title">${day}</p>${list.length ? list.map(s => `
       <article class="slot-card">
         <header><span class="slot-time">${esc(s.startsAt)} – ${esc(s.endsAt)}</span>
           ${s.canDelete ? `<button class="icon-btn sm" type="button" data-action="slot-del" data-id="${esc(s.id)}" aria-label="Dersi sil">${icon('trash')}</button>` : ''}</header>
@@ -3612,7 +3612,7 @@ ACTIONS['sort-prev'] = () => {
 // ---------- Kimya oyunu: periyodik tablo ve birleşme ----------
 function chemGameHtml() {
   const cells = ELEMENTS.map(([symbol, name, number, group, period]) => (
-    `<button type="button" class="el-cell" data-el="${symbol}" data-group="${group}" data-period="${period}" aria-label="${esc(name)} (${symbol})"><b>${symbol}</b><small>${number}</small></button>`
+    `<button type="button" class="el-cell" data-el="${symbol}" data-group="${group}" data-period="${period}" ><b>${symbol}</b><small>${number}</small><span class="sr-only"> ${esc(name)}</span></button>`
   )).join('');
   return `<div class="chem-game">
     <div class="chem-table-wrap"><div class="chem-table" data-table>${cells}</div></div>

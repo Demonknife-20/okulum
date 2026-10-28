@@ -613,3 +613,17 @@ Müdür tüm okulu, öğretmen kendi derslerini, öğrenci yalnızca kendi devam
 
 - Python editörü kodun boyuna göre büyür; uzun kod artık kesilmez. "Kodu temizle" düğmesi eklendi.
 - Pano not kartında düğmeler sarılır; "Yorum" gibi etiketler kırılmaz.
+- test/e2e/erisilebilirlik.py: axe-core ile sayfa taraması (kendi makinenizde Chromium ve veritabanı gerekir)
+
+## Sürüm 78: erişilebilirlik (axe-core taraması)
+
+- Kişiler, kimya, bilgisayar ve yönlendirme sayfaları axe-core ile tarandı; ihlaller giderildi:
+  - Gri metin koyulaştırıldı (zemin üzerinde 4,5:1 eşiğinin üstünde).
+  - Boş tablo başlıkları için ekran okuyucu metni eklendi.
+  - Kimya element düğmelerinin erişilebilir adı görünen metinle uyumlu hale getirildi.
+- Tarayıcı taraması `test/e2e/erisilebilirlik.py` içinde.
+
+## Sürüm 79: 22 sayfanın axe-core taraması
+
+- Tüm ana sayfalar tarayıcıda taranıp ihlaller giderildi: başlık sırası (kart, gün, boş durum ve pano başlıkları anlamsal paragrafa çevrildi), yinelenen gezinme etiketi, takvim diğer ay gün kontrastı, tablo başlığı metinleri.
+- Tarama `test/e2e/erisilebilirlik.py` içinde 22 rota ile çalışır. Taramada ihlal kalmadı; bu yalnızca otomatik kontrollerin sonucudur.

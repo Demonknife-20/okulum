@@ -5,7 +5,7 @@ AXE = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 
 env = {**os.environ, 'DATABASE_URL': 'postgresql://postgres:@/okulum_ui?host=/tmp/pgdata', 'PORT': '3422', 'HOST': '127.0.0.1', 'SESSION_SECRET': 'a11y-secret-0123456789abcdef', 'API_RATE_PER_MIN': '100000'}
 srv = subprocess.Popen(['node','server.js'], cwd='/home/claude/okulum', env=env, stdout=open('/tmp/a11y.log','w'), stderr=subprocess.STDOUT)
 time.sleep(3); B='http://127.0.0.1:3422'
-PAGES = ['/#/people', '/#/kimya', '/#/bilgisayar', '/#/deneyler' ]
+PAGES = ['/#/'+r for r in ['overview','people','school','audit','yardim','panolar','asistan','sinavlar','notlar','davranis','program','takvim','canli','analiz','izin','gece','geogebra','fizik','kimya','bilgisayar','kullanim','messages']]
 try:
     with sync_playwright() as p:
         b = p.chromium.launch(executable_path=os.environ.get('CHROME_PATH') or None, args=['--no-sandbox'])

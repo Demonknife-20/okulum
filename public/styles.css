@@ -1747,3 +1747,15 @@ input,select,textarea{border-radius:var(--r-md)!important}
 .note-actions{display:flex;flex-wrap:wrap;gap:6px;align-items:center;justify-content:flex-end}
 .pin-like,.pin-comments,.note-actions .btn{white-space:nowrap}
 .pin footer,.note-foot{flex-wrap:wrap;gap:8px}
+
+/* v78: erişilebilirlik düzeltmeleri (axe-core taraması) */
+:root{--muted:#545a50}
+[data-theme=dark]{--muted:#a9b3ab}
+.sr-only{position:absolute!important;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+
+/* v79: başlık hiyerarşisi (anlamsal p) ve takvim kontrastı */
+.empty-title,.pin-title,.day-title{font-family:var(--f-display);font-size:18px;font-weight:600;line-height:1.3;margin:0 0 .35em;color:var(--ink)}
+.cal-num{color:var(--ink)}
+.cal-cell.today .cal-num{color:#fff}
+.cal-cell.out{opacity:1}
+.cal-cell.out .cal-num{color:#5d6258}
