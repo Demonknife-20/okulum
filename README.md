@@ -357,6 +357,7 @@ Müdür tüm okulu, öğretmen kendi derslerini, öğrenci yalnızca kendi devam
 - **Sınıf materyalleri:** Öğretmen (ve müdür) sınıfına GeoGebra bağlantısı ekler; öğrenci ve veli kendi sınıfının materyallerini açar. Materyali GeoGebra'da oluşturup paylaşım bağlantısını yapıştırın.
 - **Güvenlik:** Yalnızca `https` ve `geogebra.org` (ve alt alan adları) bağlantıları kabul edilir. Sayfa çerçevesi yalnızca GeoGebra alan adına izin verilir (CSP `frame-src`).
 - **Not:** Uygulamaların çerçeve içinde açılması GeoGebra'nın kendi ayarlarına bağlıdır. Açılmazsa "Yeni sekmede" bağlantısı kullanılabilir.
+<<<<<<< Updated upstream
 
 ## GeoGebra sayfa içinde (v30)
 
@@ -627,3 +628,5 @@ Müdür tüm okulu, öğretmen kendi derslerini, öğrenci yalnızca kendi devam
 
 - Tüm ana sayfalar tarayıcıda taranıp ihlaller giderildi: başlık sırası (kart, gün, boş durum ve pano başlıkları anlamsal paragrafa çevrildi), yinelenen gezinme etiketi, takvim diğer ay gün kontrastı, tablo başlığı metinleri.
 - Tarama `test/e2e/erisilebilirlik.py` içinde 22 rota ile çalışır. Taramada ihlal kalmadı; bu yalnızca otomatik kontrollerin sonucudur.
+=======
+>>>>>>> Stashed changes

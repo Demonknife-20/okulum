@@ -54,7 +54,7 @@ const SECURITY = {
   'Content-Security-Policy': [
     "default-src 'self'", "script-src 'self'", "style-src 'self' https://fonts.googleapis.com",
     "font-src 'self' https://fonts.gstatic.com", "img-src 'self' data:", "connect-src 'self'",
-    "object-src 'none'", "base-uri 'none'", "form-action 'self'", "frame-ancestors 'none'",
+    "frame-src https://www.geogebra.org https://geogebra.org", "object-src 'none'", "base-uri 'none'", "form-action 'self'", "frame-ancestors 'none'",
   ].join('; '),
 };
 
