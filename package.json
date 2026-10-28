@@ -1,10 +1,6 @@
 {
   "name": "okulum",
-<<<<<<< Updated upstream
   "version": "79.0.0",
-=======
-  "version": "29.0.0",
->>>>>>> Stashed changes
   "private": true,
   "description": "Okulum okul yönetim sistemi · Render + Supabase",
   "engines": {
@@ -20,23 +16,16 @@
   },
   "dependencies": {
     "dejavu-fonts-ttf": "^2.37.3",
-<<<<<<< Updated upstream
     "esbuild": "^0.25.12",
-=======
->>>>>>> Stashed changes
     "nodemailer": "^10.1.0",
     "pdfkit": "^0.15.2",
     "pg": "^8.13.0",
     "web-push": "^3.6.7"
   },
   "devDependencies": {
-<<<<<<< Updated upstream
     "@eslint/js": "^9.39.5",
     "axe-core": "^4.14.0",
     "eslint": "^9.39.5",
     "globals": "^17.13.0"
-=======
-    "esbuild": "^0.25.12"
->>>>>>> Stashed changes
   }
 }

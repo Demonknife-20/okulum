@@ -1265,7 +1265,6 @@ html{scrollbar-width:thin;scrollbar-color:var(--line-2) transparent}
 .ggb-tabs{flex-wrap:wrap}
 .ggb-frame{width:100%;height:min(72vh,640px);min-height:420px;border:1px solid var(--line);border-radius:18px;background:#ffffff}
 @media (max-width:760px){.ggb-frame{min-height:360px;height:62vh}}
-<<<<<<< Updated upstream
 
 /* v30: GeoGebra sayfa içinde, ad etiketi ve yükleme durumları */
 .ggb-stage{position:relative}
@@ -1760,5 +1759,3 @@ input,select,textarea{border-radius:var(--r-md)!important}
 .cal-cell.today .cal-num{color:#fff}
 .cal-cell.out{opacity:1}
 .cal-cell.out .cal-num{color:#5d6258}
-=======
->>>>>>> Stashed changes

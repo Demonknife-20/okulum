@@ -1255,11 +1255,8 @@ test('iki adımlı doğrulama: RFC 6238 vektörü, müdür açar, girişte kod i
   const ok2 = await call('POST', '/api/login', { body: { username: 'murat', password: 'mudur-sifresi-1', portal: 'principal', totp: mfa.totpAt(setup.data.secret, Math.floor(Date.now() / 30000)) } });
   assert.equal(ok2.status, 200);
   assert.ok(ok2.cookie);
-<<<<<<< Updated upstream
   const replay = await call('POST', '/api/login', { body: { username: 'murat', password: 'mudur-sifresi-1', portal: 'principal', totp: mfa.totpAt(setup.data.secret, Math.floor(Date.now() / 30000)) } });
   assert.equal(replay.status, 401, 'aynı kod ikinci kez kullanılamaz');
-=======
->>>>>>> Stashed changes
   assert.equal((await call('POST', '/api/me/2fa/disable', { cookie: state.principal, body: { password: 'yanlis', code } })).status, 401);
   const off = await call('POST', '/api/me/2fa/disable', { cookie: state.principal, body: { password: 'mudur-sifresi-1', code: mfa.totpAt(setup.data.secret, Math.floor(Date.now() / 30000)) } });
   assert.equal(off.status, 200);
@@ -1519,12 +1516,8 @@ test('GeoGebra paneli: uygulamalar, sınıf materyalleri, güvenli bağlantı zo
   assert.equal(apps.status, 200);
   assert.ok(apps.data.apps.some(a => a.key === 'graphing' && a.url === 'https://www.geogebra.org/graphing'));
   const page = await fetch(`${BASE}/`);
-<<<<<<< Updated upstream
   assert.doesNotMatch(page.headers.get('content-security-policy'), /geogebra/);
 
-=======
-  assert.match(page.headers.get('content-security-policy'), /frame-src https:\/\/www\.geogebra\.org/);
->>>>>>> Stashed changes
   const added = await call('POST', '/api/geogebra/materials', { cookie: state.ayse, body: { classId: state.class6A, title: 'Üçgen alanı', url: 'https://www.geogebra.org/m/abc123' } });
   assert.equal(added.status, 201, JSON.stringify(added.data));
   for (const bad of ['http://www.geogebra.org/m/x', 'https://example.com/m/x', 'javascript:alert(1)', 'https://geogebra.org.evil.com/m/x']) {
@@ -1539,7 +1532,6 @@ test('GeoGebra paneli: uygulamalar, sınıf materyalleri, güvenli bağlantı zo
   assert.equal((await call('DELETE', `/api/geogebra/materials/${added.data.id}`, { cookie: state.ayse })).status, 200);
 });
 
-<<<<<<< Updated upstream
 test('çalışma kaydı: öğretmen kaydeder, öğrenci görür, güvenli olmayan satır reddedilir', async () => {
   const ok = await call('POST', '/api/geogebra/worksheets', { cookie: state.ayse, body: { classId: state.class6A, title: 'Parabol çalışması', lines: ['f(x)=x^2-4', 'A=(2, 0)', '  '] } });
   assert.equal(ok.status, 201, JSON.stringify(ok.data));
@@ -1665,8 +1657,6 @@ test('yapay zekâ sınav taslağı: öğrenci kullanamaz; anahtar yoksa öğretm
   assert.ok(teacher.data && typeof teacher.data.error === 'string', 'hata mesajı Türkçe metin olarak döner');
 });
 
-=======
->>>>>>> Stashed changes
 test('hız sınırı: çok sayıda başarısız girişten sonra 429', async () => {
   const statuses = [];
   for (let i = 0; i < 14; i += 1) {

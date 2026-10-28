@@ -3297,7 +3297,6 @@ FORMS['grade-save'] = async form => {
   refresh();
 };
 
-<<<<<<< Updated upstream
 // ---------- Deneyler (v50): fizik ve kimya ----------
 const LAB_CONCENTRATIONS = [0.05, 0.1, 0.2];
 
@@ -4197,67 +4196,15 @@ FORMS['ggb-save'] = async form => {
   closeModal();
   toast('Çalışma sınıfa kaydedildi');
   refresh();
-=======
-// ---------- GeoGebra paneli (v29) ----------
-const GGB_APPS = [['graphing', 'Grafik'], ['calculator', 'Hesap makinesi'], ['geometry', 'Geometri'], ['3d', '3B'], ['classic', 'Klasik'], ['cas', 'CAS']];
-const ggbUrl = key => `https://www.geogebra.org/${key}`;
-
-async function pageGeogebra(params) {
-  const app = GGB_APPS.some(([key]) => key === params.app) ? params.app : 'graphing';
-  const { materials } = await api('/geogebra/materials');
-  const canAdd = state.me.role === 'teacher' || state.me.role === 'principal';
-  const tabs = GGB_APPS.map(([key, label]) => `<button type="button" class="seg-btn ${key === app ? 'on' : ''}" data-action="ggb-app" data-url="${esc(ggbUrl(key))}" aria-pressed="${key === app}">${esc(label)}</button>`).join('');
-  const list = materials.map(m => `<li class="list-row">
-      <div class="list-main"><strong>${esc(m.title)}</strong><small class="muted">${esc(m.className)}</small></div>
-      <div class="row-actions">
-        <button class="btn ghost sm" type="button" data-action="ggb-open" data-url="${esc(m.url)}">Aç</button>
-        <a class="btn ghost sm" href="${esc(m.url)}" target="_blank" rel="noopener">Yeni sekmede</a>
-        ${m.canDelete ? `<button class="icon-btn sm" type="button" data-action="ggb-del" data-id="${esc(m.id)}" aria-label="Materyali sil">${icon('trash')}</button>` : ''}
-      </div>
-    </li>`).join('');
-  const addButton = canAdd ? `<button class="btn primary" type="button" data-action="ggb-add">${icon('plus')}<span>Materyal ekle</span></button>` : '';
-  return { html: `${head('GeoGebra', 'Grafik, geometri ve hesap uygulamaları. Öğretmenler sınıfa materyal ekleyebilir.', addButton)}
-    ${panel('Uygulama', '', `<div class="pad stack">
-      <div class="row-actions ggb-tabs">${tabs}</div>
-      <iframe id="ggbFrame" class="ggb-frame" src="${esc(ggbUrl(app))}" title="GeoGebra uygulaması" allow="fullscreen; clipboard-write"
-        sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-downloads"></iframe>
-      <p class="muted small">Uygulama geogebra.org üzerinden açılır. Görüntülenmezse "Yeni sekmede" bağlantısını kullanın.</p>
-    </div>`)}
-    ${panel('Sınıf materyalleri', `${materials.length} materyal`, materials.length
-      ? `<ul class="list">${list}</ul>`
-      : empty('Materyal yok', 'Öğretmeniniz sınıfa GeoGebra materyali eklediğinde burada görünür.'))}` };
-}
-
-ACTIONS['ggb-app'] = el => {
-  document.querySelectorAll('.ggb-tabs .seg-btn').forEach(button => {
-    const on = button === el;
-    button.classList.toggle('on', on);
-    button.setAttribute('aria-pressed', String(on));
-  });
-  document.querySelector('#ggbFrame').src = el.dataset.url;
-};
-
-ACTIONS['ggb-open'] = el => {
-  document.querySelector('#ggbFrame').src = el.dataset.url;
-  window.scrollTo({ top: 0, behavior: 'smooth' });
->>>>>>> Stashed changes
 };
 
 ACTIONS['ggb-add'] = () => {
   const classes = state.me.role === 'teacher' ? teacherClasses() : state.classes;
-<<<<<<< Updated upstream
   openModal('Harici materyal ekle', `<form class="stack" data-form="ggb-add">
     <label class="field"><span>Sınıf</span><select name="classId">${classes.map(c => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('')}</select></label>
     <label class="field"><span>Başlık</span><input name="title" required minlength="2" maxlength="120" placeholder="Örn. Üçgenin alanı"></label>
     <label class="field"><span>Materyal bağlantısı</span><input name="url" type="url" required maxlength="500" placeholder="https://www.geogebra.org/m/..."></label>
     <p class="muted small">Yalnızca izinli etkileşimli materyal bağlantıları kabul edilir. Materyali oluşturup paylaşım bağlantısını buraya yapıştırın.</p>
-=======
-  openModal('GeoGebra materyali ekle', `<form class="stack" data-form="ggb-add">
-    <label class="field"><span>Sınıf</span><select name="classId">${classes.map(c => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('')}</select></label>
-    <label class="field"><span>Başlık</span><input name="title" required minlength="2" maxlength="120" placeholder="Örn. Üçgenin alanı"></label>
-    <label class="field"><span>GeoGebra bağlantısı</span><input name="url" type="url" required maxlength="500" placeholder="https://www.geogebra.org/m/..."></label>
-    <p class="muted small">Yalnızca geogebra.org bağlantıları kabul edilir. Materyali GeoGebra'da oluşturup paylaşım bağlantısını buraya yapıştırın.</p>
->>>>>>> Stashed changes
     <p class="form-error" data-error role="alert"></p>
     <div class="form-actions"><button class="btn ghost" type="button" data-action="close-modal">Vazgeç</button><button class="btn primary" type="submit">Ekle</button></div>
   </form>`);
@@ -4285,11 +4232,7 @@ const PAGES = {
   yardim: async () => ({ html: helpHtml() }),
   panolar: pagePanolar, pano: pageBoard, asistan: pageAsistan,
   cocuklar: pageCocuklar, sinavlar: pageSinavlar, sinav: pageSinav, notlar: pageNotlar,
-<<<<<<< Updated upstream
   davranis: pageDavranis, puanlarim: pagePuanlarim, program: pageProgram, takvim: pageTakvim, karne: pageKarne, canli: pageCanli, analiz: pageAnaliz, izin: pageIzin, gece: pageGece, geogebra: pageGeogebra, deneyler: pageFizik, fizik: pageFizik, kimya: pageKimya, bilgisayar: pageBilgisayar,
-=======
-  davranis: pageDavranis, puanlarim: pagePuanlarim, program: pageProgram, takvim: pageTakvim, karne: pageKarne, canli: pageCanli, analiz: pageAnaliz, izin: pageIzin, gece: pageGece, geogebra: pageGeogebra,
->>>>>>> Stashed changes
 };
 export function renderView(page, params) {
   if (page === 'overview' && state.me.role === 'parent') return pageParentOverview();

@@ -1,13 +1,7 @@
 // Okulum servis çalışanı: Web Push bildirimlerini gösterir ve tıklanınca ilgili sayfayı açar.
-<<<<<<< Updated upstream
 const SHELL_CACHE = 'okulum-shell-v3';
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(SHELL_CACHE).then(cache => cache.addAll(['/', '/icon-192.png', '/icon-512.png', '/brand-mark.png', '/manifest.webmanifest'])).catch(() => {}));
-=======
-const SHELL_CACHE = 'okulum-shell-v1';
-self.addEventListener('install', event => {
-  event.waitUntil(caches.open(SHELL_CACHE).then(cache => cache.addAll(['/', '/icon.svg', '/manifest.webmanifest'])).catch(() => {}));
->>>>>>> Stashed changes
   self.skipWaiting();
 });
 

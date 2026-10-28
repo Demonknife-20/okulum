@@ -5,7 +5,6 @@ import { ACTIONS, FORMS, CHANGES, INPUTS, renderView, stopTimers } from './views
 import { renderPublic } from './public.js';
 import { initNotifications } from './push.js';
 import { ensureKvkk } from './views.js';
-<<<<<<< Updated upstream
 import { setupInstall } from './install.js';
 // Kurulum isteğini herkese açık sayfada da yakalamak için modül yüklenirken başlatılır.
 setupInstall();
@@ -15,14 +14,6 @@ const NAV = {
   teacher: [['overview', 'Genel bakış', 'home'], ['classes', 'Sınıflarım', 'grid'], ['assignments', 'Ödevler', 'file'], ['sinavlar', 'Sınavlar', 'quiz'], ['canli', 'Canlı yarışma', 'bolt'], ['attendance', 'Yoklama', 'check'], ['notlar', 'Notlar', 'chart'], ['davranis', 'Davranış', 'star'], ['panolar', 'Panolar', 'board'], ['asistan', 'Asistan', 'spark'], ['messages', 'Mesajlar', 'chat'], ['people', 'Kişiler', 'users'], ['program', 'Ders programı', 'clock'], ['takvim', 'Takvim', 'calendar'], ['geogebra', 'Matematik Laboratuvarı', 'chart'], ['fizik', 'Fizik Laboratuvarı', 'chart'], ['kimya', 'Kimya Laboratuvarı', 'chart'], ['bilgisayar', 'Bilgisayar Laboratuvarı', 'chart'], ['izin', 'İzin defteri', 'calendar'], ['yardim', 'Kullanım', 'help']],
   parent: [['overview', 'Genel bakış', 'home'], ['cocuklar', 'Çocuklarım', 'user'], ['messages', 'Mesajlar', 'chat'], ['asistan', 'Asistan', 'spark'], ['program', 'Ders programı', 'clock'], ['takvim', 'Takvim', 'calendar'], ['geogebra', 'Matematik Laboratuvarı', 'chart'], ['fizik', 'Fizik Laboratuvarı', 'chart'], ['kimya', 'Kimya Laboratuvarı', 'chart'], ['bilgisayar', 'Bilgisayar Laboratuvarı', 'chart'], ['izin', 'İzin defteri', 'calendar'], ['yardim', 'Kullanım', 'help']],
   student: [['overview', 'Genel bakış', 'home'], ['assignments', 'Ödevlerim', 'file'], ['sinavlar', 'Sınavlarım', 'quiz'], ['canli', 'Canlı yarışma', 'bolt'], ['notlar', 'Notlarım', 'chart'], ['puanlarim', 'Puanlarım', 'star'], ['attendance', 'Devamım', 'check'], ['panolar', 'Panolar', 'board'], ['asistan', 'Asistan', 'spark'], ['messages', 'Mesajlar', 'chat'], ['program', 'Ders programı', 'clock'], ['takvim', 'Takvim', 'calendar'], ['geogebra', 'Matematik Laboratuvarı', 'chart'], ['fizik', 'Fizik Laboratuvarı', 'chart'], ['kimya', 'Kimya Laboratuvarı', 'chart'], ['bilgisayar', 'Bilgisayar Laboratuvarı', 'chart'], ['izin', 'İzin defteri', 'calendar'], ['yardim', 'Kullanım', 'help']],
-=======
-
-const NAV = {
-  principal: [['overview', 'Genel bakış', 'home'], ['analiz', 'Analiz', 'chart'], ['people', 'Kişiler', 'users'], ['school', 'Okul', 'school'], ['panolar', 'Panolar', 'board'], ['asistan', 'Asistan', 'spark'], ['messages', 'Mesajlar', 'chat'], ['audit', 'Denetim', 'file'], ['program', 'Ders programı', 'clock'], ['takvim', 'Takvim', 'calendar'], ['geogebra', 'GeoGebra', 'chart'], ['izin', 'İzin defteri', 'calendar'], ['yardim', 'Kullanım', 'help']],
-  teacher: [['overview', 'Genel bakış', 'home'], ['classes', 'Sınıflarım', 'grid'], ['assignments', 'Ödevler', 'file'], ['sinavlar', 'Sınavlar', 'quiz'], ['canli', 'Canlı yarışma', 'bolt'], ['attendance', 'Yoklama', 'check'], ['notlar', 'Notlar', 'chart'], ['davranis', 'Davranış', 'star'], ['panolar', 'Panolar', 'board'], ['asistan', 'Asistan', 'spark'], ['messages', 'Mesajlar', 'chat'], ['people', 'Kişiler', 'users'], ['program', 'Ders programı', 'clock'], ['takvim', 'Takvim', 'calendar'], ['geogebra', 'GeoGebra', 'chart'], ['izin', 'İzin defteri', 'calendar'], ['yardim', 'Kullanım', 'help']],
-  parent: [['overview', 'Genel bakış', 'home'], ['cocuklar', 'Çocuklarım', 'user'], ['messages', 'Mesajlar', 'chat'], ['asistan', 'Asistan', 'spark'], ['program', 'Ders programı', 'clock'], ['takvim', 'Takvim', 'calendar'], ['geogebra', 'GeoGebra', 'chart'], ['izin', 'İzin defteri', 'calendar'], ['yardim', 'Kullanım', 'help']],
-  student: [['overview', 'Genel bakış', 'home'], ['assignments', 'Ödevlerim', 'file'], ['sinavlar', 'Sınavlarım', 'quiz'], ['canli', 'Canlı yarışma', 'bolt'], ['notlar', 'Notlarım', 'chart'], ['puanlarim', 'Puanlarım', 'star'], ['attendance', 'Devamım', 'check'], ['panolar', 'Panolar', 'board'], ['asistan', 'Asistan', 'spark'], ['messages', 'Mesajlar', 'chat'], ['program', 'Ders programı', 'clock'], ['takvim', 'Takvim', 'calendar'], ['geogebra', 'GeoGebra', 'chart'], ['izin', 'İzin defteri', 'calendar'], ['yardim', 'Kullanım', 'help']],
->>>>>>> Stashed changes
 };
 const BADGES = ['messages', 'assignments'];
 // Yükleme sırasında gösterilen iskelet ekran (metin yerine).

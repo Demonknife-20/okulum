@@ -1,15 +1,10 @@
-<<<<<<< Updated upstream
 // E-posta gönderimi. Öncelik sırası:
 // 1) RESEND_API_KEY tanımlıysa Resend HTTPS API'si (443 portu; SMTP engellenebilen ortamlarda da çalışır)
 // 2) SMTP_HOST ve SMTP_FROM tanımlıysa SMTP
-=======
-// E-posta gönderimi (SMTP). SMTP_HOST ve SMTP_FROM tanımlıysa gerçek gönderim yapılır.
->>>>>>> Stashed changes
 // Test ortamında MAIL_OUTBOX_FILE tanımlıysa e-postalar bu dosyaya (JSON satırı) yazılır.
 const fs = require('node:fs');
 
 let transport = null;
-<<<<<<< Updated upstream
 const configured = () => Boolean(
   process.env.MAIL_OUTBOX_FILE
   || (process.env.RESEND_API_KEY && process.env.SMTP_FROM)
@@ -33,15 +28,6 @@ async function sendViaResend({ to, subject, text }) {
 }
 
 async function sendViaSmtp({ to, subject, text }) {
-=======
-const configured = () => Boolean(process.env.MAIL_OUTBOX_FILE || (process.env.SMTP_HOST && process.env.SMTP_FROM));
-
-async function send({ to, subject, text }) {
-  if (process.env.MAIL_OUTBOX_FILE) {
-    fs.appendFileSync(process.env.MAIL_OUTBOX_FILE, `${JSON.stringify({ to, subject, text })}\n`);
-    return;
-  }
->>>>>>> Stashed changes
   if (!transport) {
     const nodemailer = require('nodemailer');
     transport = nodemailer.createTransport({
@@ -55,7 +41,6 @@ async function send({ to, subject, text }) {
   await transport.sendMail({ from: process.env.SMTP_FROM, to, subject, text });
 }
 
-<<<<<<< Updated upstream
 async function send({ to, subject, text }) {
   if (process.env.MAIL_OUTBOX_FILE) {
     fs.appendFileSync(process.env.MAIL_OUTBOX_FILE, `${JSON.stringify({ to, subject, text })}\n`);
@@ -65,6 +50,4 @@ async function send({ to, subject, text }) {
   return sendViaSmtp({ to, subject, text });
 }
 
-=======
->>>>>>> Stashed changes
 module.exports = { configured, send };
