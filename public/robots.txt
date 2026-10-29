@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+Allow: /kullanim
+Allow: /hakkinda
+Disallow: /api/
+
+Sitemap: {{SITE_URL}}/sitemap.xml

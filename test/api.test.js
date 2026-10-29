@@ -73,7 +73,7 @@ before(async () => {
   fs.rmSync(path.join(ROOT, 'data'), { recursive: true, force: true });
   child = spawn(process.execPath, [path.join(ROOT, 'server.js')], {
     cwd: ROOT,
-    env: { ...process.env, DATABASE_URL: DB, PORT: String(PORT), HOST: '127.0.0.1', SESSION_SECRET: 'test-secret-value-0123456789', API_RATE_PER_MIN: '100000', WRITE_RATE_PER_MIN: '100000', STATIC_RATE_PER_MIN: '100000', TRUST_PROXY: '1', GEMINI_API_KEY: 'test-key', GEMINI_BASE_URL: `http://127.0.0.1:${GEMINI_PORT}`, AI_DAILY_LIMIT: '5', AI_GLOBAL_DAILY: '1000', BACKUP_KEY: 'test-backup-key', MAIL_OUTBOX_FILE: '/tmp/okulum-outbox-test.jsonl' },
+    env: { ...process.env, DATABASE_URL: DB, PORT: String(PORT), HOST: '127.0.0.1', PUBLIC_URL: BASE, SESSION_SECRET: 'test-secret-value-0123456789', API_RATE_PER_MIN: '100000', WRITE_RATE_PER_MIN: '100000', STATIC_RATE_PER_MIN: '100000', TRUST_PROXY: '1', GEMINI_API_KEY: 'test-key', GEMINI_BASE_URL: `http://127.0.0.1:${GEMINI_PORT}`, AI_DAILY_LIMIT: '5', AI_GLOBAL_DAILY: '1000', BACKUP_KEY: 'test-backup-key', MAIL_OUTBOX_FILE: '/tmp/okulum-outbox-test.jsonl' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   await new Promise((resolve, reject) => {
@@ -744,6 +744,8 @@ test('kopyalama koruması: kopyalama araçları engellenir, tuzak IP yasaklar, r
   assert.equal(robots.status, 200);
   assert.ok(robots.data.includes('Disallow: /api/'));
   assert.ok(!robots.data.includes('Disallow: /gizli-dizin/'), 'gizli tuzak URL robots.txt ile engellenmemeli');
+  assert.ok(!robots.data.includes('{{SITE_URL}}'), 'robots.txt site adresiyle sunulmalı');
+  assert.ok(robots.data.includes('/sitemap.xml'), 'robots.txt site haritasını bildirmeli');
   assert.equal((await call('GET', '/gizli-dizin/', { headers: { 'User-Agent': 'Googlebot' } })).status, 404, 'Google gizli yolu tarayıp 404 görmeli');
   const ip = { headers: { 'X-Forwarded-For': '203.0.113.9' } };
   assert.equal((await call('GET', '/gizli-dizin/', ip)).status, 403, 'tuzağa basılınca 403');
@@ -939,7 +941,9 @@ test('google sayfaları: kılavuz, hakkında, site haritası, robots ve kurulabi
   assert.match(String(sitemap.data), /<loc>[^<]*\/kullanim<\/loc>/);
   const robots = await call('GET', '/robots.txt');
   assert.match(String(robots.data), /Sitemap: /);
+  assert.ok(String(robots.data).includes(`Sitemap: ${BASE}/sitemap.xml`), 'robots.txt site haritası için doğru alan adını kullanmalı');
   assert.match(String(robots.data), /Disallow: \/api\//);
+  assert.equal(fs.readFileSync(path.join(ROOT, 'public', 'robots.txt'), 'utf8'), fs.readFileSync(path.join(ROOT, 'dist', 'robots.txt'), 'utf8'), 'robots.txt derlemeye dahil edilmeli');
   const manifest = await call('GET', '/manifest.webmanifest');
   assert.equal(manifest.status, 200);
   assert.match(String(manifest.data), /"short_name": "Okulum"/);

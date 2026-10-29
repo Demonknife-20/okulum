@@ -92,17 +92,6 @@ ${urls.map(path => `  <url><loc>${esc(base + path)}</loc><changefreq>weekly</cha
 `;
 }
 
-function robots(base) {
-  return `User-agent: *
-Allow: /
-Allow: /kullanim
-Allow: /hakkinda
-Disallow: /api/
-
-Sitemap: ${base}/sitemap.xml
-`;
-}
-
 function notFoundPage(base) {
   const body = `<section class="not-found">
     <div class="nf-code" aria-hidden="true">404</div>
@@ -114,4 +103,4 @@ function notFoundPage(base) {
     .replace('content="index, follow"', 'content="noindex, nofollow"');
 }
 
-module.exports = { usagePage, aboutPage, privacyPage, notFoundPage, sitemap, robots };
+module.exports = { usagePage, aboutPage, privacyPage, notFoundPage, sitemap };

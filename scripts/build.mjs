@@ -35,6 +35,7 @@ html = replaceOnce(html, 'href="/styles.css"', `href="/${cssFile}"`);
 fs.writeFileSync(path.join(out, 'index.html'), html);
 fs.copyFileSync(path.join(src, 'icon.svg'), path.join(out, 'icon.svg'));
 fs.copyFileSync(path.join(src, 'manifest.webmanifest'), path.join(out, 'manifest.webmanifest'));
+fs.copyFileSync(path.join(src, 'robots.txt'), path.join(out, 'robots.txt'));
 fs.copyFileSync(path.join(src, 'sw.js'), path.join(out, 'sw.js'));
 for (const asset of ['icon-192.png', 'icon-512.png', 'brand-mark.png', 'logo.png']) {
   fs.copyFileSync(path.join(src, asset), path.join(out, asset));

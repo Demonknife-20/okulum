@@ -12,6 +12,8 @@ const contentReady = import(require('node:url').pathToFileURL(path.join(__dirnam
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || (process.env.RENDER ? '0.0.0.0' : '127.0.0.1');
 const PUBLIC = fs.existsSync(path.join(__dirname, 'dist', 'index.html')) ? path.join(__dirname, 'dist') : path.join(__dirname, 'public');
+const robotsPath = path.join(PUBLIC, 'robots.txt');
+const ROBOTS = fs.readFileSync(fs.existsSync(robotsPath) ? robotsPath : path.join(__dirname, 'public', 'robots.txt'), 'utf8');
 const BODY_LIMIT = 8 * 1024 * 1024;
 const IP_BACKSTOP = createLimiter({ max: Number(process.env.IP_RATE_PER_MIN || 30000), windowMs: 60 * 1000 });
 const API_LIMIT = createLimiter({ max: Number(process.env.API_RATE_PER_MIN || 3000), windowMs: 60 * 1000 });
@@ -153,7 +155,7 @@ const server = http.createServer(async (req, res) => {
   const base = siteBase(req);
   if (url.pathname === '/robots.txt') {
     res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=3600' });
-    return res.end(seo.robots(base));
+    return res.end(ROBOTS.replaceAll('{{SITE_URL}}', base));
   }
   if (url.pathname === '/ads.txt') {
     const pub = (process.env.ADSENSE_PUB || 'pub-8081727348742880').trim();

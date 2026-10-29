@@ -139,7 +139,7 @@ Kayıtlar silinmez; kullanıcı silinse bile kalır.
 - **Sınav ve quiz:** Öğretmen Sınavlar sayfasından çoktan seçmeli sorular (2-5 şık, doğru cevap, puan) ile sınav hazırlar. Açılış-kapanış zamanı ve süre belirlenir, yayınlanınca öğrenciler görür. Öğrenci sınava başladığında süre sayacı çalışır, cevaplar otomatik kaydedilir. Süre dolunca cevaplar sunucu tarafında otomatik teslim edilir. Sonuçlar öğretmende dağılım grafiğiyle görünür.
 - **Not grafikleri:** Öğrenci Notlarım sayfasında derslere göre ortalama ve ödev/sınav sonuçlarını görür. Öğretmen ve müdür Notlar sayfasında sınıf bazında ödev ve sınav ortalamalarını ve not dağılımını görür.
 - **Mobil:** Telefonda alt gezinme çubuğu, tablolar kart görünümüne geçer, kurulabilir uygulama (manifest) desteği vardır.
-- **Google:** Kullanım kılavuzu (`/kullanim`) ve hakkında (`/hakkinda`) sayfaları gerçek adreslerle yayınlanır. `/sitemap.xml` ve `robots.txt` otomatik üretilir. Ortam değişkeni `PUBLIC_URL` (örn. `https://okulum.onrender.com`) tanımlanırsa site haritasında bu adres kullanılır.
+- **Google:** Kullanım kılavuzu (`/kullanim`) ve hakkında (`/hakkinda`) sayfaları gerçek adreslerle yayınlanır. `/sitemap.xml` dinamik üretilir; robots kuralları `public/robots.txt` dosyasından okunur ve üretim derlemesine kopyalanır. Ortam değişkeni `PUBLIC_URL` (örn. `https://okulum.onrender.com`) tanımlanırsa site haritasında bu adres kullanılır.
 
 Google'da "okulum" aramasında sonuç çıkması için: Google Search Console'a siteyi ekleyin, `sitemap.xml` adresini gönderin, siteyi okul çevrelerinde paylaşın. İlk indekslemeler birkaç hafta sürebilir.
 
