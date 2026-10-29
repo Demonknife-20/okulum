@@ -1555,7 +1555,8 @@ p{margin:0 0 var(--sp-3)}
 small,.muted{font-size:var(--fs-sm);color:var(--muted)}
 
 /* Kartlar ve paneller */
-.panel,.card,.stat{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:0}
+.panel,.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:0}
+.stat{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:20px 22px}
 .panel .pad{padding:var(--sp-4) var(--sp-5)}
 
 /* Tablolar: okunaklı satırlar, sakin başlıklar */
@@ -1759,3 +1760,34 @@ input,select,textarea{border-radius:var(--r-md)!important}
 .cal-cell.today .cal-num{color:#fff}
 .cal-cell.out{opacity:1}
 .cal-cell.out .cal-num{color:#5d6258}
+
+/* v80: istatistik ve özet kartları iç boşluk ve tipografi hizalama geliştirmesi */
+.stat{
+  padding:20px 22px !important;
+  display:flex;
+  flex-direction:column;
+  justify-content:space-between;
+  min-height:140px;
+}
+.stat-top{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  margin-bottom:8px;
+}
+.stat-top > span:first-child{
+  font-weight:600;
+  letter-spacing:0.01em;
+}
+.stat-value{
+  margin-top:auto !important;
+  margin-bottom:4px !important;
+  padding:2px 0;
+  line-height:1.15 !important;
+}
+.stat small{
+  margin-top:0 !important;
+  line-height:1.4;
+  opacity:0.9;
+}
