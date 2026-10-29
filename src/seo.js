@@ -99,7 +99,6 @@ Allow: /kullanim
 Allow: /hakkinda
 Disallow: /api/
 Disallow: /gizli-dizin/
-Crawl-delay: 5
 
 Sitemap: ${base}/sitemap.xml
 `;

@@ -155,6 +155,11 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=3600' });
     return res.end(seo.robots(base));
   }
+  if (url.pathname === '/ads.txt') {
+    const pub = (process.env.ADSENSE_PUB || 'pub-8081727348742880').trim();
+    res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=3600' });
+    return res.end(`google.com, ${pub}, DIRECT, f08c47fec0942fa0\n`);
+  }
   if (url.pathname === '/sitemap.xml') {
     res.writeHead(200, { 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=3600' });
     return res.end(seo.sitemap(base));
