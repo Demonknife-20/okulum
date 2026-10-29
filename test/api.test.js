@@ -743,6 +743,8 @@ test('kopyalama koruması: kopyalama araçları engellenir, tuzak IP yasaklar, r
   const robots = await call('GET', '/robots.txt');
   assert.equal(robots.status, 200);
   assert.ok(robots.data.includes('Disallow: /api/'));
+  assert.ok(!robots.data.includes('Disallow: /gizli-dizin/'), 'gizli tuzak URL robots.txt ile engellenmemeli');
+  assert.equal((await call('GET', '/gizli-dizin/', { headers: { 'User-Agent': 'Googlebot' } })).status, 404, 'Google gizli yolu tarayıp 404 görmeli');
   const ip = { headers: { 'X-Forwarded-For': '203.0.113.9' } };
   assert.equal((await call('GET', '/gizli-dizin/', ip)).status, 403, 'tuzağa basılınca 403');
   assert.equal((await call('GET', '/', ip)).status, 403, 'aynı IP artık yasaklı');

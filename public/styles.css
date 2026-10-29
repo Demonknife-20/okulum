@@ -706,7 +706,7 @@ input:disabled,select:disabled{opacity:.6}
 .security-box p{margin:0;font-size:14px}
 
 /* Kopyalayıcı tuzağı: insanlara görünmez */
-.hp-link{position:absolute!important;left:-10000px!important;top:auto!important;width:1px;height:1px;overflow:hidden}
+
 
 /* ---------- 14. Duyarlı tasarım ---------- */
 @media (max-width:1100px){

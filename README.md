@@ -215,7 +215,7 @@ Düzenli yedek için bu dosyaları periyodik olarak indirmeniz önerilir (Supaba
 
 - Bilinen kopyalama araçlarının kullanıcı ajanları (HTTrack, WebCopier, Teleport, SiteSucker, wget, Scrapy vb.) 403 ile reddedilir.
 - Sayfada normal kullanıcıya görünmeyen bir tuzak bağlantı vardır. Kopyalayıcılar bu bağlantıyı izleyince IP adresi 1 saat engellenir. `/.env` ve `/.git` gibi yollar da tuzaktır.
-- Statik dosyalar IP başına dakikada 600 istekle sınırlıdır. `robots.txt` API ve tuzağı dışlar. API yanıtları `noindex` başlığı taşır.
+- Statik dosyalar IP başına dakikada 600 istekle sınırlıdır. `robots.txt` API'yi tarama dışında tutar; gizli tuzak adresleri botlara 404 döndürür. API yanıtları `noindex` başlığı taşır.
 - JS ve CSS derlemesi küçültülür ve içerik özetiyle adlandırılır (`npm run build`, çıktı `dist/` klasöründe). Bu dosyalar uzun süre önbelleğe alınır.
 
 Not: Tarayıcının çalıştırmak için indirdiği herkese açık sayfalar (ana sayfa, kılavuz, okul duyuruları) hiçbir yazılım tarafından tam olarak engellenemez. Okul verisi ise yalnızca giriş yapan yetkili kullanıcılara sunulduğu için kopyalayıcılar veriyi alamaz.

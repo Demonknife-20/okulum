@@ -98,7 +98,6 @@ Allow: /
 Allow: /kullanim
 Allow: /hakkinda
 Disallow: /api/
-Disallow: /gizli-dizin/
 
 Sitemap: ${base}/sitemap.xml
 `;
