@@ -149,17 +149,7 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
-  // Yasaklı IP'ler ve kopyalama araçları tüm uygulamaya erişemez
-  if (isBanned(key0)) return send(res, 403, { error: 'Erişim geçici olarak engellendi.' });
-  if (BOT_UA.test(req.headers['user-agent'] || '')) {
-    return send(res, 403, { error: 'Bu istemciye izin verilmiyor.' });
-  }
-  if (TRAP.test(url.pathname)) {
-    bans.set(key0, Date.now() + BAN_MS);
-    console.warn(new Date().toISOString(), 'kopyalama tuzağı tetiklendi:', key0, url.pathname);
-    return send(res, 403, { error: 'Erişim engellendi.' });
-  }
-  // Google için: gerçek adresli sayfalar, site haritası ve robots.txt
+  // robots.txt ve site haritası her zaman yanıtlanır (yasak/bot filtresinden önce)
   const base = siteBase(req);
   if (url.pathname === '/robots.txt') {
     res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'public, max-age=3600' });
@@ -169,6 +159,20 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=3600' });
     return res.end(seo.sitemap(base));
   }
+  // Yasaklı IP'ler ve kopyalama araçları tüm uygulamaya erişemez
+  if (isBanned(key0)) return send(res, 403, { error: 'Erişim geçici olarak engellendi.' });
+  if (BOT_UA.test(req.headers['user-agent'] || '')) {
+    return send(res, 403, { error: 'Bu istemciye izin verilmiyor.' });
+  }
+  if (TRAP.test(url.pathname) && /googlebot|google-inspectiontool|bingbot/i.test(req.headers['user-agent'] || '')) {
+    return send(res, 404, { error: 'Bulunamadı.' });
+  }
+  if (TRAP.test(url.pathname)) {
+    bans.set(key0, Date.now() + BAN_MS);
+    console.warn(new Date().toISOString(), 'kopyalama tuzağı tetiklendi:', key0, url.pathname);
+    return send(res, 403, { error: 'Erişim engellendi.' });
+  }
+  // Google için: gerçek adresli sayfalar, site haritası ve robots.txt
   if (url.pathname === '/gizlilik') {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=600' });
     return res.end(seo.privacyPage(base));
