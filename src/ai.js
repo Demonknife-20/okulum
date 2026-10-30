@@ -20,9 +20,6 @@ const BASE = (process.env.GEMINI_BASE_URL || 'https://generativelanguage.googlea
 const MODEL = process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite';
 const DAILY_LIMIT = Number(process.env.AI_DAILY_LIMIT || 30);
 const GLOBAL_DAILY = Number(process.env.AI_GLOBAL_DAILY || 400);
-const USER_RATE_PER_MINUTE = 8;
-const IP_RATE_PER_MINUTE = 60;
-const IP_DAILY_LIMIT = 120;
 const RETENTION_DAYS = Number(process.env.AI_RETENTION_DAYS || 180);
 const enabled = () => Boolean(process.env.GEMINI_API_KEY);
 
@@ -153,8 +150,6 @@ async function streamGemini({ role, history, message, onDelta, signal }) {
 async function purgeExpired() {
   await q('delete from ai_conversations where updated_at < now() - ($1::int * interval \'1 day\')', [RETENTION_DAYS]);
   await q('delete from ai_usage where day < current_date - 30');
-  await q('delete from public.ai_request_limits where window_start < now() - interval \'2 days\'');
-  await q('delete from public.ai_global_usage where day < current_date - 30');
 }
 function startRetention() {
   const safePurge = () => forEachTenant(purgeExpired).catch(error => console.error('Saklama temizliği hatası:', error.message));
@@ -169,8 +164,4 @@ async function draftQuiz({ topic, example, count, withImages }) {
   return parseQuizDraft(text);
 }
 
-module.exports = {
-  draftQuiz, NOTICE, NOTICE_VERSION, DAILY_LIMIT, GLOBAL_DAILY,
-  USER_RATE_PER_MINUTE, IP_RATE_PER_MINUTE, IP_DAILY_LIMIT,
-  enabled, askGemini, streamGemini, AiError, systemPrompt, startRetention, isInjection, INJECTION_REPLY,
-};
+module.exports = { draftQuiz, NOTICE, NOTICE_VERSION, DAILY_LIMIT, GLOBAL_DAILY, enabled, askGemini, streamGemini, AiError, systemPrompt, startRetention, isInjection, INJECTION_REPLY };

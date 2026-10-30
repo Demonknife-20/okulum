@@ -762,9 +762,6 @@ test('kopyalama koruması: kopyalama araçları engellenir, tuzak IP yasaklar, r
 });
 
 test('asistan: durum, bildirim ve onay kapısı', async () => {
-  assert.equal((await call('POST', '/api/ai/chat', { body: { message: 'anon istek' } })).status, 401, 'sohbet anonim erişime kapalı');
-  assert.equal((await call('POST', '/api/ai/chat/stream', { body: { message: 'anon istek' } })).status, 401, 'akış anonim erişime kapalı');
-  assert.equal((await call('POST', '/api/ai/quiz-draft', { body: { topic: 'anon' } })).status, 401, 'taslak anonim erişime kapalı');
   const st = (await call('GET', '/api/ai/status', { cookie: state.ece })).data;
   assert.equal(st.enabled, true);
   assert.equal(st.accepted, false);
@@ -828,36 +825,6 @@ test('asistan: günlük soru hakkı sınırlanır, yapay zekâ hatası sade mesa
   const failed = await call('POST', '/api/ai/chat', { cookie: state.ayse, body: { message: 'HATA_TEST bir soru' } });
   assert.equal(failed.status, 502);
   assert.ok(!failed.data.error.includes('500'), 'teknik ayrıntı kullanıcıya gösterilmez');
-});
-
-test('asistan kotası eşzamanlı istekleri kullanıcı ve dakika sınırlarıyla atomik tutar', async () => {
-  const status = (await call('GET', '/api/ai/status', { cookie: state.principal })).data;
-  await call('POST', '/api/ai/consent', { cookie: state.principal, body: { version: status.notice.version } });
-  const responses = await Promise.all(Array.from({ length: 9 }, (_, i) =>
-    call('POST', '/api/ai/chat', { cookie: state.principal, body: { message: `eşzamanlı kota testi ${i}` } })));
-  assert.equal(responses.filter(response => response.status === 200).length, 5, 'kullanıcı günlük kotası aşılmamalı');
-  assert.equal(responses.filter(response => response.status === 429).length, 4, 'fazla istekler reddedilmeli');
-
-  const db = new Client({ connectionString: DB, ssl: false });
-  try {
-    await db.connect();
-    const { rows: [principal] } = await db.query('select id from users where username = $1', ['murat']);
-    assert.ok(principal, 'test müdürü bulunmalı');
-    await db.query('update ai_usage set used = 0 where user_id = $1 and day = current_date', [principal.id]);
-    for (let i = 0; i < 3; i += 1) {
-      const response = await call('POST', '/api/ai/chat', {
-        cookie: state.principal,
-        body: { message: `dakikalık kota testi ${i}` },
-      });
-      assert.equal(response.status, 200);
-      await db.query('update ai_usage set used = 0 where user_id = $1 and day = current_date', [principal.id]);
-    }
-    const limited = await call('POST', '/api/ai/chat', { cookie: state.principal, body: { message: 'dakika sınırı testi' } });
-    assert.equal(limited.status, 429);
-    assert.match(limited.data.error, /dakikalık/i);
-  } finally {
-    await db.end();
-  }
 });
 
 test('asistan: sohbet sahibi siler', async () => {

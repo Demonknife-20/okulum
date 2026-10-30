@@ -8,10 +8,7 @@ const { forEachTenant } = require('./tenancy');
 const storage = require('./storage');
 
 const gzip = promisify(zlib.gzip);
-const SKIP_TABLES = new Set([
-  'app_settings', 'push_subscriptions', 'password_resets', 'backups',
-  'ai_usage', 'ai_global_usage', 'ai_request_limits',
-]);
+const SKIP_TABLES = new Set(['app_settings', 'push_subscriptions', 'password_resets', 'backups', 'ai_usage']);
 const KEEP = 30;
 
 function cipherKey() {
