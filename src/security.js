@@ -89,18 +89,6 @@ function readCookie(req, name = COOKIE) {
 // ---- Hız sınırı (yalnızca başarısız girişler sayılır) ----
 const WINDOW_MS = 15 * 60 * 1000, LIMIT = 10;
 const failures = new Map();
-const MAX_FAILURE_KEYS = 10000;
-
-function trimExpired(map, now) {
-  for (const [key, entry] of map) if (entry.reset <= now) map.delete(key);
-}
-
-function makeRoom(map, maxKeys, now) {
-  if (map.size < maxKeys) return;
-  trimExpired(map, now);
-  while (map.size >= maxKeys) map.delete(map.keys().next().value);
-}
-
 function isLimited(key) {
   const entry = failures.get(key);
   return Boolean(entry && entry.reset > Date.now() && entry.count >= LIMIT);
@@ -108,10 +96,7 @@ function isLimited(key) {
 function recordFailure(key) {
   const now = Date.now();
   const entry = failures.get(key);
-  if (!entry || entry.reset <= now) {
-    makeRoom(failures, MAX_FAILURE_KEYS, now);
-    failures.set(key, { count: 1, reset: now + WINDOW_MS });
-  }
+  if (!entry || entry.reset <= now) failures.set(key, { count: 1, reset: now + WINDOW_MS });
   else entry.count += 1;
 }
 function clearFailures(key) { failures.delete(key); }
@@ -123,44 +108,19 @@ setInterval(() => {
 // Basit sabit pencereli sınırlayıcı. Anahtar başına, pencere içinde en fazla `max` istek.
 function createLimiter({ max, windowMs }) {
   const hits = new Map();
-  const maxKeys = 10000;
   setInterval(() => {
     const now = Date.now();
-    trimExpired(hits, now);
+    for (const [key, entry] of hits) if (entry.reset <= now) hits.delete(key);
   }, 60 * 1000).unref();
   return key => {
     const now = Date.now();
     let entry = hits.get(key);
-    if (!entry || entry.reset <= now) {
-      makeRoom(hits, maxKeys, now);
-      entry = { count: 0, reset: now + windowMs };
-      hits.set(key, entry);
-    }
+    if (!entry || entry.reset <= now) { entry = { count: 0, reset: now + windowMs }; hits.set(key, entry); }
     entry.count += 1;
     return entry.count > max;
   };
 }
 
-function sameOriginRequest(req) {
-  const source = req.headers.origin || req.headers.referer;
-  const trustedProxy = process.env.TRUST_PROXY === '1';
-  const forwardedHost = trustedProxy
-    ? String(req.headers['x-forwarded-host'] || '').split(',')[0].trim()
-    : '';
-  const targetHost = String(forwardedHost || req.headers.host || '').toLowerCase();
-  if (!source || !targetHost || req.headers['sec-fetch-site'] === 'cross-site') return false;
-  try {
-    const sourceUrl = new URL(source);
-    const forwardedProto = trustedProxy
-      ? String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim()
-      : '';
-    const targetProtocol = req.socket?.encrypted || forwardedProto === 'https' ? 'https:' : 'http:';
-    return sourceUrl.host.toLowerCase() === targetHost
-      && sourceUrl.protocol === targetProtocol;
-  } catch {
-    return false;
-  }
-}
 
 // Kişisel veriyi yapay zekâya göndermeden maskeler (T.C. kimlik, e-posta, telefon, okul no).
 const REDACTIONS = [
@@ -178,7 +138,6 @@ function redact(text) {
 module.exports = {
   redact,
   createLimiter,
-  sameOriginRequest,
   COOKIE, hashPassword, hashPasswordAsync, verifyPassword, verifyPasswordAsync, burnTime, burnTimeAsync, fingerprint,
   readToken, setSessionCookie, clearSessionCookie, readCookie,
   isLimited, recordFailure, clearFailures,

@@ -4,7 +4,7 @@ const path = require('node:path');
 const { q, pool, withTenant } = require('./src/db');
 const storage = require('./src/storage');
 const { handleApi, toHttpError, HttpError } = require('./src/api');
-const { createLimiter, sameOriginRequest } = require('./src/security');
+const { createLimiter } = require('./src/security');
 const seo = require('./src/seo');
 const tenancy = require('./src/tenancy');
 const platform = require('./src/platform');
@@ -65,6 +65,17 @@ const SECURITY = {
 function send(res, status, body, headers = {}) {
   res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...headers });
   res.end(JSON.stringify(body));
+}
+
+function sameOrigin(req) {
+  const origin = req.headers.origin;
+  if (!origin) return true;
+  try {
+    const host = new URL(origin).host;
+    return host === req.headers.host || host === req.headers['x-forwarded-host'];
+  } catch {
+    return false;
+  }
 }
 
 function readBody(req) {
@@ -189,7 +200,7 @@ const server = http.createServer(async (req, res) => {
   }
   if (url.pathname.startsWith('/api/platform/')) {
     try {
-      if (!['GET', 'HEAD'].includes(req.method) && !sameOriginRequest(req)) return send(res, 403, { error: 'İstek kaynağı doğrulanamadı.' });
+      if (!['GET', 'HEAD'].includes(req.method) && !sameOrigin(req)) return send(res, 403, { error: 'İstek kaynağı doğrulanamadı.' });
       const body = ['POST', 'PUT', 'PATCH'].includes(req.method) ? await readBody(req) : {};
       return await platform.handlePlatformApi({ req, res, url, body });
     } catch (error) {
@@ -283,7 +294,7 @@ const server = http.createServer(async (req, res) => {
       throw new HttpError(429, 'Çok fazla istek gönderildi. Lütfen biraz bekleyin.');
     }
     if (!['GET', 'HEAD'].includes(req.method)) {
-      if (!sameOriginRequest(req)) throw new HttpError(403, 'İstek kaynağı doğrulanamadı.');
+      if (!sameOrigin(req)) throw new HttpError(403, 'İstek kaynağı doğrulanamadı.');
       if (req.method !== 'DELETE' && !/application\/json/i.test(req.headers['content-type'] || '')) {
         throw new HttpError(415, 'JSON içerik türü gerekli.');
       }
