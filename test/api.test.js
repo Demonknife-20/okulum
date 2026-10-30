@@ -63,8 +63,28 @@ async function call(method, route, { body, cookie, origin = BASE, raw, headers: 
 async function resetDatabase() {
   const client = new Client({ connectionString: DB, ssl: false });
   await client.connect();
-  await client.query('drop schema public cascade; create schema public;');
+  // Çok-kiracılı kurulum: okul verisi tenant_<hash> şemasında, kayıt defteri platform şemasında
+  // yaşar. Yalnızca public'i düşürmek eski principal'ı tenant şemasında bırakıp sonraki koşuda
+  // kurulumu 409'a düşürür; bu yüzden üç şema ailesi de sıfırlanır.
+  const { rows } = await client.query(
+    "select nspname from pg_namespace where nspname in ('public', 'platform') or nspname like 'tenant\\_%'",
+  );
+  for (const { nspname } of rows) {
+    await client.query(`drop schema if exists "${nspname}" cascade`);
+    if (nspname === 'public') await client.query('create schema public');
+  }
   await client.end();
+}
+
+// Doğrudan SQL okuyan/yazan testlerin, uygulamanın veriyi yazdığı aktif okul şemasını görmesi
+// için search_path'i platform.schools kaydıyla hizalar (aksi halde public'teki boş kopyaya yazar).
+async function tenantClient() {
+  const client = new Client({ connectionString: DB, ssl: false });
+  await client.connect();
+  const { rows } = await client.query('select schema_name from platform.schools order by created_at limit 1');
+  const schema = rows[0] && rows[0].schema_name;
+  if (schema) await client.query(`set search_path to "${schema}", public`);
+  return client;
 }
 
 before(async () => {
@@ -774,9 +794,8 @@ test('asistan: durum, bildirim ve onay kapısı', async () => {
   assert.equal((await call('DELETE', '/api/ai/consent', { cookie: state.ece })).status, 200);
   assert.equal((await call('GET', '/api/ai/status', { cookie: state.ece })).data.accepted, false);
   assert.equal((await call('POST', '/api/ai/consent', { cookie: state.ece, body: { version: st.notice.version } })).status, 200);
-  const db = new Client({ connectionString: DB, ssl: false });
+  const db = await tenantClient();
   try {
-    await db.connect();
     const { rows } = await db.query('select action from ai_consent_events where user_id = $1 and version = $2 order by id', [state.eceId, st.notice.version]);
     assert.deepEqual(rows.map(row => row.action), ['granted', 'withdrawn', 'granted'], 'tercih ve geri çekme zaman çizgisi korunmalı');
   } finally {
@@ -937,8 +956,7 @@ test('sınav: açılmamış, yayınlanmamış ve süresi dolan sınavlar kuralla
     questions: [{ text: 'Soru 1', options: ['a', 'b'], correctIndex: 0, points: 3 }] } });
   const attempt = (await call('POST', `/api/quizzes/${timed.data.id}/attempts`, { cookie: state.ece })).data.attemptId;
   await call('PUT', `/api/quiz-attempts/${attempt}/answers`, { cookie: state.ece, body: { answers: [] } });
-  const db = new Client({ connectionString: DB, ssl: false });
-  await db.connect();
+  const db = await tenantClient();
   await db.query("update quiz_attempts set deadline = now() - interval '2 minutes' where id = $1", [attempt]);
   await db.end();
   const late = await call('PUT', `/api/quiz-attempts/${attempt}/answers`, { cookie: state.ece, body: { answers: [] } });
@@ -1197,8 +1215,7 @@ test('canlı yarışma: süre dolunca cevap kabul edilmez', async () => {
   const game = (await call('POST', '/api/live', { cookie: state.ayse, body: { quizId: quiz.data.id } })).data;
   await call('POST', '/api/live/join', { cookie: state.ece, body: { pin: game.pin } });
   await call('POST', `/api/live/${game.id}/start`, { cookie: state.ayse });
-  const db = new Client({ connectionString: DB });
-  await db.connect();
+  const db = await tenantClient();
   await db.query("update live_games set question_started_at = now() - interval '2 minutes' where id = $1", [game.id]);
   await db.end();
   const late = await call('POST', `/api/live/${game.id}/answer`, { cookie: state.ece, body: { selected: 0 } });
@@ -1717,13 +1734,14 @@ test('pano sabitleme: yalnızca yönetici sabitler, sabitli not listede üstte g
   await call('DELETE', `/api/boards/${boardId}`, { cookie: state.ayse });
 });
 
-test('gizlilik: taslak sayfa yayınlanır ve yer tutucuları açıkça işaretler', async () => {
+test('gizlilik: platform sayfası taslak yayınlanır ve belirlenmemiş alanları açıkça işaretler', async () => {
   const response = await fetch(`${BASE}/gizlilik`);
   assert.equal(response.status, 200);
   const html = await response.text();
-  assert.match(html, /Gizlilik politikası/);
-  assert.match(html, /Taslak:/, 'hukuki onay öncesi taslak olduğu belirtilir');
-  assert.match(html, /\[Verilerin ne kadar süre saklandığı/, 'saklama süresi uydurulmaz, yer tutucu kalır');
+  assert.match(html, /gizlilik ve kişisel verilerin korunması/);
+  assert.match(html, /class="legal-draft"/, 'hukuki onay öncesi taslak olduğu işaretlenir');
+  assert.match(html, /yayından önce eklenmelidir/, 'eksik bilgiler açıkça belirtilir');
+  assert.match(html, /saklama süresi işletmeci tarafından belirlenip bu metne eklenmelidir/, 'saklama süresi uydurulmaz, belirleme gereği vurgulanır');
 });
 
 test('pansiyon yetkisi: liste ve onay aynı kuralı kullanır; sınıfı olmayan öğretmen karar düğmesi görmez', async () => {
