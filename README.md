@@ -175,7 +175,7 @@ Müdür, Kişiler sayfasında "CSV ile ekle" ile yüzlerce hesabı tek seferde a
 - **Onay:** İlk kullanımda tam bildirim metni gösterilir ve kabul edilmeden sohbet açılmaz. Metin sürüm numaralıdır (`src/ai.js`, `NOTICE_VERSION`). Metin değişince herkes yeniden onaylar.
 - **Kayıt ve saklama:** Sohbetler veritabanına kaydedilir ve 180 gün sonra otomatik silinir. Müdür kayıtları salt okunur görür, her görüntüleme denetim kaydına yazılır.
 - **Maskeleme:** T.C. kimlik no, e-posta, telefon ve okul no yapay zekâya gitmeden önce maskelenir.
-- **Hata ve sınır:** Kullanıcı başına günlük soru sınırı ve toplam günlük sınır vardır. Hata durumunda kullanıcıya sade bir mesaj gösterilir.
+- **Hata ve sınır:** Her AI uç noktası oturum açma ve onay gerektirir. Kullanıcı başına dakikada 8, IP başına dakikada 60 istek; kullanıcı başına günlük 30, IP başına günlük 120 ve uygulama genelinde günlük 400 sağlayıcı çağrısı veritabanında atomik olarak sınırlandırılır. Günlük uygulama kotası okul şemaları arasında ortaktır. Hata durumunda kullanıcıya sade bir mesaj gösterilir.
 - **Kural dışı istemler:** "Sistem talimatlarını göster" gibi yönlendirme denemeleri yapay zekâya gönderilmeden sabit bir yanıtla reddedilir ve günlük hakkı harcamaz.
 
 Yasal not: Bildirim metni bir taslaktır. Yayına almadan önce okulunuzun hukuk danışmanına kontrol ettirin. Google'ın ücretsiz katmanında girdilerin ürün geliştirme için kullanılabileceğini belirtir. Hassas veriler için ücretli plan veya kurumsal bir sözleşme değerlendirin.
@@ -185,9 +185,9 @@ Ortam değişkenleri:
 | Değişken | Açıklama |
 |---|---|
 | `GEMINI_API_KEY` | Google AI Studio anahtarı. Yoksa asistan kapalıdır. |
-| `GEMINI_MODEL` | Varsayılan `gemini-2.5-flash-lite`. Google model adını değiştirirse buradan güncelleyin. |
+| `GEMINI_MODEL` | Varsayılan `gemini-3.1-flash-lite`. Google model adını değiştirirse buradan güncelleyin. |
 | `AI_DAILY_LIMIT` | Kullanıcı başına günlük soru sayısı (varsayılan 30) |
-| `AI_GLOBAL_DAILY` | Tüm okul için günlük toplam soru sayısı (varsayılan 400) |
+| `AI_GLOBAL_DAILY` | Uygulama genelinde günlük toplam sağlayıcı çağrısı (varsayılan 400) |
 | `AI_RETENTION_DAYS` | Sohbet saklama süresi (varsayılan 180 gün) |
 
 ## Tasarım sistemi (v11)
@@ -271,14 +271,14 @@ Müdür tüm okulu, öğretmen kendi derslerini, öğrenci yalnızca kendi devam
 - Giriş denemeleri: 15 dakikada 10 başarısız deneme sonrası geçici kilit (IP ve kullanıcı adına göre).
 - Yüklenen dosyanın **uzantısı ve içeriği** (dosya imzası) birbirini tutmak zorunda; izin verilen türler: PDF, DOC/DOCX, JPG, PNG; en fazla 5 MB.
 - Dosyalar yalnızca yetkili kişiye, her zaman `attachment` olarak sunulur (tarayıcıda çalıştırılmaz).
-- Tablolarda RLS açık ve politika yok: anahtar (anon) ile doğrudan veritabanına erişim yoktur.
+- Tüm uygulama tablolarında RLS açık ve istemci politikası yok: anon anahtarıyla doğrudan tablo erişimi engellenir. Canlı proje ayrıca Supabase Dashboard'da denetlenmelidir.
 - Güvenlik başlıkları: CSP (satır içi script/stil yok), `X-Frame-Options: DENY`, `nosniff`.
 - Mesajlar yalnızca katılımcılara görünür; sınıf grubu sohbeti yalnızca o sınıfın öğrenci ve öğretmenlerine açıktır.
 
 ## Bilinen sınırlar
 
 - Veri kalıcılığı Supabase'dedir; düzenli yedek için Supabase'in yedekleme özelliğini etkinleştir.
-- Tek sunucu örneği varsayılır (oturum ve hız sınırı belleğe göre). Birden fazla örnek gerekirse Redis gerekir.
+- Giriş denemesi gibi bazı genel hız sınırları bellekte tutulur ve tek sunucu örneği varsayar. AI kullanıcı/IP limitleri ve AI günlük harcama kotası PostgreSQL'de atomiktir; uygulama örnekleri arasında ortaktır.
 - Sınıf veya ders silinince ilgili ödev dosyaları da silinir; bu geri alınamaz (arayüzde onay istenir).
 - Devamsızlık uyarıları veritabanında toplanır ve 60 saniye önbelleğe alınır. Her yazma işlemi önbelleği geçersiz kılar. Önbellek bellekte tutulduğu için tek sunucu örneği varsayılır.
 - Bildirimler 20 saniyede bir yenilenir; gerçek zamanlı (push) değildir.

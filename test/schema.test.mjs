@@ -38,6 +38,11 @@ test('sıfırdan kurulum: tüm migrasyonlar sırayla uygulanır ve kayıt tablos
     await client.connect();
     const { rows } = await client.query('select name from schema_migrations order by name');
     assert.deepEqual(rows.map(r => r.name), ['0000_baseline', ...migrationFiles.map(f => f.replace(/\.sql$/, ''))]);
+    const { rows: unsecured } = await client.query(`select c.relname
+      from pg_class c join pg_namespace n on n.oid = c.relnamespace
+      where n.nspname = 'public' and c.relkind = 'r' and not c.relrowsecurity
+      order by c.relname`);
+    assert.deepEqual(unsecured, [], 'public şemasındaki her uygulama tablosunda RLS açık olmalı');
     // Yeniden çalıştırma: hiçbir migrasyon ikinci kez uygulanmaz
     runMigrate(url);
     const again = await client.query('select count(*)::int as n from schema_migrations');

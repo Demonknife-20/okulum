@@ -1614,7 +1614,7 @@ on('DELETE', '/api/ai/consent', async ({ user }) => {
   return ok({ accepted: false });
 });
 
-// Sohbet isteğini doğrular, kotayı kontrol eder ve konuşmayı çözümler. Yapay zekâya henüz gitmez.
+// Sohbet isteğini doğrular ve konuşmayı çözümler. Kota, harici çağrıdan hemen önce atomik tüketilir.
 async function aiPrepare(user, body) {
   if (!ai.enabled()) fail(503, 'Asistan henüz etkin değil. Okul yöneticinizle konuşun.');
   const { rowCount: accepted } = await q('select 1 from ai_consents where user_id = $1 and version = $2 and withdrawn_at is null', [user.id, ai.NOTICE_VERSION]);
@@ -1622,10 +1622,6 @@ async function aiPrepare(user, body) {
   const text = String(body.message ?? '').trim();
   if (!text) fail(400, 'Mesaj boş olamaz.');
   if (text.length > 2000) fail(400, 'Mesaj en fazla 2000 karakter olabilir.');
-  const { rows: [usage] } = await q('select used from ai_usage where user_id = $1 and day = current_date', [user.id]);
-  if ((usage?.used ?? 0) >= ai.DAILY_LIMIT) fail(429, `Bugünkü ${ai.DAILY_LIMIT} soru hakkınızı kullandınız. Yarın tekrar deneyin.`);
-  const { rows: [all] } = await q('select coalesce(sum(used), 0)::int as n from ai_usage where day = current_date');
-  if (all.n >= ai.GLOBAL_DAILY) fail(429, 'Asistan bugün çok yoğun. Lütfen yarın tekrar deneyin.');
   const conversationId = body.conversationId ? requireId(body.conversationId, 'sohbet') : null;
   let history = [];
   if (conversationId) {
@@ -1637,10 +1633,67 @@ async function aiPrepare(user, body) {
   return { text, safe, conversationId, history, injection: ai.isInjection(text), redacted: safe !== text };
 }
 
-// Kullanım sayacını artırır (yapay zekâya gitmeden önce; kota korunur).
-async function aiSpend(userId) {
-  await q(`insert into ai_usage (user_id, day, used) values ($1, current_date, 1)
-    on conflict (user_id, day) do update set used = ai_usage.used + 1`, [userId]);
+// Veritabanı kilidi, kullanıcı/IP hız sınırlarını ve sağlayıcı günlük kotasını
+// birden çok uygulama süreci ve okul şeması arasında atomik tutar.
+async function aiSpend(userId, req, billable = true) {
+  const tenant = currentTenantSchema() || 'public';
+  const ip = clientIp(req);
+  const hashKey = (scope, value) => crypto.createHmac('sha256', process.env.SESSION_SECRET || 'okulum-local-ai-limit')
+    .update(`${scope}:${value}`).digest('hex');
+
+  await tx(async client => {
+    const { rows: [clock] } = await client.query(`select current_date as today,
+      date_trunc('minute', now()) as minute_start, date_trunc('day', now()) as day_start`);
+    await client.query(
+      'select pg_advisory_xact_lock(hashtext($1), hashtext($2))',
+      ['okulum-ai-provider-quota', String(clock.today)],
+    );
+
+    const incrementLimit = async (windowStart, windowType, scope, keyHash, limit, message) => {
+      const { rowCount } = await client.query(`insert into public.ai_request_limits as limits
+          (window_start, window_type, scope, key_hash, request_count)
+        values ($1, $2, $3, $4, 1)
+        on conflict (window_start, window_type, scope, key_hash) do update
+          set request_count = limits.request_count + 1
+          where limits.request_count < $5
+        returning request_count`, [windowStart, windowType, scope, keyHash, limit]);
+      if (!rowCount) fail(429, message);
+    };
+
+    await incrementLimit(
+      clock.minute_start, 'minute', 'user', hashKey('user', `${tenant}:${userId}`),
+      ai.USER_RATE_PER_MINUTE, 'Dakikalık yapay zekâ kullanıcı sınırına ulaştınız. Biraz sonra tekrar deneyin.',
+    );
+    await incrementLimit(
+      clock.minute_start, 'minute', 'ip', hashKey('ip', ip),
+      ai.IP_RATE_PER_MINUTE, 'Bu ağdan dakikada çok fazla yapay zekâ isteği geldi. Biraz sonra tekrar deneyin.',
+    );
+    if (!billable) return;
+
+    await incrementLimit(
+      clock.day_start, 'day', 'ip', hashKey('ip', ip),
+      ai.IP_DAILY_LIMIT, 'Bu ağın günlük yapay zekâ kullanım sınırı doldu. Yarın tekrar deneyin.',
+    );
+
+    const { rows: [usage] } = await client.query(
+      'select used from ai_usage where user_id = $1 and day = $2 for update', [userId, clock.today],
+    );
+    if ((usage?.used ?? 0) >= ai.DAILY_LIMIT) {
+      fail(429, `Bugünkü ${ai.DAILY_LIMIT} soru hakkınızı kullandınız. Yarın tekrar deneyin.`);
+    }
+
+    const { rows: [globalUsage] } = await client.query(
+      'select used from public.ai_global_usage where day = $1 for update', [clock.today],
+    );
+    if ((globalUsage?.used ?? 0) >= ai.GLOBAL_DAILY) {
+      fail(429, 'Asistan bugün çok yoğun. Lütfen yarın tekrar deneyin.');
+    }
+
+    await client.query(`insert into ai_usage (user_id, day, used) values ($1, $2, 1)
+      on conflict (user_id, day) do update set used = ai_usage.used + 1`, [userId, clock.today]);
+    await client.query(`insert into public.ai_global_usage as usage (day, used) values ($1, 1)
+      on conflict (day) do update set used = usage.used + 1`, [clock.today]);
+  });
 }
 
 // Başarılı yanıtı kaydeder. Yeni konuşmaysa önce konuşmayı oluşturur ve kimliğini döner.
@@ -1657,11 +1710,11 @@ async function aiSave(user, conversationId, safe, reply) {
   return id;
 }
 
-on('POST', '/api/ai/chat', async ({ body, user }) => {
+on('POST', '/api/ai/chat', async ({ body, user, req }) => {
   const p = await aiPrepare(user, body);
+  await aiSpend(user.id, req, !p.injection);
   let reply = ai.INJECTION_REPLY;
   if (!p.injection) {
-    await aiSpend(user.id);
     try {
       reply = await ai.askGemini({ role: user.role, history: p.history, message: p.safe });
     } catch (error) {
@@ -1674,7 +1727,7 @@ on('POST', '/api/ai/chat', async ({ body, user }) => {
 });
 
 // Sınav taslağı: öğretmen konu (ve isteğe bağlı örnek soru) yazar, yapay zekâ soruları üretir; kayıt yapılmaz
-on('POST', '/api/ai/quiz-draft', async ({ body, user }) => {
+on('POST', '/api/ai/quiz-draft', async ({ body, user, req }) => {
   if (!['teacher', 'principal'].includes(user.role)) fail(403, 'Sınav taslağı yalnızca öğretmenler içindir.');
   if (!ai.enabled()) fail(503, 'Asistan henüz etkin değil. Okul yöneticinizle konuşun.');
   const { rowCount: accepted } = await q('select 1 from ai_consents where user_id = $1 and version = $2 and withdrawn_at is null', [user.id, ai.NOTICE_VERSION]);
@@ -1685,11 +1738,7 @@ on('POST', '/api/ai/quiz-draft', async ({ body, user }) => {
   if (topic.length < 3 || topic.length > 200) fail(400, 'Konu 3 ile 200 karakter arasında olmalı.');
   if (example.length > 800) fail(400, 'Örnek soru en fazla 800 karakter olabilir.');
   if (ai.isInjection(topic) || ai.isInjection(example)) fail(400, 'Bu içerik sınav taslağı için kullanılamaz.');
-  const { rows: [usage] } = await q('select used from ai_usage where user_id = $1 and day = current_date', [user.id]);
-  if ((usage?.used ?? 0) >= ai.DAILY_LIMIT) fail(429, `Bugünkü ${ai.DAILY_LIMIT} soru hakkınızı kullandınız. Yarın tekrar deneyin.`);
-  const { rows: [all] } = await q('select coalesce(sum(used), 0)::int as n from ai_usage where day = current_date');
-  if (all.n >= ai.GLOBAL_DAILY) fail(429, 'Asistan bugün çok yoğun. Lütfen yarın tekrar deneyin.');
-  await aiSpend(user.id);
+  await aiSpend(user.id, req);
   // Günlük: yalnızca olay bilgisi ve sayılar; konu, örnek soru ve model çıktısı yazılmaz
   const logEvent = (outcome, extra = {}) => {
     console.log(JSON.stringify({ evt: 'ai.quiz_draft', outcome, role: user.role, count, withImages: body.withImages === true, topicLen: topic.length, ...extra, at: new Date().toISOString() }));
@@ -1714,8 +1763,9 @@ on('POST', '/api/ai/quiz-draft', async ({ body, user }) => {
 
 // Akış (SSE): yanıt parça parça gelir. Olaylar: delta (metin parçası), done (kayıt kimliği), error (hata).
 // Doğrulama hataları normal JSON olarak döner; akış yalnızca yanıt başladıktan sonra açılır.
-on('POST', '/api/ai/chat/stream', async ({ body, user, res }) => {
+on('POST', '/api/ai/chat/stream', async ({ body, user, req, res }) => {
   const p = await aiPrepare(user, body);
+  await aiSpend(user.id, req, !p.injection);
   res.writeHead(200, {
     'Content-Type': 'text/event-stream; charset=utf-8',
     'Cache-Control': 'no-cache, no-transform',
@@ -1730,7 +1780,6 @@ on('POST', '/api/ai/chat/stream', async ({ body, user, res }) => {
     if (p.injection) {
       emit('delta', { text: reply });
     } else {
-      await aiSpend(user.id);
       reply = await ai.streamGemini({ role: user.role, history: p.history, message: p.safe, signal: controller.signal, onDelta: text => emit('delta', { text }) });
     }
     const conversationId = await aiSave(user, p.conversationId, p.safe, reply);
