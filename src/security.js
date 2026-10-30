@@ -143,15 +143,11 @@ function createLimiter({ max, windowMs }) {
 
 function sameOriginRequest(req) {
   const source = req.headers.origin || req.headers.referer;
-  const trustedProxy = process.env.TRUST_PROXY === '1';
-  const forwardedHost = trustedProxy
-    ? String(req.headers['x-forwarded-host'] || '').split(',')[0].trim()
-    : '';
-  const targetHost = String(forwardedHost || req.headers.host || '').toLowerCase();
+  const targetHost = String(req.headers.host || '').toLowerCase();
   if (!source || !targetHost || req.headers['sec-fetch-site'] === 'cross-site') return false;
   try {
     const sourceUrl = new URL(source);
-    const forwardedProto = trustedProxy
+    const forwardedProto = process.env.TRUST_PROXY === '1'
       ? String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim()
       : '';
     const targetProtocol = req.socket?.encrypted || forwardedProto === 'https' ? 'https:' : 'http:';

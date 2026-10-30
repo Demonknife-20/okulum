@@ -31,28 +31,6 @@ test('durum değiştiren istekler aynı-origin olmalı; Origin/Referer eksik vey
   assert.equal(sameOriginRequest(request({})), false);
 });
 
-test('güvenilir proxy arkasında dış host ve protokol proxy başlıklarından doğrulanır', () => {
-  const previous = process.env.TRUST_PROXY;
-  process.env.TRUST_PROXY = '1';
-  const forwardedRequest = {
-    headers: {
-      host: 'okulum-internal.onrender.com',
-      origin: 'https://okulum.example',
-      'x-forwarded-host': 'okulum.example',
-      'x-forwarded-proto': 'https',
-    },
-    socket: { encrypted: false },
-  };
-  try {
-    assert.equal(sameOriginRequest(forwardedRequest), true);
-    process.env.TRUST_PROXY = '0';
-    assert.equal(sameOriginRequest(forwardedRequest), false, 'proxy host başlığına güven ancak TRUST_PROXY=1 iken verilir');
-  } finally {
-    if (previous === undefined) delete process.env.TRUST_PROXY;
-    else process.env.TRUST_PROXY = previous;
-  }
-});
-
 test('kişisel veri maskeleme: kimlik no, e-posta, telefon ve okul no gizlenir', () => {
   assert.equal(redact('TC 12345678901'), 'TC [kimlik no]');
   assert.equal(redact('mail ali@okul.k12.tr'), 'mail [e-posta]');
