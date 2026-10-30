@@ -2,6 +2,7 @@
 import { api, val, esc, fmtDate, notFoundHtml, toast } from './core.js';
 import { FORMS } from './views.js';
 import { helpHtml } from './help.js';
+import { playUnlockTransition } from './interactions.js';
 
 const setupRequired = async () => (await api('/setup').catch(() => ({ setupRequired: false }))).setupRequired;
 
@@ -206,6 +207,7 @@ FORMS.login = async form => {
     toast('Doğrulama kodunu girip tekrar giriş yapın');
     return;
   }
+  await playUnlockTransition();
   window.dispatchEvent(new Event('okulum:login'));
 };
 
@@ -216,5 +218,6 @@ FORMS.setup = async form => {
     controllerEmail: val(form, 'controllerEmail'), controllerPhone: val(form, 'controllerPhone'),
     name: val(form, 'name'), username: val(form, 'username'), password: val(form, 'password'),
   } });
+  await playUnlockTransition();
   window.dispatchEvent(new Event('okulum:login'));
 };

@@ -38,6 +38,7 @@ const platformHtml = fs.readFileSync(path.join(src, 'platform.html'), 'utf8')
   .replace('href="/styles.css"', `href="/${cssFile}"`);
 fs.writeFileSync(path.join(out, 'platform.html'), platformHtml);
 fs.copyFileSync(path.join(src, 'platform.js'), path.join(out, 'platform.js'));
+fs.copyFileSync(path.join(src, 'interactions.js'), path.join(out, 'interactions.js'));
 fs.copyFileSync(path.join(src, 'icon.svg'), path.join(out, 'icon.svg'));
 fs.copyFileSync(path.join(src, 'styles.css'), path.join(out, 'styles.css'));
 fs.copyFileSync(path.join(src, 'manifest.webmanifest'), path.join(out, 'manifest.webmanifest'));

@@ -1,3 +1,5 @@
+import { playUnlockTransition } from './interactions.js';
+
 const $ = selector => document.querySelector(selector);
 const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
 
@@ -16,6 +18,10 @@ async function request(path, { method = 'GET', body } = {}) {
 function showAdmin() {
   $('#loginPanel').hidden = true;
   $('#adminPanel').hidden = false;
+  $('#adminPanel').classList.remove('is-arriving');
+  void $('#adminPanel').offsetWidth;
+  $('#adminPanel').classList.add('is-arriving');
+  window.setTimeout(() => $('#adminPanel').classList.remove('is-arriving'), 750);
   $('#configNotice').hidden = true;
 }
 
@@ -39,6 +45,7 @@ $('#loginForm').addEventListener('submit', async event => {
   submit.disabled = true;
   try {
     await request('/login', { method: 'POST', body: Object.fromEntries(new FormData(form)) });
+    await playUnlockTransition();
     form.reset();
     showAdmin();
     await loadSchools();

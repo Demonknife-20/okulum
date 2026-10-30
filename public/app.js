@@ -118,11 +118,18 @@ async function routePublic() {
   const page = currentPublicPage();
   const view = $('#publicView');
   setRouteProgress(true);
+  const outgoing = view.children.length && fxEnabled()
+    ? view.animate([{ opacity: 1, transform: 'translateY(0)' }, { opacity: 0, transform: 'translateY(-8px)' }], { duration: 130, fill: 'forwards' })
+    : null;
+  if (outgoing) await outgoing.finished.catch(() => {});
+  if (seq !== publicSeq) return;
   view.innerHTML = skeleton();
+  if (outgoing) outgoing.cancel();
   try {
     const { html } = await renderPublic(page === 'ana' ? '' : page);
     if (seq !== publicSeq) return;
     view.innerHTML = html;
+    if (fxEnabled()) view.animate([{ opacity: 0, transform: 'translateY(12px) scale(.99)' }, { opacity: 1, transform: 'none' }], { duration: 280, easing: 'cubic-bezier(.2,.7,.2,1)' });
     document.querySelectorAll('[data-public]').forEach(a => a.classList.toggle('current', a.dataset.public === page));
     paintWidths(view);
     window.scrollTo({ top: 0 });
@@ -192,6 +199,13 @@ async function enterApp() {
   const data = await api('/me');
   Object.assign(state, { me: data.user, school: data.school, teaching: data.teaching, classes: data.classes, subjects: data.subjects });
   renderChrome();
+  const app = $('#app');
+  if (fxEnabled()) {
+    app.classList.remove('login-arrival');
+    void app.offsetWidth;
+    app.classList.add('login-arrival');
+    window.setTimeout(() => app.classList.remove('login-arrival'), 850);
+  }
   if (!location.hash.startsWith('#/') || location.hash === '#/' || ['#/mudur-girisi', '#/giris', '#/kurulum'].includes(location.hash)) {
     history.replaceState(null, '', '#/overview');
   }
