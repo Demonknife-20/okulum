@@ -1,6 +1,8 @@
 // Google için statik sayfalar, site haritası ve robots.txt.
+const { buildKvkkNotice } = require('./kvkk');
 
 const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+const jsonForScript = value => JSON.stringify(value).replace(/</g, '\\u003c');
 
 const SHELL = (base, { title, description, path, body }) => `<!doctype html>
 <html lang="tr">
@@ -18,46 +20,44 @@ const SHELL = (base, { title, description, path, body }) => `<!doctype html>
 <meta name="robots" content="index, follow">
 <link rel="icon" href="/icon-192.png" type="image/png">
 <link rel="stylesheet" href="/styles.css">
-<script type="application/ld+json">${JSON.stringify({ '@context': 'https://schema.org', '@type': 'WebPage', name: title, description, url: base + path, isPartOf: { '@type': 'WebSite', name: 'Okulum', url: base + '/' } })}</script>
+<script type="application/ld+json">${jsonForScript({ '@context': 'https://schema.org', '@type': 'WebPage', name: title, description, url: base + path, isPartOf: { '@type': 'WebSite', name: 'Okulum', url: base + '/' } })}</script>
 </head>
 <body class="seo-page">
 <header class="public-top"><a class="brand" href="/"><span class="brand-mark"><img src="/brand-mark.png" alt="" width="40" height="40"></span><span class="brand-name">okulum</span></a>
-<nav class="public-nav"><a href="/kullanim">Kullanım</a><a href="/hakkinda">Hakkında</a><a class="btn primary sm" href="/#/mudur-girisi">Giriş yap</a></nav></header>
+<nav class="public-nav"><a href="/kullanim">Kullanım</a><a href="/hakkinda">Hakkında</a><a href="${esc(path.endsWith('/gizlilik') ? path : '/gizlilik')}">Gizlilik</a><a class="btn primary sm" href="/#/mudur-girisi">Giriş yap</a></nav></header>
 <main class="public-view seo-main">${body}</main>
-<footer class="public-foot">Okulum · Okul yönetim sistemi · <a href="/kullanim">Kullanım kılavuzu</a> · <a href="/hakkinda">Hakkında</a></footer>
+<footer class="public-foot">Okulum · Okul yönetim sistemi · <a href="/kullanim">Kullanım kılavuzu</a> · <a href="/hakkinda">Hakkında</a> · <a href="${esc(path.endsWith('/gizlilik') ? path : '/gizlilik')}">Gizlilik</a></footer>
 </body>
 </html>`;
 
-function privacyPage(base) {
-  const body = `
-<article class="seo-article">
-<p class="legal-draft"><strong>Taslak:</strong> Bu metin hukuki onaydan geçene kadar taslaktır. Köşeli parantez içindeki alanlar okul tarafından doldurulmalıdır.</p>
-<h1>Gizlilik politikası</h1>
-<p>Okulum, okul, öğretmen, öğrenci ve veliler arasında ödev, yoklama, not, duyuru ve iletişim süreçlerini yürüten bir okul yönetim sistemidir. Bu sayfa hangi kişisel verilerin işlendiğini, neden işlendiğini ve kullanıcı haklarını açıklar.</p>
-<h2>Hangi veriler işlenir</h2>
-<ul>
-<li>Kimlik ve iletişim: ad, soyad, kullanıcı adı, okul numarası, e-posta adresi.</li>
-<li>Eğitim kayıtları: ödevler ve teslimler, yoklama, notlar, sınav sonuçları, davranış puanları ve gözlem notları.</li>
-<li>İletişim içerikleri: mesajlar, pano notları, yorumlar ve yüklenen dosyalar.</li>
-<li>Güvenlik kayıtları: giriş denemeleri, iki adımlı doğrulama bilgisi (şifreli olarak) ve cihaz bildirim aboneliği.</li>
-</ul>
-<h2>Verilerin işlenme amacı</h2>
-<p>Veriler yalnızca okulun eğitim ve yönetim süreçlerini yürütmek, güvenliği sağlamak ve kullanıcının talep ettiği işlemleri (örneğin şifre sıfırlama) gerçekleştirmek için kullanılır.</p>
-<h2>Verilerin paylaşımı</h2>
-<p>Veriler, hizmeti sağlamak için kullanılan altyapı sağlayıcılarında tutulur: uygulama barındırma (Render), veritabanı ve dosya depolama (Supabase) ve e-posta gönderimi ([e-posta sağlayıcısı]). Veriler bunların dışında üçüncü kişilerle paylaşılmaz.</p>
-<h2>Saklama süresi</h2>
-<p>[Verilerin ne kadar süre saklandığı burada belirtilecek. Örneğin: öğrenci kayıtları okul yılı sonrasında ... süreyle saklanır.]</p>
-<h2>Kullanıcı hakları</h2>
-<p>Kişisel verilerinizle ilgili olarak bilgi edinme, düzeltme, silme ve dışa aktarma haklarına sahipsiniz. Uygulama içinde verilerinizi dışa aktarabilir ve hesap silme talebi oluşturabilirsiniz. Diğer talepler için aşağıdaki iletişim adresini kullanın.</p>
-<h2>Açık rıza ve aydınlatma</h2>
-<p>Uygulamayı ilk kullanımınızda kişisel verilerinizin işlenmesine ilişkin aydınlatma metnini onaylamanız istenir.</p>
-<h2>İletişim</h2>
-<p>[Veri sorumlusu okul adı], [adres], [e-posta adresi].</p>
-</article>`;
+function privacyPage(base, { school = null, schools = [], path = '/gizlilik' } = {}) {
+  const notice = school ? buildKvkkNotice(school) : null;
+  const providers = ['Render (uygulama barındırma)', 'Supabase (veritabanı ve dosya depolama)'];
+  if (process.env.GEMINI_API_KEY) providers.push('Varsayılan Google Gemini API’si veya GEMINI_BASE_URL ile yapılandırılan uyumlu yapay zekâ uç noktası');
+  if (process.env.RESEND_API_KEY && process.env.SMTP_FROM) providers.push('Resend (e-posta gönderimi)');
+  else if (process.env.SMTP_HOST && process.env.SMTP_FROM) providers.push('SMTP_HOST ile yapılandırılan e-posta sağlayıcısı');
+  const body = school
+    ? `<article class="seo-article">
+        <p class="legal-draft"><strong>Yayın öncesi:</strong> Bu uygulama metni bilgilendirme taslağıdır. Okul, veri işleme faaliyetlerini ve hukuki sebepleri doğrulamalı; sağlayıcı/ülke bilgilerini ve gerekiyorsa aktarım mekanizmasını teyit edip hukuk danışmanına onaylatmalıdır.</p>
+        <h1>${esc(school.name)} · gizlilik ve kişisel verilerin korunması</h1>
+        <p>${esc(notice.intro)}</p>
+        ${notice.sections.map(section => `<section class="seo-section"><h2>${esc(section.title)}</h2><p>${esc(section.text)}</p></section>`).join('')}
+        <section class="seo-section"><h2>Yapılandırılmış hizmet sağlayıcıları</h2><p>${providers.map(esc).join('; ')}. Bu liste altyapı yapılandırmasına dayanır; okul, sözleşme ve veri konumlarını ayrıca doğrulamalıdır.</p></section>
+        <p><a class="btn primary" href="/${encodeURIComponent(school.slug)}/#/giris">Okul giriş sayfası</a></p>
+      </article>`
+    : `<article class="seo-article">
+        <p class="legal-draft"><strong>Platform kapsamı:</strong> Bu sayfa genel platform bilgisi verir. Okul hesapları ayrı tutulur; her okul kendi okul kayıtları için aydınlatma ve iletişim bilgilerini belirlemelidir. Hizmeti işleten kuruluşun kendi platform yönetimi kayıtlarına ilişkin unvan ve iletişim bilgileri de yayından önce eklenmelidir.</p>
+        <h1>Okulum · gizlilik ve kişisel verilerin korunması</h1>
+        <p>Okulum, okulların eğitim ve yönetim süreçleri için kullandığı çok-okullu bir yazılımdır. Bir okulun kullanıcı hesabı, ödev, not, yoklama, iletişim ve dosyaları için o okulun adresindeki okul-özel aydınlatma metnini inceleyin.</p>
+        <h2>Okul-özel aydınlatma metinleri</h2>
+        <ul>${schools.map(item => `<li><a href="/${encodeURIComponent(item.slug)}/gizlilik">${esc(item.name)} · ${esc(item.city)} gizlilik metni</a></li>`).join('') || '<li>Henüz kayıtlı okul bulunmuyor.</li>'}</ul>
+        <h2>Hizmet altyapısı</h2><p>${providers.map(esc).join('; ')}. Kullanılan sağlayıcı, veri konumu ve hukuki aktarım koşulları dağıtım ayarlarına göre değişir.</p>
+        <h2>Platform yöneticisi hesabı</h2><p>Platform yönetimi için kullanıcı adı, parola doğrulama özeti ve güvenlik/erişim kayıtları işlenir. Bu işlemin veri sorumlusu, iletişim kanalı ve saklama süresi işletmeci tarafından belirlenip bu metne eklenmelidir.</p>
+      </article>`;
   return SHELL(base, {
-    title: 'Gizlilik politikası · Okulum',
-    description: 'Okulum uygulamasında hangi kişisel verilerin işlendiği, neden işlendiği ve kullanıcı haklarının açıklaması.',
-    path: '/gizlilik',
+    title: `${school ? `${school.name} · ` : ''}Gizlilik ve kişisel verilerin korunması · Okulum`,
+    description: 'Okulum okul yönetim sisteminde işlenen kişisel veriler, amaçlar, saklama, aktarım ve başvuru yolları hakkında bilgilendirme.',
+    path,
     body,
   });
 }
@@ -83,8 +83,11 @@ function aboutPage(base, { ABOUT }) {
   return SHELL(base, { title: 'Okulum hakkında: okul yönetim sistemi', description: 'Okulum, okul müdürleri, öğretmenler, öğrenciler ve veliler için ödev, yoklama, sınav ve not yönetim sistemidir.', path: '/hakkinda', body });
 }
 
-function sitemap(base) {
-  const urls = ['/', '/kullanim', '/hakkinda'];
+function sitemap(base, schools = []) {
+  const urls = ['/', '/kullanim', '/hakkinda', ...schools.flatMap(school => [
+    `/${encodeURIComponent(school.slug)}/`,
+    `/${encodeURIComponent(school.slug)}/gizlilik`,
+  ])];
   return `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
 ${urls.map(path => `  <url><loc>${esc(base + path)}</loc><changefreq>weekly</changefreq><priority>${path === '/' ? '1.0' : '0.7'}</priority></url>`).join('\n')}

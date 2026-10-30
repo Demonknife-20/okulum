@@ -1,11 +1,13 @@
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
-const { migrate, q, pool } = require('./src/db');
+const { q, pool, withTenant } = require('./src/db');
 const storage = require('./src/storage');
 const { handleApi, toHttpError, HttpError } = require('./src/api');
 const { createLimiter } = require('./src/security');
 const seo = require('./src/seo');
+const tenancy = require('./src/tenancy');
+const platform = require('./src/platform');
 // Ortak içerik (ES modülü): sunucu tarafında bir kez yüklenir
 const contentReady = import(require('node:url').pathToFileURL(path.join(__dirname, 'public', 'content.mjs')).href);
 
@@ -163,8 +165,14 @@ const server = http.createServer(async (req, res) => {
     return res.end(`google.com, ${pub}, DIRECT, f08c47fec0942fa0\n`);
   }
   if (url.pathname === '/sitemap.xml') {
-    res.writeHead(200, { 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=3600' });
-    return res.end(seo.sitemap(base));
+    try {
+      const schools = await tenancy.listSchools();
+      res.writeHead(200, { 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=3600' });
+      return res.end(seo.sitemap(base, schools));
+    } catch (error) {
+      console.error(new Date().toISOString(), 'site haritası', error);
+      return send(res, 500, { error: 'Site haritası oluşturulamadı.' });
+    }
   }
   // Yasaklı IP'ler ve kopyalama araçları tüm uygulamaya erişemez
   if (isBanned(key0)) return send(res, 403, { error: 'Erişim geçici olarak engellendi.' });
@@ -179,10 +187,54 @@ const server = http.createServer(async (req, res) => {
     console.warn(new Date().toISOString(), 'kopyalama tuzağı tetiklendi:', key0, url.pathname);
     return send(res, 403, { error: 'Erişim engellendi.' });
   }
+  if (url.pathname === '/platform' || url.pathname === '/platform/') {
+    return serveStatic(res, '/platform.html', base);
+  }
+  if (url.pathname === '/api/schools' && req.method === 'GET') {
+    try {
+      return send(res, 200, { schools: await tenancy.listSchools() });
+    } catch (error) {
+      console.error(new Date().toISOString(), 'okul listesi', error);
+      return send(res, 500, { error: 'Okul listesi yüklenemedi.' });
+    }
+  }
+  if (url.pathname.startsWith('/api/platform/')) {
+    try {
+      if (!['GET', 'HEAD'].includes(req.method) && !sameOrigin(req)) return send(res, 403, { error: 'İstek kaynağı doğrulanamadı.' });
+      const body = ['POST', 'PUT', 'PATCH'].includes(req.method) ? await readBody(req) : {};
+      return await platform.handlePlatformApi({ req, res, url, body });
+    } catch (error) {
+      console.error(new Date().toISOString(), 'platform API', error);
+      return send(res, 500, { error: 'Platform işlemi tamamlanamadı.' });
+    }
+  }
   // Google için: gerçek adresli sayfalar, site haritası ve robots.txt
   if (url.pathname === '/gizlilik') {
-    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=600' });
-    return res.end(seo.privacyPage(base));
+    try {
+      const schools = await tenancy.listSchools();
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=300' });
+      return res.end(seo.privacyPage(base, { schools }));
+    } catch (error) {
+      console.error(new Date().toISOString(), 'gizlilik sayfası', error);
+      return send(res, 500, { error: 'Gizlilik sayfası hazırlanamadı.' });
+    }
+  }
+  const schoolPrivacy = url.pathname.match(/^\/([a-z0-9](?:[a-z0-9-]{1,38}[a-z0-9]))\/gizlilik\/?$/);
+  if (schoolPrivacy) {
+    try {
+      const tenant = await tenancy.findSchoolBySlug(schoolPrivacy[1]);
+      if (!tenant) return sendNotFound(res, base);
+      const school = await withTenant(tenant.schema_name, async () => (await q(`select name, city, year,
+        controller_name as "controllerName", controller_address as "controllerAddress",
+        controller_email as "controllerEmail", controller_phone as "controllerPhone" from school where id = 1`)).rows[0]);
+      if (!school) return sendNotFound(res, base);
+      school.slug = tenant.slug;
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=300' });
+      return res.end(seo.privacyPage(base, { school, path: `/${tenant.slug}/gizlilik` }));
+    } catch (error) {
+      console.error(new Date().toISOString(), 'okul gizlilik sayfası', error);
+      return send(res, 500, { error: 'Okulun gizlilik sayfası hazırlanamadı.' });
+    }
   }
   if (url.pathname === '/kullanim' || url.pathname === '/hakkinda') {
     return contentReady.then(content => {
@@ -190,6 +242,28 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'public, max-age=600' });
       res.end(html);
     }).catch(() => send(res, 500, { error: 'Sayfa hazırlanamadı.' }));
+  }
+
+  const tenantApiMatch = url.pathname.match(/^\/([a-z0-9](?:[a-z0-9-]{1,38}[a-z0-9]))\/api(\/.*)?$/);
+  let tenantSchema = null;
+  if (tenantApiMatch) {
+    const school = await tenancy.findSchoolBySlug(tenantApiMatch[1]);
+    if (!school) return sendNotFound(res, base);
+    tenantSchema = school.schema_name;
+    url.pathname = `/api${tenantApiMatch[2] || ''}`;
+  } else if (url.pathname.startsWith('/api/')) {
+    const { rows } = await pool.query('select schema_name from platform.schools');
+    if (rows.length > 1) return send(res, 404, { error: 'İşlem için okul adresini kullanın.' });
+    tenantSchema = rows[0]?.schema_name || 'public';
+  } else {
+    const schoolMatch = url.pathname.match(/^\/([a-z0-9](?:[a-z0-9-]{1,38}[a-z0-9]))(?:\/.*)?$/);
+    if (schoolMatch) {
+      const school = await tenancy.findSchoolBySlug(schoolMatch[1]);
+      if (!school) return sendNotFound(res, base);
+      const suffix = url.pathname.slice(schoolMatch[0].indexOf(schoolMatch[1]) + schoolMatch[1].length + 1);
+      if (suffix && suffix !== '/') return sendNotFound(res, base);
+      return serveStatic(res, '/index.html', base);
+    }
   }
 
   if (!url.pathname.startsWith('/api/')) {
@@ -215,7 +289,7 @@ const server = http.createServer(async (req, res) => {
       }
     }
     const body = ['POST', 'PUT', 'PATCH'].includes(req.method) ? await readBody(req) : {};
-    const result = await handleApi({ req, res, url, body });
+    const result = await withTenant(tenantSchema || 'public', () => handleApi({ req, res, url, body }));
     if (result && result.streamed) return; // akış yanıtı zaten gönderildi
     if (result.csv) {
       const { body, filename } = result.csv;
@@ -254,7 +328,8 @@ async function start() {
   if (process.env.NODE_ENV === 'production' && !storage.useSupabase) {
     throw new Error('Üretimde SUPABASE_URL ve SUPABASE_SERVICE_ROLE_KEY zorunlu (dosyalar Supabase Storage\'da tutulur).');
   }
-  await migrate();
+  await tenancy.initializeTenancy();
+  await platform.bootstrapPlatformAdmin();
   await storage.ensureBucket();
   await require('./src/push').init();
   require('./src/ai').startRetention();

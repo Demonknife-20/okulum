@@ -18,6 +18,10 @@ services:
         value: "1"
       - key: SESSION_SECRET
         generateValue: true
+      - key: PLATFORM_ADMIN_USERNAME
+        sync: false
+      - key: PLATFORM_ADMIN_PASSWORD
+        sync: false
       - key: DATABASE_URL
         sync: false   # Supabase → Connect → URI (Session pooler)
       - key: SUPABASE_URL

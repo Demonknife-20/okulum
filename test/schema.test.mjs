@@ -4,10 +4,11 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import pg from 'pg';
 
 const BASE = process.env.TEST_DATABASE_URL;
-const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const migrationFiles = fs.readdirSync(path.join(root, 'src', 'migrations')).filter(f => f.endsWith('.sql')).sort();
 
 async function withDatabase(name, work) {

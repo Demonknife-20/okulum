@@ -3,8 +3,9 @@
 import { build } from 'esbuild';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const src = path.join(root, 'public');
 const out = path.join(root, 'dist');
 
@@ -33,7 +34,12 @@ const replaceOnce = (text, from, to) => {
 html = replaceOnce(html, 'src="/app.js"', `src="/${jsFile}"`);
 html = replaceOnce(html, 'href="/styles.css"', `href="/${cssFile}"`);
 fs.writeFileSync(path.join(out, 'index.html'), html);
+const platformHtml = fs.readFileSync(path.join(src, 'platform.html'), 'utf8')
+  .replace('href="/styles.css"', `href="/${cssFile}"`);
+fs.writeFileSync(path.join(out, 'platform.html'), platformHtml);
+fs.copyFileSync(path.join(src, 'platform.js'), path.join(out, 'platform.js'));
 fs.copyFileSync(path.join(src, 'icon.svg'), path.join(out, 'icon.svg'));
+fs.copyFileSync(path.join(src, 'styles.css'), path.join(out, 'styles.css'));
 fs.copyFileSync(path.join(src, 'manifest.webmanifest'), path.join(out, 'manifest.webmanifest'));
 fs.copyFileSync(path.join(src, 'robots.txt'), path.join(out, 'robots.txt'));
 fs.copyFileSync(path.join(src, 'sw.js'), path.join(out, 'sw.js'));

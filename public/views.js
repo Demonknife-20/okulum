@@ -7,7 +7,7 @@ import { parseBase, toBase, truthTable, bubbleSortSteps } from './computing.js';
 import { runPython, highlightPython, pyHint } from './pyterm.js';
 import { fxEnabled, setFx } from './fx.js';
 import { helpHtml } from './help.js';
-import { state, api, $, $$, esc, ROLE, icon, fmtDate, todayIso, pct, initials, tone, readFile, toast, openModal, closeModal, confirmDialog, refreshMe, refresh, val, setBusy, setQuery, parseHash, paintWidths, refreshBadges } from './core.js';
+import { state, api, apiUrl, $, $$, esc, ROLE, icon, fmtDate, todayIso, pct, initials, tone, readFile, toast, openModal, closeModal, confirmDialog, refreshMe, refresh, val, setBusy, setQuery, parseHash, paintWidths, refreshBadges } from './core.js';
 
 export const ACTIONS = {}, FORMS = {}, CHANGES = {}, INPUTS = {};
 
@@ -222,8 +222,8 @@ function assignmentCards(items) {
         ${a.instructions ? `<p class="instructions">${esc(a.instructions)}</p>` : ''}
         ${sub?.feedback ? `<p class="feedback"><strong>Öğretmen notu:</strong> ${esc(sub.feedback)}</p>` : ''}
         <footer class="card-actions">
-          ${a.hasFile ? `<a class="btn ghost sm" href="/api/files/assignment/${esc(a.id)}">${icon('download')}<span>Ödev dosyası</span></a>` : ''}
-          ${sub ? `<a class="btn ghost sm" href="/api/files/submission/${esc(sub.id)}">${icon('download')}<span>Teslimim</span></a>` : ''}
+          ${a.hasFile ? `<a class="btn ghost sm" href="${apiUrl(`/files/assignment/${esc(a.id)}`)}">${icon('download')}<span>Ödev dosyası</span></a>` : ''}
+          ${sub ? `<a class="btn ghost sm" href="${apiUrl(`/files/submission/${esc(sub.id)}`)}">${icon('download')}<span>Teslimim</span></a>` : ''}
           ${a.kind === 'online' && open ? `<button class="btn primary sm" type="button" data-action="submit" data-id="${esc(a.id)}">${sub ? 'Yeniden gönder' : 'Teslim et'}</button>` : ''}
         </footer>
       </article>`;
@@ -258,7 +258,7 @@ async function pageAssignments(params) {
         : '<span class="muted">—</span>'}</td>
       <td class="row-actions">
         ${a.kind === 'online' ? `<button class="btn ghost sm" type="button" data-action="open-submissions" data-id="${esc(a.id)}">Teslimler</button>` : ''}
-        ${a.hasFile ? `<a class="btn ghost sm" href="/api/files/assignment/${esc(a.id)}">${icon('download')}<span>Dosya</span></a>` : ''}
+        ${a.hasFile ? `<a class="btn ghost sm" href="${apiUrl(`/files/assignment/${esc(a.id)}`)}">${icon('download')}<span>Dosya</span></a>` : ''}
         ${canCreate ? `<button class="icon-btn sm" type="button" data-action="edit-assignment" data-id="${esc(a.id)}" aria-label="Ödevi düzenle">✎</button>
           <button class="icon-btn sm" type="button" data-action="delete-assignment" data-id="${esc(a.id)}" aria-label="Ödevi sil">${icon('trash')}</button>` : ''}
       </td>
@@ -384,7 +384,7 @@ ACTIONS['open-submissions'] = async el => {
   const editable = state.me.role === 'teacher' && assignment.kind === 'online';
   const head = s => `<div class="grade-head">
       <div><strong>${esc(s.studentName)}</strong><small class="muted">${esc(s.studentNo || '')} · ${esc(fmtDate(s.submittedAt))}</small></div>
-      <a class="link" href="/api/files/submission/${esc(s.id)}">${icon('download')}<span>${esc(s.fileName)}</span></a>
+      <a class="link" href="${apiUrl(`/files/submission/${esc(s.id)}`)}">${icon('download')}<span>${esc(s.fileName)}</span></a>
     </div>${s.note ? `<p class="note">“${esc(s.note)}”</p>` : ''}`;
   const rows = submitted.map(s => editable
     ? `<div class="grade-row" data-sub="${esc(s.id)}">${head(s)}
@@ -407,7 +407,7 @@ ACTIONS['open-submissions'] = async el => {
   const info = assignment.kind === 'paper' ? '<p class="notice">Bu ödev kağıt üzerinde; dosya teslimi yoktur.</p>' : '';
   openModal(assignment.title, `
     <p class="muted mb">${esc(kindLabel(assignment.kind))} ödev${assignment.dueAt ? ` · Son teslim ${esc(fmtDate(assignment.dueAt))}` : ''}</p>
-    <p class="mb"><a class="btn ghost sm" href="/api/export/grades?assignmentId=${esc(assignment.id)}" download>${icon('download')}<span>Notları CSV olarak indir</span></a></p>
+    <p class="mb"><a class="btn ghost sm" href="${apiUrl(`/export/grades?assignmentId=${esc(assignment.id)}`)}" download>${icon('download')}<span>Notları CSV olarak indir</span></a></p>
     ${info}${table}${missingList}`, { wide: true });
 };
 
@@ -501,7 +501,7 @@ async function pageAttendance(params) {
           </div>
           <div class="head-actions">
             ${readonly ? '' : '<button class="btn ghost sm" type="button" data-action="att-all">Hepsi geldi</button>'}
-            <a class="btn ghost sm" href="/api/export/attendance?classId=${esc(classId)}&subjectId=${esc(subjectId)}" download>${icon('download')}<span>CSV indir</span></a>
+            <a class="btn ghost sm" href="${apiUrl(`/export/attendance?classId=${esc(classId)}&subjectId=${esc(subjectId)}`)}" download>${icon('download')}<span>CSV indir</span></a>
           </div>
         </div>
         <div class="att-summary" id="attSummary"></div>
@@ -885,7 +885,7 @@ async function pagePeople() {
     : '';
   const actions = principal ? `<button class="btn ghost" type="button" data-action="mail-test">Test e-postası</button>
     <button class="btn ghost" type="button" data-action="deletion-open">Silme talepleri</button>
-    <button class="btn ghost" type="button" data-action="import-open">${icon('plus')}<span>CSV ile ekle</span></button><a class="btn ghost" href="/api/export/users" download>${icon('download')}<span>CSV indir</span></a><button class="btn primary" type="button" data-action="new-user">${icon('plus')}<span>Yeni hesap</span></button>` : '';
+    <button class="btn ghost" type="button" data-action="import-open">${icon('plus')}<span>CSV ile ekle</span></button><a class="btn ghost" href="${apiUrl('/export/users')}" download>${icon('download')}<span>CSV indir</span></a><button class="btn primary" type="button" data-action="new-user">${icon('plus')}<span>Yeni hesap</span></button>` : '';
   const option = (value, label) => `<option value="${value}" ${people.role === value ? 'selected' : ''}>${label}</option>`;
   return {
     html: `${head('Kişiler', principal ? 'Okul hesaplarını yönet: ekle, düzenle, şifre sıfırla.' : 'Sınıfınla ilgili kişiler ve iletişim.', actions)}${mailBanner}
@@ -1013,6 +1013,15 @@ async function pageSchool() {
             <label class="field"><span>Şehir</span><input name="city" required maxlength="80" value="${esc(school.city || '')}"></label>
             <label class="field"><span>Eğitim yılı</span><input name="year" required maxlength="20" value="${esc(school.year || '')}"></label>
           </div>
+          <hr><h3>Veri sorumlusu iletişim bilgileri</h3>
+          <p class="muted small">Bu bilgiler okulun gizlilik sayfasında ve aydınlatma metninde gösterilir. Gerçek ve güncel bilgileri girin.</p>
+          <label class="field"><span>Veri sorumlusu unvanı</span><input name="controllerName" required maxlength="120" value="${esc(school.controllerName || '')}" autocomplete="organization"></label>
+          <label class="field"><span>Tebligat / başvuru adresi</span><textarea name="controllerAddress" required maxlength="300" rows="2">${esc(school.controllerAddress || '')}</textarea></label>
+          <div class="grid-2">
+            <label class="field"><span>Başvuru e-postası</span><input name="controllerEmail" type="email" required maxlength="120" value="${esc(school.controllerEmail || '')}" autocomplete="email"></label>
+            <label class="field"><span>Telefon (isteğe bağlı)</span><input name="controllerPhone" type="tel" maxlength="40" value="${esc(school.controllerPhone || '')}" autocomplete="tel"></label>
+          </div>
+          <p class="small"><a href="${privacyPath()}" target="_blank" rel="noopener">Okulun gizlilik sayfasını görüntüle</a></p>
           <p class="form-error" data-error role="alert"></p>
           <div class="form-actions"><button class="btn primary" type="submit">Kaydet</button></div>
         </form>`)}
@@ -1029,8 +1038,12 @@ async function pageSchool() {
 }
 
 FORMS.school = async form => {
-  await api('/school', { method: 'PUT', body: { name: val(form, 'name'), city: val(form, 'city'), year: val(form, 'year') } });
-  toast('Okul bilgileri kaydedildi');
+  await api('/school', { method: 'PUT', body: {
+    name: val(form, 'name'), city: val(form, 'city'), year: val(form, 'year'),
+    controllerName: val(form, 'controllerName'), controllerAddress: val(form, 'controllerAddress'),
+    controllerEmail: val(form, 'controllerEmail'), controllerPhone: val(form, 'controllerPhone'),
+  } });
+  toast('Okul ve veri sorumlusu bilgileri kaydedildi');
   await refreshMe();
 };
 FORMS.class = async form => {
@@ -1068,7 +1081,8 @@ ACTIONS.account = () => openModal('Hesabım', `<form class="stack" data-form="ac
     <button class="btn ghost sm" type="button" data-action="email-open">E-posta adresi</button>
     ${state.me.role === 'principal' ? '<button class="btn ghost sm" type="button" data-action="mfa-open">İki adımlı doğrulama</button>' : ''}
     <button class="btn ghost sm" type="button" data-action="calendar-link">Takvim bağlantısı</button>
-    <a class="btn ghost sm" href="/api/me/export" download>Verilerimi indir</a>
+    <a class="btn ghost sm" href="${apiUrl('/me/export')}" download>Verilerimi indir</a>
+    <small class="muted">JSON dökümü başlıca hesap verilerini içerir; dosyalar ve tüm kayıtlar için okulun veri sorumlusuna başvurun.</small>
     ${state.me.role === 'principal' ? '' : '<button class="btn ghost sm" type="button" data-action="delete-request">Hesap silme talebi</button>'}
     <button class="btn ghost sm" type="button" data-action="notify-settings">Bildirim ayarları</button>
     <button class="btn ghost sm" type="button" data-action="revoke-sessions">Tüm cihazlardan çıkış yap</button>
@@ -1301,14 +1315,14 @@ async function pageBoard(params) {
     : '');
   const cards = notes.map((n, index) => `
     <article class="pin pin-${esc(n.color)}${n.approved === false ? ' pin-pending' : ''}${layout === 'wall' && n.canMove ? ' pin-movable' : ''}" data-note="${esc(n.id)}"${cardPos(n, index)}${rights.moderate && layout !== 'wall' ? ' draggable="true"' : ''}>
-      ${n.hasFile && isImage(n) ? `<img class="pin-img" src="/api/files/board-note/${esc(n.id)}?inline=1" alt="${esc(n.fileName || 'Pano resmi')}" loading="lazy" decoding="async">` : ''}
+      ${n.hasFile && isImage(n) ? `<img class="pin-img" src="${apiUrl(`/files/board-note/${esc(n.id)}?inline=1`)}" alt="${esc(n.fileName || 'Pano resmi')}" loading="lazy" decoding="async">` : ''}
       ${n.pinned ? '<span class="badge pin-badge">Sabit</span>' : ''}
       ${n.title ? `<p class="pin-title">${esc(n.title)}</p>` : ''}
       ${n.body ? `<div class="md">${renderMarkdown(n.body)}</div>` : ''}
       ${n.link ? `<span class="badge media-badge">${esc(platformOf(n.link))}</span>` : ''}
       ${n.link ? `<a class="note-link" href="${esc(n.link)}" target="_blank" rel="noopener noreferrer">${icon('send')}<span>${esc(n.link.replace(/^https?:\/\//, '').slice(0, 60))}</span></a>` : ''}
-      ${n.hasFile && n.fileMime === 'application/pdf' ? `<iframe class="pin-pdf" src="/api/files/board-note/${esc(n.id)}?inline=1" title="${esc(n.fileName || 'PDF')}" loading="lazy"></iframe>` : ''}
-      ${n.hasFile ? `<a class="note-link" href="/api/files/board-note/${esc(n.id)}" download>${icon('download')}<span>${esc(n.fileName)}</span></a>` : ''}
+      ${n.hasFile && n.fileMime === 'application/pdf' ? `<iframe class="pin-pdf" src="${apiUrl(`/files/board-note/${esc(n.id)}?inline=1`)}" title="${esc(n.fileName || 'PDF')}" loading="lazy"></iframe>` : ''}
+      ${n.hasFile ? `<a class="note-link" href="${apiUrl(`/files/board-note/${esc(n.id)}`)}" download>${icon('download')}<span>${esc(n.fileName)}</span></a>` : ''}
       ${n.approved === false ? '<span class="badge warn">Onay bekliyor</span>' : ''}
       <footer class="note-foot">
         <span>${esc(n.authorName || 'Silinmiş kullanıcı')} · ${esc(ROLE[n.authorRole] || '')} · ${esc(fmtDate(n.createdAt))}</span>
@@ -1486,15 +1500,15 @@ ACTIONS['note-expand'] = el => {
   if (!note) return;
   const media = [
     note.hasFile && ['image/png', 'image/jpeg'].includes(note.fileMime)
-      ? `<img class="expand-img" src="/api/files/board-note/${esc(note.id)}?inline=1" alt="${esc(note.fileName || 'Pano resmi')}">` : '',
+      ? `<img class="expand-img" src="${apiUrl(`/files/board-note/${esc(note.id)}?inline=1`)}" alt="${esc(note.fileName || 'Pano resmi')}">` : '',
     note.hasFile && note.fileMime === 'application/pdf'
-      ? `<iframe class="expand-pdf" src="/api/files/board-note/${esc(note.id)}?inline=1" title="${esc(note.fileName || 'PDF')}"></iframe>` : '',
+      ? `<iframe class="expand-pdf" src="${apiUrl(`/files/board-note/${esc(note.id)}?inline=1`)}" title="${esc(note.fileName || 'PDF')}"></iframe>` : '',
   ].join('');
   openModal(note.title || 'Not', `<div class="stack expand">
     ${media}
     ${note.body ? `<div class="note-preview md">${renderMarkdown(note.body)}</div>` : ''}
     ${note.link ? `<a class="btn ghost" href="${esc(note.link)}" target="_blank" rel="noopener noreferrer">${esc(platformOf(note.link))} · Aç</a>` : ''}
-    ${note.hasFile ? `<a class="btn ghost" href="/api/files/board-note/${esc(note.id)}" download>Dosyayı indir</a>` : ''}
+    ${note.hasFile ? `<a class="btn ghost" href="${apiUrl(`/files/board-note/${esc(note.id)}`)}" download>Dosyayı indir</a>` : ''}
   </div>`);
 };
 
@@ -1593,6 +1607,7 @@ ACTIONS['note-delete'] = async el => {
 // ---------- Denetim kaydı (müdür) ----------
 const AUDIT_LABELS = {
   login_failed: 'Başarısız giriş', setup: 'Okul kuruldu', school_updated: 'Okul bilgisi değişti',
+  ai_consent_withdrawn: 'Asistan tercihi geri çekildi',
   class_created: 'Sınıf eklendi', class_deleted: 'Sınıf silindi', subject_created: 'Ders eklendi', subject_deleted: 'Ders silindi',
   user_created: 'Hesap açıldı', user_updated: 'Hesap düzenlendi', user_deleted: 'Hesap silindi',
   password_reset: 'Şifre sıfırlandı', password_changed: 'Kendi şifresini değiştirdi', profile_updated: 'Ad değiştirildi',
@@ -1633,7 +1648,7 @@ async function pageAudit(params) {
       <td>${esc(e.target)}</td>
       <td><small class="muted">${esc(detailText(e.details))}</small></td>
     </tr>`).join('');
-  return { html: `${head('Denetim kaydı', 'Okuldaki önemli işlemler: kim, ne zaman, neyi değiştirdi. Parolalar hiçbir zaman kaydedilmez.', '<a class="btn ghost" href="/api/export/audit" download>' + icon('download') + '<span>CSV indir</span></a>')}
+  return { html: `${head('Denetim kaydı', 'Okuldaki önemli işlemler: kim, ne zaman, neyi değiştirdi. Parolalar hiçbir zaman kaydedilmez.', '<a class="btn ghost" href="' + apiUrl('/export/audit') + '" download>' + icon('download') + '<span>CSV indir</span></a>')}
     <section class="panel">
       <div class="toolbar">
         <label class="inline-field"><span>İşlem</span>
@@ -1662,6 +1677,7 @@ const AI_INTRO = {
   teacher: 'Merhaba! Ben Okulum Asistanı. Ders planı, soru örnekleri, ödev yönergesi ve veli mesajı taslakları hazırlamanıza yardımcı olabilirim. Öğrencilerin kişisel bilgilerini yazmayın.',
   principal: 'Merhaba! Ben Okulum Asistanı. Duyuru ve okul panosu metinleri, site kullanımı ve yönetim süreçleri için yardımcı olabilirim. Kişisel bilgi yazmayın.',
 };
+const privacyPath = () => `${location.pathname.replace(/\/$/, '')}/gizlilik`;
 
 const aiBubble = (role, text, time) => role === 'user'
   ? `<div class="bubble mine"><p>${esc(text)}</p>${time ? `<time>${esc(fmtDate(time))}</time>` : ''}</div>`
@@ -1679,11 +1695,11 @@ const aiConsentView = notice => `
         <label class="switch">
           <input type="checkbox" name="accept">
           <span class="switch-ui" aria-hidden="true"></span>
-          <span><strong>Bildirimi okudum ve kabul ediyorum.</strong>
-            <small>Onay vermeden asistanı kullanamam. Rızamı istediğim zaman okul müdürüme başvurarak geri çekebilirim.</small></span>
+          <span><strong>Asistanı kullanmayı seçiyorum.</strong>
+            <small>Bu tercih diğer okul hizmetlerinin hukuki dayanağı değildir. İstediğim zaman Asistan sayfasındaki düğmeyle geri çekebilirim; öğrenci tercihi veli/yasal temsilci izni yerine geçmez.</small></span>
         </label>
         <p class="form-error" data-error role="alert"></p>
-        <div class="form-actions"><button class="btn primary lg" type="submit">Kabul ediyorum, asistana geç</button></div>
+        <div class="form-actions"><button class="btn primary lg" type="submit">Asistanı kullanmaya başla</button></div>
       </form>
     </div>
   </section>`;
@@ -1699,6 +1715,14 @@ ACTIONS['ai-notice'] = async () => {
   const status = await api('/ai/status');
   openModal(status.notice.title, `<div class="ai-sections">${status.notice.sections.map(section => `
     <article class="ai-section"><h3>${esc(section.title)}</h3><p>${esc(section.text)}</p></article>`).join('')}</div>`, { wide: true });
+};
+
+ACTIONS['ai-consent-withdraw'] = async () => {
+  const yes = await confirmDialog('Asistan iznini geri çek', 'Gelecekteki yapay zekâ istekleri durdurulur. Önceden kaydedilmiş sohbetler otomatik silinmez; isterseniz sohbetleri ayrıca silebilirsiniz.');
+  if (!yes) return;
+  await api('/ai/consent', { method: 'DELETE' });
+  toast('Asistan izni geri çekildi');
+  refresh();
 };
 
 ACTIONS['ai-suggest'] = el => {
@@ -1732,7 +1756,7 @@ FORMS['ai-chat'] = async form => {
   let reply = '';
   let done = null;
   try {
-    const res = await fetch('/api/ai/chat/stream', {
+    const res = await fetch(apiUrl('/ai/chat/stream'), {
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
@@ -1786,9 +1810,9 @@ async function pageAsistan(params) {
   const status = await api('/ai/status');
   const principal = state.me.role === 'principal';
   const logsView = principal && params.view === 'logs';
-  const actions = principal
+  const actions = `${principal
     ? `<a class="btn ghost" href="#/asistan${logsView ? '' : '?view=logs'}">${logsView ? '← Sohbetlerim' : 'Sohbet kayıtları'}</a>`
-    : '';
+    : ''}${status.accepted ? '<button class="btn ghost" type="button" data-action="ai-consent-withdraw">Asistan iznini geri çek</button>' : ''}`;
   const header = head('Okulum Asistanı', 'Site kullanımı, ders konuları ve öğretim fikirleri için yardımcı. Ödevlerin cevabını vermez, yönlendirir.', actions);
 
   if (logsView) return aiLogsView(header, params);
@@ -2248,7 +2272,7 @@ async function pageSinavOgrenci(id) {
 function takeHtml(data, attempt) {
   const questions = data.questions.map((qq, i) => {
     const legend = `<legend><span class="qnum">${i + 1}</span> ${esc(qq.text)} <small class="muted">(${qq.points} puan)</small></legend>`;
-    const image = qq.hasImage ? `<img class="quiz-image" src="/api/files/quiz-question/${esc(qq.id)}" alt="">` : '';
+    const image = qq.hasImage ? `<img class="quiz-image" src="${apiUrl(`/files/quiz-question/${esc(qq.id)}`)}" alt="">` : '';
     if (qq.kind === 'text') {
       return `<fieldset class="quiz-question">${legend}${image}
         <textarea class="quiz-text" data-text-question="${esc(qq.id)}" rows="4" maxlength="2000" placeholder="Cevabınızı yazın">${esc(qq.textAnswer || '')}</textarea>
@@ -2621,7 +2645,7 @@ async function pageKarne(params) {
   const grades = data.grades.subjects.map(s => `<tr><td>${esc(s.subjectName)}</td><td>${s.count}</td><td><strong>${s.average}</strong></td></tr>`).join('');
   const attendance = data.attendance.subjects.map(s => `<tr><td>${esc(s.subjectName)}</td><td>${s.total}</td><td>${s.present}</td><td>${pct(s.present, s.total) === null ? '—' : `%${pct(s.present, s.total)}`}</td></tr>`).join('');
   const notes = data.notes.map(n => `<li><small class="muted">${esc(fmtDate(n.createdAt))} · ${esc(n.teacherName || '')}</small><p>${esc(n.body)}</p></li>`).join('');
-  return { html: `<div class="no-print print-bar"><a class="btn ghost" href="javascript:history.back()">← Geri</a><a class="btn ghost" href="/api/reports/student/${esc(data.student.id)}/pdf" download>PDF indir</a><button class="btn primary" type="button" data-action="print">${icon('file')}<span>Yazdır / PDF olarak kaydet</span></button></div>
+  return { html: `<div class="no-print print-bar"><a class="btn ghost" href="javascript:history.back()">← Geri</a><a class="btn ghost" href="${apiUrl(`/reports/student/${esc(data.student.id)}/pdf`)}" download>PDF indir</a><button class="btn primary" type="button" data-action="print">${icon('file')}<span>Yazdır / PDF olarak kaydet</span></button></div>
     <article class="report-sheet">
       <header class="report-head">
         <div><p class="eyebrow">Öğrenci karnesi</p><h1>${esc(data.student.name)}</h1><p class="muted">${esc(data.student.className || 'Sınıfsız')} · Okul no: ${esc(data.student.studentNo || '—')}</p></div>
@@ -2929,7 +2953,7 @@ ACTIONS['calendar-link'] = async () => {
 };
 
 ACTIONS['delete-request'] = async () => {
-  const yes = await confirmDialog('Hesap silme talebi', 'Talebiniz okul müdürü tarafından onaylanınca hesabınız ve kişisel verileriniz kalıcı olarak anonimleştirilir. Bu işlem geri alınamaz.');
+  const yes = await confirmDialog('Hesap silme talebi', 'Onaylanırsa profil bilgileriniz kaldırılır ve hesabınız kapatılır. Okulun saklama yükümlülüğü bulunan akademik kayıtlar, denetim kayıtları ve yedekler kalabilir; bu işlem anında tüm verilerin silinmesi değildir.');
   if (!yes) return;
   await api('/me/delete-request', { method: 'POST', body: {} });
   toast('Talebiniz müdüre iletildi');
@@ -2941,15 +2965,15 @@ ACTIONS['deletion-open'] = async () => {
       <div class="list-main"><strong>${esc(r.userName)}</strong><small class="muted">${esc(fmtDate(r.createdAt))} · ${esc(r.status)}</small></div>
       ${r.status === 'bekliyor' ? `<div class="row-actions">
         <button class="btn ghost sm" type="button" data-action="deletion-decide" data-id="${esc(r.id)}" data-approve="0">Reddet</button>
-        <button class="btn primary sm" type="button" data-action="deletion-decide" data-id="${esc(r.id)}" data-approve="1">Onayla ve anonimleştir</button>
+        <button class="btn primary sm" type="button" data-action="deletion-decide" data-id="${esc(r.id)}" data-approve="1">Onayla ve profili kapat</button>
       </div>` : ''}
     </div>`).join('') : '<p class="muted">Bekleyen talep yok.</p>'}</div>`);
 };
 
 ACTIONS['deletion-decide'] = async el => {
   const approve = el.dataset.approve === '1';
-  const yes = await confirmDialog(approve ? 'Hesabı anonimleştir' : 'Talebi reddet', approve
-    ? 'Hesap kalıcı olarak anonimleştirilecek: ad, kullanıcı adı ve e-posta silinecek, giriş yapılamayacak.'
+  const yes = await confirmDialog(approve ? 'Profili kapat' : 'Talebi reddet', approve
+    ? 'Ad, kullanıcı adı, e-posta, son giriş bilgileri ve bildirim aboneliği kaldırılacak; hesap kapatılacak. Akademik kayıtlar ve denetim izleri okulun saklama yükümlülükleri nedeniyle kalabilir. Bu işlem tam anonimleştirme veya yedeklerden anında silme değildir.'
     : 'Talep reddedilecek ve hesap olduğu gibi kalacak.');
   if (!yes) return;
   await api(`/deletion-requests/${el.dataset.id}/decide`, { method: 'POST', body: { approve } });
@@ -2957,7 +2981,7 @@ ACTIONS['deletion-decide'] = async el => {
   ACTIONS['deletion-open']();
 };
 
-// KVKK: giriş sonrası aydınlatma metni onayı. Onaylanmadan veriler kullanılmaya devam etmez (istemci tarafı kapı).
+// KVKK aydınlatması görüntülenir; kutu yalnızca metnin görüldüğünü kaydeder, açık rıza değildir.
 export async function ensureKvkk() {
   const { notice, accepted } = await api('/kvkk');
   if (accepted) return;
@@ -2965,7 +2989,7 @@ export async function ensureKvkk() {
     <p class="muted small">${esc(notice.intro)}</p>
     <div class="kvkk-text">${notice.sections.map(s => `<h4>${esc(s.title)}</h4><p>${esc(s.text)}</p>`).join('')}</div>
     <label class="switch switch-line"><input type="checkbox" name="accept"><span class="switch-ui" aria-hidden="true"></span>
-      <span><strong>Okudum, anladım.</strong><small>Kişisel verilerimin bu metne göre işlenmesini kabul ediyorum.</small></span></label>
+      <span><strong>Aydınlatma metnini gördüm.</strong><small>Bu kayıt açık rıza değildir ve okulun veri işleme dayanağını değiştirmez. <a href="${privacyPath()}" target="_blank" rel="noopener">Gizlilik metnini aç</a></small></span></label>
     <p class="form-error" data-error role="alert"></p>
     <div class="form-actions"><button class="btn primary" type="submit">Devam et</button></div>
   </form>`);
@@ -2975,7 +2999,7 @@ FORMS.kvkk = async form => {
   if (!form.querySelector('[name=accept]').checked) throw new Error('Devam etmek için metni okuduğunuzu onaylayın.');
   await api('/kvkk/accept', { method: 'POST', body: { version: form.dataset.version } });
   closeModal();
-  toast('Teşekkürler. Verileriniz aydınlatma metnine göre işlenir.');
+  toast('Aydınlatma metnini gördüğünüz kaydedildi.');
 };
 
 
@@ -3062,7 +3086,7 @@ async function pageIzin() {
   const actions = [
     canRequest ? `<button class="btn primary" type="button" data-action="leave-new">${icon('plus')}<span>Yeni izin talebi</span></button>` : '',
     staff && enabled ? '<button class="btn ghost" type="button" data-action="gece-open">Gece yoklaması</button>' : '',
-    staff && enabled ? '<a class="btn ghost" href="/api/leaves/export" download>CSV indir</a>' : '',
+    staff && enabled ? `<a class="btn ghost" href="${apiUrl('/leaves/export')}" download>CSV indir</a>` : '',
     admin ? `<button class="btn ghost" type="button" data-action="boarding-toggle" data-on="${enabled ? '0' : '1'}">${enabled ? 'Pansiyon modunu kapat' : 'Pansiyon modunu aç'}</button>` : '',
   ].join('');
   const header = head('İzin defteri', enabled ? 'Evci ve çarşı izinleri: talep, onay, çıkış ve dönüş e-imzası.' : 'Bu özellik pansiyonlu okullar içindir.', actions);

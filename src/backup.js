@@ -3,7 +3,8 @@
 const crypto = require('node:crypto');
 const zlib = require('node:zlib');
 const { promisify } = require('node:util');
-const { q } = require('./db');
+const { q, currentTenantSchema } = require('./db');
+const { forEachTenant } = require('./tenancy');
 const storage = require('./storage');
 
 const gzip = promisify(zlib.gzip);
@@ -15,7 +16,7 @@ function cipherKey() {
 }
 
 async function dumpDatabase() {
-  const { rows: tables } = await q("select table_name from information_schema.tables where table_schema = 'public' and table_type = 'BASE TABLE' order by table_name");
+  const { rows: tables } = await q('select table_name from information_schema.tables where table_schema = $1 and table_type = $2 order by table_name', [currentTenantSchema() || 'public', 'BASE TABLE']);
   const dump = { createdAt: new Date().toISOString(), tables: {} };
   for (const { table_name: name } of tables) {
     if (SKIP_TABLES.has(name)) continue;
@@ -52,7 +53,7 @@ async function runBackup(reason = 'elle') {
   if (!key) console.warn('Uyarı: BACKUP_KEY tanımlı değil, yedek şifrelenmeden kaydediliyor.');
   const payload = key ? encrypt(packed, key) : packed;
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-  const path = `backups/okulum-${stamp}.json.gz${key ? '.enc' : ''}`;
+  const path = `backups/${currentTenantSchema() || 'public'}/okulum-${stamp}.json.gz${key ? '.enc' : ''}`;
   await storage.put(path, payload, 'application/octet-stream');
   const { rows: [row] } = await q('insert into backups (path, size_bytes, encrypted) values ($1, $2, $3) returning id, created_at as "createdAt"',
     [path, payload.length, Boolean(key)]);
@@ -77,7 +78,7 @@ function startBackupSchedule() {
     const { rows: [last] } = await q('select created_at from backups order by created_at desc limit 1');
     if (!last || Date.now() - new Date(last.created_at).getTime() > 24 * 3600e3) await runBackup('zamanlanmış');
   };
-  const safeTick = () => tick().catch(error => console.error('Yedek hatası:', error.message));
+  const safeTick = () => forEachTenant(tick).catch(error => console.error('Yedek hatası:', error.message));
   setTimeout(safeTick, 60 * 1000).unref();
   setInterval(safeTick, 60 * 60 * 1000).unref();
 }

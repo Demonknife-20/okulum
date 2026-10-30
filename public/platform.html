@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Platform yönetimi · Okulum</title>
+  <link rel="icon" href="/icon-192.png" type="image/png">
+  <link rel="stylesheet" href="/styles.css">
+  <script type="module" src="/platform.js"></script>
+</head>
+<body>
+  <header class="public-top">
+    <a class="brand" href="/"><span class="brand-mark"><img src="/brand-mark.png" alt="" width="40" height="40"></span><span class="brand-name">okulum</span></a>
+    <a class="btn ghost sm" href="/">Ana sayfa</a>
+  </header>
+  <main class="public-view platform-view">
+    <section class="page-head">
+      <div><p class="eyebrow">Platform yönetimi</p><h1>Okulları yönetin</h1><p class="subtitle">Her okulun verisi ayrı tutulur ve kendine ait bir adresi olur.</p></div>
+    </section>
+    <section class="auth-page single">
+      <div class="auth-box platform-card" id="loginPanel">
+        <h2>Yönetici girişi</h2>
+        <p class="muted">Platform yöneticisi hesabınızla giriş yapın.</p>
+        <form class="stack" id="loginForm">
+          <label class="field"><span>Kullanıcı adı</span><input name="username" autocomplete="username" required maxlength="32"></label>
+          <label class="field"><span>Parola</span><input name="password" type="password" autocomplete="current-password" required maxlength="128"></label>
+          <p class="platform-error" id="loginError" role="alert"></p>
+          <button class="btn primary block" type="submit">Giriş yap</button>
+        </form>
+      </div>
+      <div class="platform-admin" id="adminPanel" hidden>
+        <section class="panel platform-card">
+          <div class="toolbar"><div><h2>Yeni okul ekle</h2><p class="muted">Okul alanı, müdür hesabı ve izole veri alanı oluşturulur.</p></div><button class="btn ghost sm" id="logoutButton" type="button">Çıkış</button></div>
+          <form class="stack platform-form" id="schoolForm">
+            <div class="grid-2">
+              <label class="field"><span>Okul adı</span><input name="schoolName" required maxlength="120"></label>
+              <label class="field"><span>Şehir</span><input name="schoolCity" required maxlength="80"></label>
+            </div>
+            <div class="grid-2">
+              <label class="field"><span>Eğitim yılı</span><input name="schoolYear" required maxlength="20" placeholder="2026–2027"></label>
+              <label class="field"><span>Okul adresi</span><span class="platform-slug"><span>/</span><input name="slug" required minlength="3" maxlength="40" pattern="[a-z0-9]+([\-][a-z0-9]+)*" autocomplete="off"></span><small>Küçük harf, rakam ve tire kullanın.</small></label>
+            </div>
+            <h3>Veri sorumlusu iletişim bilgileri</h3>
+            <label class="field"><span>Veri sorumlusu unvanı</span><input name="controllerName" required maxlength="120" autocomplete="organization"></label>
+            <label class="field"><span>Tebligat / başvuru adresi</span><textarea name="controllerAddress" required maxlength="300" rows="2"></textarea></label>
+            <div class="grid-2">
+              <label class="field"><span>Başvuru e-postası</span><input name="controllerEmail" type="email" required maxlength="120" autocomplete="email"></label>
+              <label class="field"><span>Telefon (isteğe bağlı)</span><input name="controllerPhone" type="tel" maxlength="40" autocomplete="tel"></label>
+            </div>
+            <hr>
+            <label class="field"><span>Müdür adı soyadı</span><input name="principalName" required maxlength="80"></label>
+            <div class="grid-2">
+              <label class="field"><span>Müdür kullanıcı adı</span><input name="username" required minlength="3" maxlength="32" autocomplete="off"></label>
+              <label class="field"><span>Geçici parola</span><input name="password" type="password" required minlength="8" maxlength="128" autocomplete="new-password"></label>
+            </div>
+            <p class="platform-error" id="schoolError" role="alert"></p>
+            <button class="btn primary" type="submit">Okulu oluştur</button>
+          </form>
+        </section>
+        <section class="panel platform-card">
+          <div class="toolbar"><div><h2>Kayıtlı okullar</h2><p class="muted">Her okula kendi adresinden erişilir.</p></div></div>
+          <div class="table-scroll"><table class="table"><thead><tr><th>Okul</th><th>Şehir</th><th>Adres</th></tr></thead><tbody id="schoolRows"></tbody></table></div>
+        </section>
+      </div>
+      <p class="platform-notice" id="configNotice" hidden>Platform yöneticisi hesabı henüz ayarlanmamış. Render ortam değişkenlerinde PLATFORM_ADMIN_USERNAME ve PLATFORM_ADMIN_PASSWORD tanımlanmalı.</p>
+    </section>
+  </main>
+</body>
+</html>

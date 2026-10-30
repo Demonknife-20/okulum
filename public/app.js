@@ -1,6 +1,6 @@
 import { fxEnabled } from './fx.js';
 import { enterView } from './motion.js';
-import { $, $$, esc, state, api, icon, ROLE, initials, tone, parseHash, toast, closeModal, setBusy, paintWidths, refreshBadges, markSeen, notFoundHtml } from './core.js';
+import { $, $$, esc, state, api, apiUrl, icon, ROLE, initials, tone, parseHash, toast, closeModal, setBusy, paintWidths, refreshBadges, markSeen, notFoundHtml } from './core.js';
 import { ACTIONS, FORMS, CHANGES, INPUTS, renderView, stopTimers } from './views.js';
 import { renderPublic } from './public.js';
 import { initNotifications } from './push.js';
@@ -198,11 +198,11 @@ async function enterApp() {
   await routeApp();
   refreshBadges();
   initNotifications();
-  ensureKvkk().catch(() => {});
+  ensureKvkk().catch(error => toast(`Aydınlatma metni yüklenemedi: ${error.message}`));
 }
 
 async function logout() {
-  await fetch('/api/logout', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+  await fetch(apiUrl('/logout'), { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: '{}' });
   closeModal();
   state.me = null;
   history.replaceState(null, '', '#/');

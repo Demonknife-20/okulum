@@ -112,7 +112,12 @@ test('sağlık ve güvenlik başlıkları', async () => {
 
 test('kurulum: müdür hesabı oluşur, ikinci kurulum reddedilir', async () => {
   assert.equal((await call('GET', '/api/setup')).data.setupRequired, true);
-  const setup = { schoolName: 'Yıldız Akademi', schoolCity: 'İstanbul', schoolYear: '2026–2027', name: 'Murat Aydın', username: 'murat', password: 'mudur-sifresi-1' };
+  const setup = {
+    schoolName: 'Yıldız Akademi', schoolCity: 'İstanbul', schoolYear: '2026–2027',
+    controllerName: 'Yıldız Akademi Okul Müdürlüğü', controllerAddress: 'İstanbul, Türkiye',
+    controllerEmail: 'kvkk@yildiz.example', controllerPhone: '',
+    name: 'Murat Aydın', username: 'murat', password: 'mudur-sifresi-1',
+  };
   const r = await call('POST', '/api/setup', { body: setup });
   assert.equal(r.status, 201);
   assert.ok(r.cookie);
@@ -765,6 +770,18 @@ test('asistan: durum, bildirim ve onay kapısı', async () => {
   assert.equal((await call('POST', '/api/ai/consent', { cookie: state.ece, body: { version: 'eski-surum' } })).status, 400);
   assert.equal((await call('POST', '/api/ai/consent', { cookie: state.ece, body: { version: st.notice.version } })).status, 200);
   assert.equal((await call('GET', '/api/ai/status', { cookie: state.ece })).data.accepted, true);
+  assert.equal((await call('POST', '/api/ai/consent', { cookie: state.ece, body: { version: st.notice.version } })).status, 200, 'yinelenen tercih işlemi idempotent');
+  assert.equal((await call('DELETE', '/api/ai/consent', { cookie: state.ece })).status, 200);
+  assert.equal((await call('GET', '/api/ai/status', { cookie: state.ece })).data.accepted, false);
+  assert.equal((await call('POST', '/api/ai/consent', { cookie: state.ece, body: { version: st.notice.version } })).status, 200);
+  const db = new Client({ connectionString: DB, ssl: false });
+  try {
+    await db.connect();
+    const { rows } = await db.query('select action from ai_consent_events where user_id = $1 and version = $2 order by id', [state.eceId, st.notice.version]);
+    assert.deepEqual(rows.map(row => row.action), ['granted', 'withdrawn', 'granted'], 'tercih ve geri çekme zaman çizgisi korunmalı');
+  } finally {
+    await db.end();
+  }
 });
 
 test('asistan: soru yanıtlanır, kişisel bilgi maskelenir, sohbet kaydedilir', async () => {
@@ -1269,9 +1286,12 @@ test('iki adımlı doğrulama: RFC 6238 vektörü, müdür açar, girişte kod i
   assert.equal((await loginRaw('murat', 'mudur-sifresi-1', 'principal')).status, 200, 'kapatılınca yalnızca parola yeterli');
 });
 
-test('KVKK: aydınlatma onayı, erişim hakkı (dökümü) ve silme talebi anonimleştirir', async () => {
+test('KVKK: aydınlatma görüntülenme kaydı, veri dökümü ve profil kapatma talebi', async () => {
   const notice = await call('GET', '/api/kvkk', { cookie: state.ece });
   assert.equal(notice.data.accepted, false);
+  assert.equal(notice.data.notice.contactComplete, true);
+  assert.match(notice.data.notice.sections.find(section => section.title === 'Veri sorumlusu ve iletişim').text, /kvkk@yildiz\.example/);
+  assert.match(notice.data.notice.intro, /açık rıza/i);
   assert.equal((await call('POST', '/api/kvkk/accept', { cookie: state.ece, body: { version: 'eski' } })).status, 400);
   assert.equal((await call('POST', '/api/kvkk/accept', { cookie: state.ece, body: { version: notice.data.notice.version } })).status, 201);
   assert.equal((await call('GET', '/api/kvkk', { cookie: state.ece })).data.accepted, true);
@@ -1281,6 +1301,7 @@ test('KVKK: aydınlatma onayı, erişim hakkı (dökümü) ve silme talebi anoni
   const dump = await res.json();
   assert.equal(dump.profile.username, 'ece');
   assert.ok(Array.isArray(dump.attendance));
+  assert.ok(Array.isArray(dump.submissions));
   const doomed = await call('POST', '/api/users', { cookie: state.principal, body: { role: 'student', name: 'Silinecek Öğrenci', username: 'silinecek', password: 'silinecek-1234', studentNo: '199', classId: state.class6A } });
   assert.equal(doomed.status, 201);
   const doomedCookie = await login('silinecek', 'silinecek-1234');
@@ -1292,7 +1313,9 @@ test('KVKK: aydınlatma onayı, erişim hakkı (dökümü) ve silme talebi anoni
   assert.ok(item);
   assert.equal((await call('POST', `/api/deletion-requests/${item.id}/decide`, { cookie: state.ayse, body: { approve: true } })).status, 403);
   assert.equal((await call('POST', `/api/deletion-requests/${item.id}/decide`, { cookie: state.principal, body: { approve: true } })).status, 200);
-  assert.equal((await loginRaw('silinecek', 'silinecek-1234')).status, 401, 'anonimleşen hesapla giriş yapılamaz');
+  const closed = (await call('GET', '/api/deletion-requests', { cookie: state.principal })).data.requests.find(r => r.id === item.id);
+  assert.equal(closed.userName, 'Silinmiş kullanıcı');
+  assert.equal((await loginRaw('silinecek', 'silinecek-1234')).status, 401, 'kapatılan hesapla giriş yapılamaz');
   assert.equal((await call('GET', '/api/me', { cookie: doomedCookie })).status, 401);
 });
 

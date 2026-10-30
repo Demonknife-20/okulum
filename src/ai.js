@@ -1,18 +1,17 @@
 // Okulum Asistanı: Google Gemini ile konuşma, kullanım bildirimi ve saklama kuralları.
 const { q } = require('./db');
+const { forEachTenant } = require('./tenancy');
 
-const NOTICE_VERSION = '2026-10-v1';
+const NOTICE_VERSION = '2026-10-v2';
 const NOTICE = {
   version: NOTICE_VERSION,
-  title: 'Okulum Asistanı: kullanım ve veri işleme bildirimi',
-  intro: 'Asistanı kullanmadan önce bu bildirimi okumanız gerekir. Onay vermeden sohbet başlatılamaz.',
+  title: 'Okulum Asistanı: isteğe bağlı özellik bildirimi',
+  intro: 'Asistan isteğe bağlıdır. Kullanmak için ayrı tercihinizi vermeniz gerekir; reddetmeniz okulun diğer özelliklerini etkilemez.',
   sections: [
-    { title: 'Kim işliyor?', text: 'Asistan, okulunuz tarafından Okulum sisteminde sunulur. Sorularınız ve asistanın yanıtları okul veritabanında saklanır. Okul müdürü bu kayıtları güvenlik, kötüye kullanım incelemesi ve eğitim kalitesi amacıyla görebilir. Görüntülemeler denetim kaydına yazılır.' },
-    { title: 'Yanıtı kim üretiyor?', text: 'Yanıtlar Google Gemini yapay zekâ hizmeti ile üretilir ve sorularınız bu hizmete iletilir. Ücretsiz Google katmanında sağlayıcının girdileri ürün geliştirme için kullanabileceğini kabul edersiniz.' },
-    { title: 'Ne için kullanılır?', text: 'Okulum\'un nasıl kullanılacağını öğrenmek, ders konularını anlamak ve öğretmenler için ders materyali fikirleri almak için. Asistan ödevlerin cevabını vermez, sizi adım adım yönlendirir. Sınav kopyası için kullanılamaz.' },
-    { title: 'Kişisel bilgi', text: 'T.C. kimlik numarası, telefon, e-posta ve okul numarası gibi bilgileri yazmayın. Bu bilgiler yapay zekâya gönderilmeden önce otomatik olarak maskelenir, ama yine de yazmamanızı öneririz.' },
-    { title: 'Saklama süresi', text: 'Sohbetler 180 gün sonra otomatik olarak silinir. Dilediğiniz sohbeti kendiniz de silebilirsiniz.' },
-    { title: 'Haklarınız (KVKK)', text: 'Kişisel Verilerin Korunması Kanunu kapsamında verilerinize erişme, düzeltme, silme ve işlenmesine itiraz etme haklarına sahipsiniz. Rızanızı okul müdürünüze başvurarak geri çekebilirsiniz. Bu durumda asistanı kullanamazsınız.' },
+    { title: 'Hangi veri nereye gider?', text: 'Gönderdiğiniz mesaj ve sohbet bağlamındaki son mesajlar, yanıt üretmek için varsayılan Google Gemini API\'sine (veya işletmecinin yapılandırdığı uyumlu uç noktaya) gönderilir. Bilinen bazı kişisel veri biçimleri maskelenmeye çalışılır; maskeleme eksiksiz değildir ve anonimleştirme garantisi vermez. Sağlayıcının veri kullanımı, saklama süresi ve konumu kullanılan hesap, plan ve ayarlara bağlıdır; okul yöneticisi bunları kullanımdan önce doğrulamalıdır.' },
+    { title: 'Saklama ve görüntüleme', text: 'Maskelenmiş kullanıcı mesajları ve yanıtlar okul veritabanında saklanır; varsayılan olarak 180 gün sonra silinir. Okul müdürü sohbetleri güvenlik ve okul yönetimi kapsamında görüntüleyebilir; bu erişim denetim kaydına yazılır. 30 günden eski kullanım sayaçları temizlenir. Yedeklerdeki kopyalar ayrı saklama süresi boyunca kalabilir.' },
+    { title: 'Kullanım ve çocuklar', text: 'Özellik site kullanımı, ders konularını anlama ve öğretmen materyali taslağı içindir; yanıtlar hatalı olabilir. Ad, okul numarası, iletişim bilgisi, sağlık bilgisi, özel nitelikli veri veya başka bir kişinin tanımlanabileceği bilgileri yazmayın. Öğrencinin kendi seçimi veli/yasal temsilci izni sayılmaz. Okul, reşit olmayanların bu özelliği kullanabilmesi için gerekli bilgilendirme ve yetkilendirmeyi ayrıca sağlamalıdır.' },
+    { title: 'Tercih ve geri çekme', text: 'Tercihiniz yalnızca bu isteğe bağlı yapay zekâ özelliği içindir; okulun diğer veri işleme faaliyetleri için genel rıza değildir. Hesap sayfasındaki “Asistan iznini geri çek” düğmesi gelecekteki yapay zekâ isteklerini durdurur. Geri çekme, daha önceki işlemleri geriye dönük olarak geçersiz kılmaz ve sohbetleri otomatik silmez; mevcut sohbetleri ayrıca silebilir veya okul veri sorumlusuna başvurabilirsiniz.' },
     { title: 'Doğruluk', text: 'Yapay zekâ hata yapabilir. Önemli konularda öğretmeninize veya kaynak kitabınıza başvurun.' },
   ],
 };
@@ -153,8 +152,9 @@ async function purgeExpired() {
   await q('delete from ai_usage where day < current_date - 30');
 }
 function startRetention() {
-  purgeExpired().catch(error => console.error('Saklama temizliği hatası:', error.message));
-  setInterval(() => purgeExpired().catch(error => console.error('Saklama temizliği hatası:', error.message)), 24 * 60 * 60 * 1000).unref();
+  const safePurge = () => forEachTenant(purgeExpired).catch(error => console.error('Saklama temizliği hatası:', error.message));
+  safePurge();
+  setInterval(safePurge, 24 * 60 * 60 * 1000).unref();
 }
 
 // Sınav taslağı: sorular doğrulanmış biçimde döner (bkz. quizdraft.js)

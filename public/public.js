@@ -19,17 +19,31 @@ const announcementsSection = list => !list.length ? '' : `
     </div>
   </section>`;
 
-const homeView = (announcements = []) => ({ html: `
+const homeView = (announcements = [], schools = []) => {
+  const firstSchool = schools[0];
+  const schoolPath = firstSchool ? `/${encodeURIComponent(firstSchool.slug)}` : '/okulum';
+  const schoolDirectory = schools.length > 1 ? `
+    <section class="school-directory" id="school-directory">
+      <div class="announce-head"><h2>Okulunuzu seçin</h2><p class="muted">Devam etmek için okulunuza ait giriş sayfasını açın.</p></div>
+      <div class="announce-grid">${schools.map(school => `
+        <a class="role-card school-link" href="/${encodeURIComponent(school.slug)}/">
+          <span class="role-tag green">${esc(school.city || 'Okulum')}</span>
+          <h3>${esc(school.name)}</h3>
+          <p>Okul giriş sayfasına git <span aria-hidden="true">→</span></p>
+        </a>`).join('')}</div>
+    </section>` : '';
+  return { html: `
   <section class="hero">
     <div class="hero-copy">
       <p class="kicker">Okul yönetim sistemi</p>
       <h1>Dersler, ödevler, yoklama ve mesajlar tek yerde.</h1>
       <p class="lead">Müdür okulu ve sınıfları yönetir. Öğretmenler ödev, yoklama ve notlarla ilgilenir. Öğrenciler ödevlerini teslim eder, notlarını ve devamlarını görür.</p>
       <div class="hero-actions">
-        <a class="btn primary lg" href="#/mudur-girisi">Müdür girişi</a>
-        <a class="btn ghost lg" href="#/giris">Öğretmen / Öğrenci girişi</a>
+        ${schools.length > 1
+          ? '<button class="btn primary lg" type="button" data-action="school-directory">Okulunu seç</button>'
+          : `<a class="btn primary lg" href="${schoolPath}/#/mudur-girisi">Müdür girişi</a><a class="btn ghost lg" href="${schoolPath}/#/giris">Öğretmen / Öğrenci girişi</a>`}
       </div>
-      <p class="muted small">Okul henüz kurulmadıysa müdür olarak <a href="#/kurulum">okulu kurun</a>. Nasıl kullanılacağını <a href="#/yardim">kullanım kılavuzunda</a> bulabilirsiniz.</p>
+      <p class="muted small">${schools.length > 1 ? 'Giriş yapmak için aşağıdan okulunuzu seçin.' : schools.length ? 'Okul hesabınızla giriş yapın.' : `Okul henüz kurulmadıysa <a href="${schoolPath}/#/kurulum">kurulum sayfasını açın</a>.`} ${schools.length > 1 ? '' : `Nasıl kullanılacağını <a href="${schoolPath}/#/yardim">kullanım kılavuzunda</a> bulabilirsiniz.`}</p>
     </div>
     <div class="hero-cards">
       <article class="role-card">
@@ -57,7 +71,8 @@ const homeView = (announcements = []) => ({ html: `
       <li><strong>Hesapları açın.</strong> Öğretmenlere sınıf ve ders, öğrencilere sınıf ve okul numarası verilir.</li>
       <li><strong>Herkes kendi girişinden girer.</strong> Müdürler "Müdür girişi", diğerleri "Öğretmen / Öğrenci girişi" ile girer.</li>
     </ol>
-  </section>${announcementsSection(announcements)}` });
+  </section>${schoolDirectory}${announcementsSection(announcements)}` };
+};
 
 const loginView = portal => {
   const principal = portal === 'principal';
@@ -111,6 +126,15 @@ const setupView = async () => {
             <label class="field"><span>Şehir</span><input name="schoolCity" required maxlength="80"></label>
           </div>
           <label class="field"><span>Eğitim yılı</span><input name="schoolYear" placeholder="2026–2027" maxlength="20"></label>
+          <h2>Veri sorumlusu iletişim bilgileri</h2>
+          <p class="muted small">Gizlilik ve KVKK başvurularında kullanılacak gerçek okul unvanını ve iletişim bilgilerini girin.</p>
+          <label class="field"><span>Veri sorumlusu unvanı</span><input name="controllerName" required maxlength="120" autocomplete="organization"></label>
+          <label class="field"><span>Tebligat / başvuru adresi</span><textarea name="controllerAddress" required maxlength="300" rows="2"></textarea></label>
+          <div class="grid-2">
+            <label class="field"><span>Başvuru e-postası</span><input name="controllerEmail" type="email" required maxlength="120" autocomplete="email"></label>
+            <label class="field"><span>Telefon (isteğe bağlı)</span><input name="controllerPhone" type="tel" maxlength="40" autocomplete="tel"></label>
+          </div>
+          <p class="small muted">Bu bilgiler okulun veri sorumlusu tarafından doğrulanmalı; hukuki metin yayın öncesinde hukuk danışmanına inceletilmelidir.</p>
           <hr>
           <label class="field"><span>Müdür adı soyadı</span><input name="name" required maxlength="80"></label>
           <div class="grid-2">
@@ -131,9 +155,21 @@ export async function renderPublic(page) {
   if (page === 'giris') return loginView('member');
   if (page === 'kurulum') return setupView();
   if (page === 'yardim') return { html: helpHtml() };
+  if (location.pathname === '/') {
+    const { schools } = await api('/schools').catch(() => ({ schools: [] }));
+    if (schools.length > 1) return homeView([], schools);
+    const { announcements } = await api('/public/announcements').catch(() => ({ announcements: [] }));
+    return homeView(announcements, schools);
+  }
   const { announcements } = await api('/public/announcements').catch(() => ({ announcements: [] }));
   return homeView(announcements);
 }
+
+document.addEventListener('click', event => {
+  const button = event.target.closest('[data-action="school-directory"]');
+  if (!button) return;
+  document.querySelector('#school-directory')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+});
 
 // Giriş ve kurulum formları. Başarılıysa uygulama kabuğuna geçilmesi için olay yayınlanır.
 FORMS.login = async form => {
@@ -159,6 +195,8 @@ FORMS.login = async form => {
 FORMS.setup = async form => {
   await api('/setup', { method: 'POST', body: {
     schoolName: val(form, 'schoolName'), schoolCity: val(form, 'schoolCity'), schoolYear: val(form, 'schoolYear'),
+    controllerName: val(form, 'controllerName'), controllerAddress: val(form, 'controllerAddress'),
+    controllerEmail: val(form, 'controllerEmail'), controllerPhone: val(form, 'controllerPhone'),
     name: val(form, 'name'), username: val(form, 'username'), password: val(form, 'password'),
   } });
   window.dispatchEvent(new Event('okulum:login'));

@@ -68,6 +68,13 @@ export function setQuery(page, params) {
   location.hash = `#/${page}${query ? `?${query}` : ''}`;
 }
 
+export function apiUrl(path) {
+  const slug = location.pathname.match(/^\/([a-z0-9](?:[a-z0-9-]{1,38}[a-z0-9]))\/?$/)?.[1];
+  const reserved = new Set(['api', 'platform', 'robots', 'kullanim', 'hakkinda', 'gizlilik', 'healthz']);
+  const prefix = slug && !reserved.has(slug) ? `/${slug}` : '';
+  return `${prefix}/api${path}`;
+}
+
 // ---- API ----
 export async function api(path, { method = 'GET', body } = {}) {
   const init = { method, credentials: 'same-origin', headers: {} };
@@ -77,7 +84,7 @@ export async function api(path, { method = 'GET', body } = {}) {
   }
   let res;
   try {
-    res = await fetch(`/api${path}`, init);
+    res = await fetch(apiUrl(path), init);
   } catch {
     throw new Error('Sunucuya ulaşılamadı. Bağlantını kontrol et.');
   }

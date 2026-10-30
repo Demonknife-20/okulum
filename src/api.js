@@ -1,5 +1,6 @@
 const crypto = require('node:crypto');
-const { q, tx } = require('./db');
+const { q, tx, currentTenantSchema } = require('./db');
+const { syncTenantSchool, forEachTenant } = require('./tenancy');
 const sec = require('./security');
 const storage = require('./storage');
 const ai = require('./ai');
@@ -7,7 +8,7 @@ const push = require('./push');
 const { runBackup, listBackups, readBackup } = require('./backup');
 const mail = require('./mail');
 const mfa = require('./mfa');
-const { KVKK_VERSION, KVKK_NOTICE } = require('./kvkk');
+const { buildKvkkNotice } = require('./kvkk');
 const PDFDocument = require('pdfkit');
 const FONT_REGULAR = require.resolve('dejavu-fonts-ttf/ttf/DejaVuSans.ttf');
 const FONT_BOLD = require.resolve('dejavu-fonts-ttf/ttf/DejaVuSans-Bold.ttf');
@@ -205,8 +206,16 @@ on('GET', '/api/setup', async () => {
 on('POST', '/api/setup', async ({ body, res }) => {
   const schoolName = str(body.schoolName, 120), schoolCity = str(body.schoolCity, 80);
   const schoolYear = str(body.schoolYear, 20) || defaultSchoolYear();
+  const controllerName = str(body.controllerName, 120);
+  const controllerAddress = str(body.controllerAddress, 300);
+  const controllerEmail = str(body.controllerEmail, 120).toLowerCase();
+  const controllerPhone = str(body.controllerPhone, 40);
   const name = str(body.name, 80), username = str(body.username, 32).toLowerCase();
   if (schoolName.length < 2 || schoolCity.length < 2) fail(400, 'Okul adı ve şehir zorunlu.');
+  if (controllerName.length < 2 || controllerAddress.length < 5
+    || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(controllerEmail)) {
+    fail(400, 'Veri sorumlusu unvanı, adresi ve geçerli başvuru e-postası zorunlu.');
+  }
   if (name.length < 2) fail(400, 'Müdür adı soyadı zorunlu.');
   if (!USERNAME.test(username)) fail(400, 'Kullanıcı adı 3-32 karakter: harf, rakam, nokta, tire veya alt çizgi.');
   const pass = checkPassword(body.password);
@@ -214,13 +223,17 @@ on('POST', '/api/setup', async ({ body, res }) => {
     await client.query('select pg_advisory_xact_lock(7001)'); // iki kurulum aynı anda çalışmasın
     const { rows: [{ n }] } = await client.query('select count(*)::int as n from users');
     if (n > 0) fail(409, 'Okul zaten kurulmuş.');
-    await client.query(`insert into school (id, name, city, year) values (1, $1, $2, $3)
-      on conflict (id) do update set name = excluded.name, city = excluded.city, year = excluded.year, updated_at = now()`,
-      [schoolName, schoolCity, schoolYear]);
+    await client.query(`insert into school (id, name, city, year, controller_name, controller_address, controller_email, controller_phone)
+      values (1, $1, $2, $3, $4, $5, $6, $7)
+      on conflict (id) do update set name = excluded.name, city = excluded.city, year = excluded.year,
+        controller_name = excluded.controller_name, controller_address = excluded.controller_address,
+        controller_email = excluded.controller_email, controller_phone = excluded.controller_phone, updated_at = now()`,
+    [schoolName, schoolCity, schoolYear, controllerName, controllerAddress, controllerEmail, controllerPhone]);
     const { rows } = await client.query(`insert into users (username, password_hash, name, role) values ($1, $2, $3, 'principal')
       returning id, username, name, role, student_no, password_hash, session_version`, [username, sec.hashPassword(pass), name]);
     return rows[0];
   });
+  await syncTenantSchool(currentTenantSchema(), { name: schoolName, city: schoolCity, year: schoolYear });
   await audit(user, 'setup', schoolName, { city: schoolCity, year: schoolYear });
   sec.setSessionCookie(res, user);
   return created({ user: publicUser(user) });
@@ -274,7 +287,9 @@ on('POST', '/api/logout', async ({ res }) => {
 }, { auth: false });
 
 on('GET', '/api/me', async ({ user }) => {
-  const school = (await q('select name, city, year from school where id = 1')).rows[0] || null;
+  const school = (await q(`select name, city, year, controller_name as "controllerName",
+    controller_address as "controllerAddress", controller_email as "controllerEmail",
+    controller_phone as "controllerPhone" from school where id = 1`)).rows[0] || null;
   const { rows: [login] } = await q('select last_login_at as "lastLoginAt", last_login_ip as "lastLoginIp", totp_enabled as "totpEnabled" from users where id = $1', [user.id]);
   let classId = null, className = null, teaching = [], classes = [], subjects = [];
   if (user.role === 'student') {
@@ -304,14 +319,29 @@ on('PUT', '/api/me/password', async ({ res, body, user }) => {
 });
 
 // ---------- Okul, sınıf, ders ----------
-on('GET', '/api/school', async () => ok((await q('select name, city, year from school where id = 1')).rows[0] || null));
+on('GET', '/api/school', async () => ok((await q(`select name, city, year, controller_name as "controllerName",
+  controller_address as "controllerAddress", controller_email as "controllerEmail",
+  controller_phone as "controllerPhone" from school where id = 1`)).rows[0] || null));
 
 on('PUT', '/api/school', async ({ body, user }) => {
   const name = str(body.name, 120), city = str(body.city, 80), year = str(body.year, 20);
+  const controllerName = str(body.controllerName, 120);
+  const controllerAddress = str(body.controllerAddress, 300);
+  const controllerEmail = str(body.controllerEmail, 120).toLowerCase();
+  const controllerPhone = str(body.controllerPhone, 40);
   if (name.length < 2 || city.length < 2 || year.length < 4) fail(400, 'Okul adı, şehir ve eğitim yılı zorunlu.');
-  await q(`insert into school (id, name, city, year) values (1, $1, $2, $3)
-    on conflict (id) do update set name = excluded.name, city = excluded.city, year = excluded.year, updated_at = now()`, [name, city, year]);
-  await audit(user, 'school_updated', name, { city, year });
+  if (controllerName.length < 2 || controllerAddress.length < 5
+    || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(controllerEmail)) {
+    fail(400, 'Veri sorumlusu unvanı, adresi ve geçerli başvuru e-postası zorunlu.');
+  }
+  await q(`insert into school (id, name, city, year, controller_name, controller_address, controller_email, controller_phone)
+    values (1, $1, $2, $3, $4, $5, $6, $7)
+    on conflict (id) do update set name = excluded.name, city = excluded.city, year = excluded.year,
+      controller_name = excluded.controller_name, controller_address = excluded.controller_address,
+      controller_email = excluded.controller_email, controller_phone = excluded.controller_phone, updated_at = now()`,
+  [name, city, year, controllerName, controllerAddress, controllerEmail, controllerPhone]);
+  await syncTenantSchool(currentTenantSchema(), { name, city, year });
+  await audit(user, 'school_updated', name, { city, year, privacyContactUpdated: true });
   return ok({ saved: true });
 }, { roles: PRINCIPAL });
 
@@ -1548,7 +1578,7 @@ on('GET', '/api/public/announcements', async () => {
 
 // ---------- Okulum Asistanı (Gemini) ----------
 on('GET', '/api/ai/status', async ({ user }) => {
-  const { rows: [consent] } = await q('select 1 from ai_consents where user_id = $1 and version = $2', [user.id, ai.NOTICE_VERSION]);
+  const { rows: [consent] } = await q('select 1 from ai_consents where user_id = $1 and version = $2 and withdrawn_at is null', [user.id, ai.NOTICE_VERSION]);
   const { rows: [usage] } = await q('select used from ai_usage where user_id = $1 and day = current_date', [user.id]);
   const used = usage?.used ?? 0;
   return ok({
@@ -1559,14 +1589,35 @@ on('GET', '/api/ai/status', async ({ user }) => {
 
 on('POST', '/api/ai/consent', async ({ body, user }) => {
   if (body.version !== ai.NOTICE_VERSION) fail(400, 'Bildirim sürümü güncel değil. Sayfayı yenileyip tekrar okuyun.');
-  await q('insert into ai_consents (user_id, version) values ($1, $2) on conflict do nothing', [user.id, body.version]);
+  await tx(async client => {
+    const { rows } = await client.query(`insert into ai_consents (user_id, version, accepted_at, withdrawn_at)
+      values ($1, $2, now(), null)
+      on conflict (user_id, version) do update set accepted_at = now(), withdrawn_at = null
+      where ai_consents.withdrawn_at is not null
+      returning version`, [user.id, body.version]);
+    if (rows.length) {
+      await client.query(`insert into ai_consent_events (user_id, version, action) values ($1, $2, 'granted')`, [user.id, body.version]);
+    }
+  });
   return ok({ accepted: true });
+});
+
+on('DELETE', '/api/ai/consent', async ({ user }) => {
+  await tx(async client => {
+    const { rows } = await client.query(`update ai_consents set withdrawn_at = now()
+      where user_id = $1 and withdrawn_at is null returning version`, [user.id]);
+    for (const { version } of rows) {
+      await client.query(`insert into ai_consent_events (user_id, version, action) values ($1, $2, 'withdrawn')`, [user.id, version]);
+    }
+  });
+  await audit(user, 'ai_consent_withdrawn', user.username || user.name, {});
+  return ok({ accepted: false });
 });
 
 // Sohbet isteğini doğrular, kotayı kontrol eder ve konuşmayı çözümler. Yapay zekâya henüz gitmez.
 async function aiPrepare(user, body) {
   if (!ai.enabled()) fail(503, 'Asistan henüz etkin değil. Okul yöneticinizle konuşun.');
-  const { rowCount: accepted } = await q('select 1 from ai_consents where user_id = $1 and version = $2', [user.id, ai.NOTICE_VERSION]);
+  const { rowCount: accepted } = await q('select 1 from ai_consents where user_id = $1 and version = $2 and withdrawn_at is null', [user.id, ai.NOTICE_VERSION]);
   if (!accepted) fail(403, 'Asistanı kullanmadan önce kullanım bildirimini kabul etmelisiniz.');
   const text = String(body.message ?? '').trim();
   if (!text) fail(400, 'Mesaj boş olamaz.');
@@ -1626,7 +1677,7 @@ on('POST', '/api/ai/chat', async ({ body, user }) => {
 on('POST', '/api/ai/quiz-draft', async ({ body, user }) => {
   if (!['teacher', 'principal'].includes(user.role)) fail(403, 'Sınav taslağı yalnızca öğretmenler içindir.');
   if (!ai.enabled()) fail(503, 'Asistan henüz etkin değil. Okul yöneticinizle konuşun.');
-  const { rowCount: accepted } = await q('select 1 from ai_consents where user_id = $1 and version = $2', [user.id, ai.NOTICE_VERSION]);
+  const { rowCount: accepted } = await q('select 1 from ai_consents where user_id = $1 and version = $2 and withdrawn_at is null', [user.id, ai.NOTICE_VERSION]);
   if (!accepted) fail(403, 'Asistanı kullanmadan önce kullanım bildirimini kabul etmelisiniz.');
   const topic = String(body.topic ?? '').trim();
   const example = String(body.example ?? '').trim();
@@ -2909,17 +2960,23 @@ on('POST', '/api/me/2fa/disable', async ({ body, user }) => {
 
 // KVKK aydınlatma metni: onay ve sürüm takibi
 on('GET', '/api/kvkk', async ({ user }) => {
-  const { rows: [row] } = await q('select 1 from kvkk_consents where user_id = $1 and version = $2', [user.id, KVKK_VERSION]);
-  return ok({ notice: KVKK_NOTICE, accepted: Boolean(row) });
+  const school = (await q(`select name, controller_name, controller_address, controller_email, controller_phone
+    from school where id = 1`)).rows[0] || {};
+  const notice = buildKvkkNotice(school);
+  const { rows: [row] } = await q('select 1 from kvkk_consents where user_id = $1 and version = $2', [user.id, notice.version]);
+  return ok({ notice, accepted: Boolean(row) });
 });
 
 on('POST', '/api/kvkk/accept', async ({ body, user }) => {
-  if (body.version !== KVKK_VERSION) fail(400, 'Aydınlatma metni sürümü güncel değil. Sayfayı yenileyin.');
-  await q('insert into kvkk_consents (user_id, version) values ($1, $2) on conflict do nothing', [user.id, KVKK_VERSION]);
+  const school = (await q(`select name, controller_name, controller_address, controller_email, controller_phone
+    from school where id = 1`)).rows[0] || {};
+  const notice = buildKvkkNotice(school);
+  if (body.version !== notice.version) fail(400, 'Aydınlatma metni sürümü güncel değil. Sayfayı yenileyin.');
+  await q('insert into kvkk_consents (user_id, version) values ($1, $2) on conflict do nothing', [user.id, notice.version]);
   return created({ accepted: true });
 });
 
-// Erişim hakkı: kişinin hakkındaki verilerin dökümü (JSON)
+// Hesabımda yer alan başlıca veriler için yardımcı döküm (JSON); tam başvuru yerine geçmez.
 on('GET', '/api/me/export', async ({ user }) => {
   const id = user.id;
   const data = {
@@ -2930,29 +2987,48 @@ on('GET', '/api/me/export', async ({ user }) => {
     behaviorPoints: (await q('select points, reason, created_at as "createdAt" from behavior_points where student_id = $1', [id])).rows,
     teacherNotes: (await q('select body, created_at as "createdAt" from student_notes where student_id = $1', [id])).rows,
     quizResults: (await q('select qz.title, a.score, a.max_score as "maxScore", a.submitted_at as "submittedAt" from quiz_attempts a join quizzes qz on qz.id = a.quiz_id where a.student_id = $1', [id])).rows,
+    submissions: (await q(`select a.title as "assignmentTitle", s.file_name as "fileName", s.file_size as "fileSize",
+      s.note, s.grade, s.feedback, s.submitted_at as "submittedAt"
+      from submissions s join assignments a on a.id = s.assignment_id
+      where s.student_id = $1 order by s.submitted_at`, [id])).rows,
     messagesSent: (await q('select body, created_at as "createdAt" from messages where sender_id = $1 order by created_at', [id])).rows,
     assistantChats: (await q('select c.title, m.role, m.content, m.created_at as "createdAt" from ai_messages m join ai_conversations c on c.id = m.conversation_id where c.user_id = $1 order by m.created_at', [id])).rows,
-    consents: (await q('select version, accepted_at as "acceptedAt" from kvkk_consents where user_id = $1', [id])).rows,
+    noticeAcknowledgments: (await q('select version, accepted_at as "acceptedAt" from kvkk_consents where user_id = $1', [id])).rows,
   };
   await audit(user, 'data_exported', user.username || user.name, {});
   return { file: { buffer: Buffer.from(JSON.stringify(data, null, 2), 'utf8'), mime: 'application/json; charset=utf-8', name: 'verilerim.json' } };
 });
 
-// Silme talebi: müdür onaylayınca hesap anonimleştirilir (kayıtlar kalır, kişi tanımlanamaz hâle gelir)
-async function anonymizeUser(userId) {
-  await tx(async client => {
-    await client.query('delete from push_subscriptions where user_id = $1', [userId]);
-    await client.query('delete from ai_messages where conversation_id in (select id from ai_conversations where user_id = $1)', [userId]);
-    await client.query('delete from ai_conversations where user_id = $1', [userId]);
-    await client.query('delete from ai_consents where user_id = $1', [userId]);
-    await client.query('delete from kvkk_consents where user_id = $1', [userId]);
-    await client.query('delete from parent_links where parent_id = $1 or student_id = $1', [userId]);
-    await client.query("update messages set body = '[silindi]' where sender_id = $1", [userId]);
-    const passwordHash = await sec.hashPasswordAsync(crypto.randomBytes(24).toString('hex'));
-    await client.query(`update users set name = 'Silinmiş kullanıcı', username = $2, password_hash = $3, email = null, student_no = null,
-      calendar_token = null, totp_enabled = false, totp_secret = null, session_version = session_version + 1 where id = $1`,
-    [userId, `silindi-${userId.slice(0, 8)}`, passwordHash]);
-  });
+// Talep onayında profil alanları kaldırılır; ilişkili akademik kayıtlar otomatik silinmez.
+async function closeUserProfile(client, userId) {
+  await client.query('delete from password_resets where user_id = $1', [userId]);
+  await client.query('delete from push_subscriptions where user_id = $1', [userId]);
+  await client.query('delete from ai_messages where conversation_id in (select id from ai_conversations where user_id = $1)', [userId]);
+  await client.query('delete from ai_conversations where user_id = $1', [userId]);
+  await client.query('delete from ai_consents where user_id = $1', [userId]);
+  await client.query('delete from ai_consent_events where user_id = $1', [userId]);
+  await client.query('delete from parent_links where parent_id = $1 or student_id = $1', [userId]);
+  await client.query('delete from conversation_members where user_id = $1', [userId]);
+  await client.query('delete from conversation_reads where user_id = $1', [userId]);
+  await client.query('delete from seen_marks where user_id = $1', [userId]);
+  await client.query("update messages set body = '[silindi]', sender_id = null where sender_id = $1", [userId]);
+  await client.query('update assignments set created_by = null where created_by = $1', [userId]);
+  await client.query('update boards set created_by = null where created_by = $1', [userId]);
+  await client.query('update board_notes set author_id = null where author_id = $1', [userId]);
+  await client.query('update school_events set created_by = null where created_by = $1', [userId]);
+  await client.query('update live_games set host_id = null where host_id = $1', [userId]);
+  await client.query('update attendance set recorded_by = null where recorded_by = $1', [userId]);
+  await client.query('update behavior_points set teacher_id = null where teacher_id = $1', [userId]);
+  await client.query('update student_notes set teacher_id = null where teacher_id = $1', [userId]);
+  await client.query('delete from teaching where teacher_id = $1', [userId]);
+  await client.query('delete from timetable_slots where teacher_id = $1', [userId]);
+  await client.query(`update audit_log set actor_id = null, actor_name = 'Silinmiş kullanıcı'
+    where actor_id = $1`, [userId]);
+  const passwordHash = await sec.hashPasswordAsync(crypto.randomBytes(24).toString('hex'));
+  await client.query(`update users set name = 'Silinmiş kullanıcı', username = $2, password_hash = $3, email = null, student_no = null,
+    calendar_token = null, totp_enabled = false, totp_secret = null, last_login_at = null, last_login_ip = null,
+    session_version = session_version + 1 where id = $1`,
+  [userId, `silindi-${userId.slice(0, 8)}`, passwordHash]);
 }
 
 on('POST', '/api/me/delete-request', async ({ user }) => {
@@ -2970,12 +3046,19 @@ on('GET', '/api/deletion-requests', async () => {
 
 on('POST', '/api/deletion-requests/:id/decide', async ({ params, body, user }) => {
   const id = requireId(params.id, 'talep');
-  const { rows: [item] } = await q('select user_id, status from deletion_requests where id = $1', [id]);
-  if (!item || item.status !== 'bekliyor') fail(404, 'Bekleyen talep bulunamadı.');
-  if (item.user_id === user.id) fail(403, 'Kendi talebinizi değerlendiremezsiniz.');
   const approve = body.approve === true;
-  if (approve && item.user_id) await anonymizeUser(item.user_id);
-  await q('update deletion_requests set status = $2, decided_at = now() where id = $1', [id, approve ? 'onaylandi' : 'reddedildi']);
+  await tx(async client => {
+    const { rows: [item] } = await client.query('select user_id, status from deletion_requests where id = $1 for update', [id]);
+    if (!item || item.status !== 'bekliyor') fail(404, 'Bekleyen talep bulunamadı.');
+    if (item.user_id === user.id) fail(403, 'Kendi talebinizi değerlendiremezsiniz.');
+    if (approve && item.user_id) {
+      await closeUserProfile(client, item.user_id);
+      await client.query(`update deletion_requests set user_id = null, user_name = 'Silinmiş kullanıcı',
+        status = 'onaylandi', decided_at = now() where id = $1`, [id]);
+    } else {
+      await client.query('update deletion_requests set status = $2, decided_at = now() where id = $1', [id, 'reddedildi']);
+    }
+  });
   await audit(user, approve ? 'deletion_approved' : 'deletion_rejected', id, {});
   return ok({ status: approve ? 'onaylandi' : 'reddedildi' });
 }, { roles: ['principal'] });
@@ -3098,7 +3181,7 @@ function startDigestSchedule() {
     await q(`insert into app_settings (key, value) values ('digest_last', $1) on conflict (key) do update set value = excluded.value`, [now.day]);
     await sendWeeklyDigest();
   };
-  const safeTick = () => tick().catch(error => console.error('Haftalık özet hatası:', error.message));
+  const safeTick = () => forEachTenant(tick).catch(error => console.error('Haftalık özet hatası:', error.message));
   setTimeout(safeTick, 2 * 60 * 1000).unref();
   setInterval(safeTick, 30 * 60 * 1000).unref();
 }
@@ -3238,7 +3321,7 @@ function startReminderSchedule() {
     await q(`insert into app_settings (key, value) values ('reminder_last', $1) on conflict (key) do update set value = excluded.value`, [now.day]);
     await sendDueReminders();
   };
-  const safeTick = () => tick().catch(error => console.error('Hatırlatma hatası:', error.message));
+  const safeTick = () => forEachTenant(tick).catch(error => console.error('Hatırlatma hatası:', error.message));
   setTimeout(safeTick, 3 * 60 * 1000).unref();
   setInterval(safeTick, 30 * 60 * 1000).unref();
 }

@@ -1,6 +1,6 @@
 # Okulum
 
-Okul yönetim sistemi: müdür, öğretmen ve öğrenci için sınıf, ders, ödev, teslim, yoklama ve özel mesajlaşma.
+Okul yönetim sistemi: müdür, öğretmen ve öğrenci için sınıf, ders, ödev, teslim, yoklama ve özel mesajlaşma. Birden fazla okul `/{okul-adresi}` altında, ayrı PostgreSQL şemalarında çalışır.
 Veritabanı **Supabase (PostgreSQL)**, dosyalar **Supabase Storage**, yayın **Render** üzerinde.
 
 ## Özellikler
@@ -37,13 +37,15 @@ Bu klasörü özel (private) bir depoya yükle. `.gitignore` `.env` ve `data/` k
 ## 3) Render
 
 1. **New → Blueprint** → depoyu seç. `render.yaml` okunur.
-2. İstenen üç değeri gir:
+2. Değerleri gir:
    - `DATABASE_URL`: 1. adımdaki bağlantı adresi
    - `SUPABASE_URL`: proje adresi
    - `SUPABASE_SERVICE_ROLE_KEY`: service_role anahtarı
+   - `PLATFORM_ADMIN_USERNAME`: platform yöneticisi kullanıcı adı
+   - `PLATFORM_ADMIN_PASSWORD`: en az 16 karakterli güçlü parola
    (`SESSION_SECRET` otomatik üretilir.)
-3. Dağıtım bitince adrese gir. İlk açılışta **"Okulunu oluştur"** ekranı gelir: müdür hesabını orada açarsın.
-   Bu ekran yalnızca hiç kullanıcı yokken çalışır; sonra kapanır.
+3. Dağıtım bitince `/platform` sayfasını açıp platform yöneticisi hesabıyla giriş yap; buradan okulları ve ilk müdür hesaplarını oluştur.
+4. Okullar ana sayfada listelenir ve `/{okul-adresi}` biçimindeki kendi adreslerinden giriş yapar.
 
 > **Ücretsiz plan notu:** Render 15 dakika kullanılmazsa uyur, ilk istek 30–60 sn sürebilir.
 > Okul saatlerinde kesinti istemiyorsan ücretli plana geç.
@@ -56,6 +58,8 @@ Bu klasörü özel (private) bir depoya yükle. `.gitignore` `.env` ve `data/` k
 | `SUPABASE_URL` | üretimde evet | Dosyalar için Supabase proje adresi |
 | `SUPABASE_SERVICE_ROLE_KEY` | üretimde evet | Storage ve sunucu erişimi (gizli tut) |
 | `SESSION_SECRET` | üretimde evet | Oturum imzası, en az 32 karakter. Değişirse herkes yeniden giriş yapar |
+| `PLATFORM_ADMIN_USERNAME` | çok-okullu kurulumda evet | Platform yöneticisi kullanıcı adı (3-32 karakter) |
+| `PLATFORM_ADMIN_PASSWORD` | çok-okullu kurulumda evet | Platform yöneticisi parolası (16-128 karakter); Render'da gizli tut |
 | `API_RATE_PER_MIN` | hayır | IP başına dakikada en fazla istek (varsayılan 900) |
 | `WRITE_RATE_PER_MIN` | hayır | IP başına dakikada en fazla yazma isteği (varsayılan 240) |
 | `NODE_ENV` | önerilir | `production` olduğunda çerez `Secure` olur ve eksik ayarlarda başlamaz |
@@ -75,6 +79,16 @@ npm run dev              # http://localhost:3000
 Üretimde Render Build Command olarak `npm install && npm run build` kullanın. Yerelde `npm run build` ile derleme oluşturabilirsiniz; `dist/` varsa sunucu onu kullanır.
 
 Yerelde `SUPABASE_*` boşsa dosyalar `data/uploads/` klasörüne yazılır. Üretimde bu kabul edilmez.
+`PLATFORM_ADMIN_USERNAME` ve `PLATFORM_ADMIN_PASSWORD`, ilk platform yöneticisini başlatırken gereklidir.
+
+## KVKK ve gizlilik (v82)
+
+- Her okulun `/{okul-adresi}/gizlilik` sayfası ve uygulama içi aydınlatma metni okulun kendi veri sorumlusu iletişim bilgilerini kullanır. Okul kurulurken veya **Okul** ayarlarından gerçek unvan, başvuru adresi ve e-posta girilmelidir.
+- Aydınlatma metni uygulamanın mevcut veri akışlarını ve bilinen saklama davranışlarını açıklar; okulun hukuki sebebini, mevzuata özgü saklama/imha süresini, sağlayıcı sözleşmelerini ve olası yurt dışı aktarım mekanizmasını kendi faaliyetlerine göre belirlemesi gerekir.
+- “Aydınlatma metnini gördüm” kaydı açık rıza değildir ve veri işlemenin hukuki dayanağı olarak kullanılmamalıdır. Öğrencinin kaydı veli/yasal temsilci izni sayılmaz.
+- Yapay zekâ özelliği ayrı bir tercihle açılır ve **Asistan iznini geri çek** düğmesiyle gelecekteki kullanımı durdurur. Önceden kaydedilmiş sohbetleri otomatik silmez.
+- Hesap kapatma talebi profil alanlarını kaldırır ve oturumu kapatır; akademik kayıtlar, denetim izleri ve yedekler otomatik olarak tamamen silinmez. Uygulama içi JSON dökümü yardımcı bir kopyadır; kapsamlı veri başvurusu için okulun veri sorumlusu iletişim kanalını kullanın.
+- Metin hukuk danışmanlığı veya mevzuata uyum garantisi değildir. Canlıya almadan önce okulun hukuk danışmanı; veri sorumlusu sıfatını, amaç/hukuki sebepleri, çocuklara ilişkin süreci, işleyenleri/alt işleyenleri, veri konumlarını ve saklama-imha takvimini doğrulayıp metni onaylamalıdır.
 
 ## Testler
 
@@ -283,9 +297,9 @@ Müdür tüm okulu, öğretmen kendi derslerini, öğrenci yalnızca kendi devam
 
 - **Müdür iki adımlı doğrulama (TOTP):** Müdür hesabı Hesabım → "İki adımlı doğrulama" ile açılır. Gizli anahtar veritabanında şifreli saklanır. Açıkken girişte uygulamadaki 6 haneli kod istenir. Kapatmak için parola ve kod gerekir.
 - **Şifremi unuttum:** E-posta adresi kayıtlı hesaplara 15 dakika geçerli 6 haneli kod gönderilir. Kod saklanırken özetlenir, 5 hatalı denemeden sonra geçersiz olur. Başarılı sıfırlamada tüm eski oturumlar düşer. Yanıt, adres kayıtlı olsun ya da olmasın aynıdır (hesap keşfini önler).
-- **KVKK aydınlatma metni:** Giriş sonrası metin gösterilir ve onaylanması istenir. **Metin bir taslaktır; yayına almadan önce okulun hukuk danışmanı onaylamalıdır.**
-- **Erişim hakkı:** Hesabım → "Verilerimi indir" kişinin verilerini JSON olarak verir.
-- **Silme hakkı:** Öğrenci ve öğretmen silme talebi açar. Müdür "Kişiler → Silme talepleri" bölümünde onaylarsa hesap anonimleştirilir (ad, kullanıcı adı, e-posta ve parola silinir, giriş yapılamaz). Akademik kayıtlar kişi tanımlanamaz hâlde kalır. Müdür kendi talebini değerlendiremez.
+- **KVKK aydınlatma metni:** Giriş sonrası metnin görüntülendiği kaydedilir; bu kayıt açık rıza veya veri işlemenin hukuki dayanağı değildir. Okul iletişim bilgileri Okul ayarlarında tutulur.
+- **Erişim hakkı:** Hesabım → "Verilerimi indir" başlıca hesap verileri için yardımcı JSON dökümü verir; kapsamlı başvuru için okulun veri sorumlusuna ulaşın.
+- **Hesap kapatma talebi:** Öğrenci ve öğretmen talep açar; okul müdürü onaylarsa profil alanları kaldırılır ve hesap kapatılır. İlişkili akademik kayıtlar ve denetim izleri kalabilir; bu işlem tam anonimleştirme veya yedeklerden anında silme değildir.
 - **Takvim bağlantısı:** Hesabım → "Takvim bağlantısı" kişiye özel bir ICS adresi verir. Google, Apple ve Outlook takvimine abone olunabilir.
 - **Bildirimler:** Yeni ödev, yeni mesaj ve veli için devamsızlık bildirimleri eklendi.
 - **Müdür analizi (API):** `GET /api/analytics/school` sınıf bazında devam oranı, sınav ortalaması ve en çok devamsızlığı olan öğrencileri verir. Sayfası henüz yok.
@@ -447,7 +461,7 @@ Müdür tüm okulu, öğretmen kendi derslerini, öğrenci yalnızca kendi devam
 
 ## Sürüm 48
 
-- **Gizlilik politikası:** `/gizlilik` sayfası eklendi. Hukuki onaydan geçene kadar taslaktır; saklama süreleri ve iletişim bilgileri yer tutucu olarak bırakıldı.
+- **Gizlilik politikası:** `/gizlilik` platform özeti, `/{okul-adresi}/gizlilik` okul bazlı aydınlatma sayfası sunar. Hukuki onay gereklidir.
 - **Pano kartı metni:** Kalın, italik, madde ve bağlantı biçimleri desteklenir (güvenli Markdown dönüştürücüsü; HTML kabul edilmez).
 
 ## Sürüm 49

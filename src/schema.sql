@@ -5,6 +5,10 @@ create table if not exists school (
   name text not null check (char_length(name) between 2 and 120),
   city text not null check (char_length(city) between 2 and 80),
   year text not null check (char_length(year) between 4 and 20),
+  controller_name text not null default '',
+  controller_address text not null default '',
+  controller_email text not null default '',
+  controller_phone text not null default '',
   updated_at timestamptz not null default now()
 );
 
@@ -215,8 +219,18 @@ create table if not exists ai_consents (
   user_id uuid not null references users(id) on delete cascade,
   version text not null,
   accepted_at timestamptz not null default now(),
+  withdrawn_at timestamptz,
   primary key (user_id, version)
 );
+create table if not exists ai_consent_events (
+  id bigint generated always as identity primary key,
+  user_id uuid not null references users(id) on delete cascade,
+  version text not null,
+  action text not null check (action in ('granted', 'withdrawn')),
+  created_at timestamptz not null default now()
+);
+create index if not exists ai_consent_events_user on ai_consent_events(user_id, created_at desc);
+alter table ai_consent_events enable row level security;
 
 create table if not exists ai_conversations (
   id uuid primary key default gen_random_uuid(),
