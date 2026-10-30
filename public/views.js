@@ -1,9 +1,9 @@
 import { renderMarkdown } from './markdown.js';
 import { enablePush, disablePush, isSubscribed } from './push.js';
 import { mountGraph } from './graph.js';
-import { projectile, trajectory, titrationPH, equivalenceVolume, titrationSeries } from './labs.js';
-import { ELEMENTS, bestReaction, parseFormulaComp, atomComp, iconFor } from './chem.js';
-import { parseBase, toBase, truthTable, bubbleSortSteps } from './computing.js';
+import { projectile, trajectory, titrationPH, equivalenceVolume, titrationSeries, ohm, equivalentResistance, pendulum, thinLens, uniformlyAccelerated, kineticEnergy, potentialEnergy, waveSpeed } from './labs.js';
+import { ELEMENTS, bestReaction, parseFormulaComp, atomComp, iconFor, molarMass, moles, molarity, dilutionVolume, strongAcidPH, strongBasePH } from './chem.js';
+import { parseBase, toBase, truthTable, bubbleSortSteps, textToBinary, binaryToText, hexToRgb, rgbToHex, binaryAdd } from './computing.js';
 import { runPython, highlightPython, pyHint } from './pyterm.js';
 import { fxEnabled, setFx } from './fx.js';
 import { helpHtml } from './help.js';
@@ -557,12 +557,28 @@ let conv = { id: null, lastId: null, timer: null };
 
 function bubble(m) {
   const mine = m.senderId === state.me.id;
-  return `<div class="bubble ${mine ? 'mine' : ''}">
-    ${mine ? '' : `<span class="who">${esc(m.senderName || 'Silinmiş kullanıcı')}</span>`}
-    <p>${esc(m.body)}</p>
-    <time>${esc(fmtDate(m.createdAt))}</time>
+  const deleted = Boolean(m.deletedAt);
+  return `<div class="bubble ${mine ? 'mine' : ''} ${deleted ? 'deleted' : ''}" data-mid="${esc(String(m.id))}">
+    ${mine || deleted ? '' : `<span class="who">${esc(m.senderName || 'Silinmiş kullanıcı')}</span>`}
+    <p>${deleted ? '<em>Bu mesaj silindi.</em>' : esc(m.body)}</p>
+    ${deleted ? '' : `<time>${esc(fmtDate(m.createdAt))}</time>`}
+    ${mine && !deleted ? `<button class="bubble-del" type="button" data-action="del-message" data-id="${esc(String(m.id))}" aria-label="Mesajı sil" title="Mesajı sil">${icon('trash')}</button>` : ''}
   </div>`;
 }
+
+// Gönderen kendi mesajını geri çağırabilir: içerik sunucuda yer tutucuyla değiştirilir.
+ACTIONS['del-message'] = async el => {
+  const yes = await confirmDialog('Mesajı sil', 'Mesaj karşı taraftan da kaldırılır ve yerine "Bu mesaj silindi." yazar. Bu işlem geri alınamaz.');
+  if (!yes) return;
+  await api(`/messages/${el.dataset.id}`, { method: 'DELETE' });
+  document.querySelectorAll(`[data-mid="${el.dataset.id}"]`).forEach(b => {
+    b.classList.add('deleted');
+    b.querySelector('p')?.replaceWith(Object.assign(document.createElement('p'), { innerHTML: '<em>Bu mesaj silindi.</em>' }));
+    b.querySelector('time')?.remove();
+    b.querySelector('.bubble-del')?.remove();
+  });
+  toast('Mesaj silindi');
+};
 
 const markRead = id => api(`/conversations/${id}/read`, { method: 'POST', body: {} })
   .then(() => refreshBadges()).catch(() => {});
@@ -1733,6 +1749,15 @@ ACTIONS['ai-suggest'] = el => {
 };
 
 ACTIONS['ai-new'] = () => setQuery('asistan', {});
+
+// Sohbet geçmişi kalıcı olarak silinir (mesajlarıyla birlikte); kullanıcı onayı alınır.
+ACTIONS['ai-del-conv'] = async el => {
+  const yes = await confirmDialog('Sohbeti sil', 'Bu sohbet ve içindeki tüm mesajlar kalıcı olarak silinecek. Bu işlem geri alınamaz.');
+  if (!yes) return;
+  await api(`/ai/conversations/${el.dataset.id}`, { method: 'DELETE' });
+  toast('Sohbet silindi');
+  setQuery('asistan', {});
+};
 ACTIONS['page-ai-logs'] = el => setQuery('asistan', { ...parseHash().params, page: el.dataset.page });
 
 // Mesajı akış (SSE) ile gönderir: yanıt parça parça gelir ve balonda Markdown olarak biçimlenir.
@@ -1842,7 +1867,7 @@ async function pageAsistan(params) {
           <li><a class="conv ${c.id === activeId ? 'active' : ''}" href="#/asistan?c=${esc(c.id)}">
             <span class="avatar sm">AI</span>
             <span class="conv-copy"><strong>${esc(c.title)}</strong><small>${c.messageCount} mesaj · ${esc(fmtDate(c.updatedAt))}</small></span>
-          </a></li>`).join('') || `<li class="empty-inline">Henüz sohbet yok</li>`}</ul>
+          </a>${c.id === activeId ? `<button class="icon-btn sm conv-del" type="button" data-action="ai-del-conv" data-id="${esc(c.id)}" aria-label="Sohbeti sil" title="Sohbeti sil">${icon('trash')}</button>` : ''}</li>`).join('') || `<li class="empty-inline">Henüz sohbet yok</li>`}</ul>
       </div>
       <div class="room">
         <div class="room-head">
@@ -3360,11 +3385,166 @@ function labChemHtml() {
   </div>`;
 }
 
+// ---------- Deney hesap panelleri: ortak kurulum ----------
+// Sayılar .toFixed ile yuvarlanır; nokta virgüle çevrilerek Türkçe gösterilir.
+const turkishNum = n => String(Number(n).toFixed(4)).replace('.', ',').replace(/,?0+$/, '') || '0';
+const numVal = el => (String(el.value).trim() === '' ? NaN : Number(String(el.value).trim().replace(',', '.')));
+
+//spec: {key,title,fields:[{name,label,unit,type,value,options}],compute(values)=>[[etiket,deger],…]}
+function calcHtml(spec) {
+  const fields = spec.fields.map(f => {
+    const id = `calc-${spec.key}-${f.name}`;
+    const label = f.label + (f.unit ? ` (${f.unit})` : '');
+    if (f.type === 'select') {
+      return `<label class="field" for="${id}"><span>${esc(label)}</span><select id="${id}" data-cin="${esc(f.name)}">
+        ${f.options.map(o => `<option value="${esc(String(o[0]))}" ${o[0] === f.value ? 'selected' : ''}>${esc(o[1])}</option>`).join('')}</select></label>`;
+    }
+    return `<label class="field" for="${id}"><span>${esc(label)}</span>
+      <input id="${id}" type="${f.type === 'number' ? 'number' : 'text'}" step="${f.step || 'any'}"${f.type === 'number' ? ` min="${f.min ?? 0}"` : ''} value="${esc(f.value ?? '')}" data-cin="${esc(f.name)}"></label>`;
+  }).join('');
+  return `<div class="calc-card" data-calc="${esc(spec.key)}">
+    <strong>${esc(spec.title)}</strong>${fields}
+    <p class="calc-res" data-cres>–</p><p class="calc-error" data-cerr role="alert"></p>
+  </div>`;
+}
+
+function runCalc(spec, card) {
+  const values = {};
+  card.querySelectorAll('[data-cin]').forEach(el => { values[el.dataset.cin] = el.type === 'number' ? numVal(el) : el.value; });
+  const res = card.querySelector('[data-cres]');
+  const err = card.querySelector('[data-cerr]');
+  try {
+    res.innerHTML = spec.compute(values).map(([label, value]) => `${esc(label)}: <b>${esc(String(value))}</b>`).join('<br>');
+    err.textContent = '';
+  } catch (error) {
+    res.textContent = '–';
+    err.textContent = error.message;
+  }
+}
+
+function mountCalcs(root, specs) {
+  if (!root) return;
+  specs.forEach(spec => {
+    const card = root.querySelector(`[data-calc="${spec.key}"]`);
+    if (!card) return;
+    const update = () => runCalc(spec, card);
+    card.addEventListener('input', update);
+    card.addEventListener('change', update);
+    update();
+  });
+}
+
+// ---------- Fizik deneyleri: Ohm, direnç, sarkaç, mercek, kinematik, enerji, dalga ----------
+const PHYSICS_CALCS = [
+  { key: 'ohm', title: 'Ohm kanunu · V = I·R', fields: [
+    { name: 'v', label: 'Gerilim', unit: 'V', type: 'number', value: 12 },
+    { name: 'r', label: 'Direnç', unit: 'Ω', type: 'number', value: 4, min: 0.001 },
+  ], compute: v => {
+    const r = ohm({ voltage: v.v, resistance: v.r, current: null });
+    return [['Akım', `${turkishNum(r.current)} A`], ['Gerilim', `${turkishNum(r.voltage)} V`], ['Direnç', `${turkishNum(r.resistance)} Ω`]];
+  } },
+  { key: 'direncler', title: 'Eşdeğer direnç', fields: [
+    { name: 'r', label: 'Dirençler', unit: 'Ω', type: 'text', value: '10,20,30' },
+    { name: 'mode', label: 'Bağlantı', type: 'select', value: 'series', options: [['series', 'Seri'], ['parallel', 'Paralel']] },
+  ], compute: v => {
+    const list = v.r.split(',').map(x => x.trim()).filter(Boolean).map(Number);
+    if (!list.length) throw new Error('En az bir direnç yaz.');
+    return [['Eşdeğer direnç', `${turkishNum(equivalentResistance(list, v.mode))} Ω`]];
+  } },
+  { key: 'sarcac', title: 'Basit sarkaç · T = 2π√(L/g)', fields: [
+    { name: 'len', label: 'Sarkaç uzunluğu', unit: 'm', type: 'number', value: 1, min: 0.001 },
+    { name: 'g', label: 'Yerçekimi', unit: 'm/s²', type: 'number', value: 9.81, min: 0.001 },
+  ], compute: v => [['Periyot', `${turkishNum(pendulum(v.len, v.g))} s`]] },
+  { key: 'mercek', title: 'İnce kenarlı mercek', fields: [
+    { name: 'f', label: 'Odak uzaklığı', unit: 'cm', type: 'number', value: 10, min: 0.001 },
+    { name: 'do', label: 'Nesne uzaklığı', unit: 'cm', type: 'number', value: 30, min: 0.001 },
+  ], compute: v => {
+    const l = thinLens(v.f, v.do);
+    if (!Number.isFinite(l.imageDist)) return [['Görüntü', 'sonsuzda (nesne odakta)']];
+    return [
+      ['Görüntü uzaklığı', `${turkishNum(l.imageDist)} cm`],
+      ['Büyütme', `${turkishNum(l.magnification)}×`],
+      ['Yapı', l.real ? 'gerçek, ters' : 'sanal, düz'],
+    ];
+  } },
+  { key: 'hareket', title: 'Düzelenmiş hareket', fields: [
+    { name: 'v0', label: 'İlk hız', unit: 'm/s', type: 'number', value: 0 },
+    { name: 'a', label: 'İvme', unit: 'm/s²', type: 'number', value: 2 },
+    { name: 't', label: 'Süre', unit: 's', type: 'number', value: 5, min: 0 },
+  ], compute: v => {
+    const s = uniformlyAccelerated({ v0: v.v0, a: v.a, t: v.t });
+    return [['Son hız', `${turkishNum(s.velocity)} m/s`], ['Alınan yol', `${turkishNum(s.distance)} m`]];
+  } },
+  { key: 'enerji', title: 'Kinetik ve potansiyel enerji', fields: [
+    { name: 'm', label: 'Kütle', unit: 'kg', type: 'number', value: 2, min: 0.001 },
+    { name: 'v', label: 'Hız', unit: 'm/s', type: 'number', value: 3 },
+    { name: 'h', label: 'Yükseklik', unit: 'm', type: 'number', value: 5 },
+  ], compute: v => [
+    ['Kinetik enerji (½mv²)', `${turkishNum(kineticEnergy(v.m, v.v))} J`],
+    ['Potansiyel enerji (mgh)', `${turkishNum(potentialEnergy(v.m, v.h))} J`],
+  ] },
+  { key: 'dalga', title: 'Dalga hızı · v = f·λ', fields: [
+    { name: 'f', label: 'Frekans', unit: 'Hz', type: 'number', value: 50, min: 0 },
+    { name: 'lam', label: 'Dalga boyu', unit: 'm', type: 'number', value: 2, min: 0 },
+  ], compute: v => [['Dalga hızı', `${turkishNum(waveSpeed(v.f, v.lam))} m/s`]] },
+];
+
+function labCalcGrid(specs, key) {
+  return `<div class="pad"><div class="calc-grid" data-calcgrid="${esc(key)}">${specs.map(calcHtml).join('')}</div></div>`;
+}
+
+function setupPhysicsCalcs() {
+  mountCalcs(document.querySelector('[data-calcgrid=fizik]'), PHYSICS_CALCS);
+}
+
+// ---------- Kimya: çözelti hesaplayıcıları ----------
+const CHEM_CALCS = [
+  { key: 'molarkutle', title: 'Molar kütle', fields: [
+    { name: 'f', label: 'Bileşik formülü', unit: '', type: 'text', value: 'H2SO4' },
+  ], compute: v => {
+    const m = molarMass(v.f.trim());
+    return [['Molar kütle', `${turkishNum(m)} g/mol`]];
+  } },
+  { key: 'mol', title: 'Kütle ↔ mol', fields: [
+    { name: 'f', label: 'Bileşik', type: 'text', value: 'H2O' },
+    { name: 'm', label: 'Kütle', unit: 'g', type: 'number', value: 36, min: 0 },
+  ], compute: v => {
+    const mm = molarMass(v.f.trim());
+    return [['Molar kütle', `${turkishNum(mm)} g/mol`], ['Madde miktarı', `${turkishNum(moles(v.m, mm))} mol`]];
+  } },
+  { key: 'molarite', title: 'Molarite · C = n/V', fields: [
+    { name: 'n', label: 'Mol', unit: 'mol', type: 'number', value: 0.5, min: 0 },
+    { name: 'v', label: 'Çözelti hacmi', unit: 'L', type: 'number', value: 2, min: 0.001 },
+  ], compute: v => [['Molarite', `${turkishNum(molarity(v.n, v.v))} mol/L`]] },
+  { key: 'seyreltme', title: 'Seyreltme · M1V1 = M2V2', fields: [
+    { name: 'm1', label: 'Kaynak derişim', unit: 'M', type: 'number', value: 2, min: 0.001 },
+    { name: 'v1', label: 'Alınan hacim', unit: 'mL', type: 'number', value: 50, min: 0.001 },
+    { name: 'm2', label: 'Hedef derişim', unit: 'M', type: 'number', value: 0.1, min: 0.001 },
+  ], compute: v => {
+    const v2 = dilutionVolume(v.m1, v.v1, v.m2);
+    return [['Son hacim', `${turkishNum(v2)} mL`], ['Eklenecek su', `${turkishNum(v2 - v.v1)} mL`]];
+  } },
+  { key: 'ph', title: 'Güçlü asit / baz pH', fields: [
+    { name: 'c', label: 'Derişim', unit: 'mol/L', type: 'number', value: 0.01, min: 0.000001 },
+  ], compute: v => [
+    ['Asit pH (örn. HCl)', turkishNum(strongAcidPH(v.c))],
+    ['Baz pH (örn. NaOH)', `${turkishNum(strongBasePH(v.c).pH)} (pOH ${turkishNum(strongBasePH(v.c).pOH)})`],
+  ] },
+];
+
+function setupChemCalcs() {
+  mountCalcs(document.querySelector('[data-calcgrid=kimya-hesap]'), CHEM_CALCS);
+}
+
 async function pageFizik() {
   return {
     html: `${head('Fizik laboratuvarı', 'Başlangıç hızı, açı ve ortama göre eğik atışın menzilini, yüksekliğini ve süresini hesaplayın.', '')}
-      ${panel('Eğik atış', 'Değerleri değiştirin; yörünge grafiği anında güncellenir.', labPhysicsHtml())}`,
-    after: setupLabs,
+      ${panel('Eğik atış', 'Değerleri değiştirin; yörünge grafiği anında güncellenir.', labPhysicsHtml())}
+      ${panel('Hesap panosu', 'Ohm kanunu, eşdeğer direnç, sarkaç, mercek, hareket, enerji ve dalga hesaplarını adım adım yapın.', labCalcGrid(PHYSICS_CALCS, 'fizik'))}`,
+    after: () => {
+      setupLabs();
+      setupPhysicsCalcs();
+    },
   };
 }
 
@@ -3372,15 +3552,145 @@ async function pageKimya() {
   return {
     html: `${head('Kimya laboratuvarı', 'Periyodik tablodan elementleri çalışma alanına alın, birleştirin ve oluşan bileşiği görün.', '')}
       ${panel('Periyodik tablo ve birleşme', 'Bir elemente tıklayın ya da sürükleyin. İki parçayı birbirine yaklaştırıp bırakın.', chemGameHtml())}
-      ${panel('Asit-baz titrasyonu', 'Güçlü asit (HCl) çözeltisine güçlü baz (NaOH) eklerken pH değişimini izleyin.', labChemHtml())}`,
+      ${panel('Asit-baz titrasyonu', 'Güçlü asit (HCl) çözeltisine güçlü baz (NaOH) eklerken pH değişimini izleyin.', labChemHtml())}
+      ${panel('Çözelti hesapları', 'Molar kütle, kütle-mol dönüşümü, molarite, seyreltme ve pH hesaplarını yapın.', labCalcGrid(CHEM_CALCS, 'kimya-hesap'))}`,
     after: () => {
       setupLabs();
       setupChemGame();
+      setupChemCalcs();
     },
   };
 }
 
 // ---------- Bilgisayar laboratuvarı: sayı sistemleri, mantık kapıları, sıralama ----------
+// ---------- Bilişim deneyleri: ASCII↔ikili, HEX↔RGB, ikili toplama ----------
+function labEncodingHtml() {
+  return `<div class="pad"><div class="calc-grid">
+    <div class="calc-card" data-enc>
+      <strong>Metin ↔ ikili (ASCII)</strong>
+      <label class="field"><span>Metin</span><input data-enc="text" value="Merhaba" autocomplete="off"></label>
+      <label class="field"><span>İkili (boşlukla ayrılmış gruplar)</span><input data-enc="bits" value="01001101 01100101" autocomplete="off"></label>
+      <div class="py-actions"><button class="btn ghost sm" type="button" data-action="enc-tob">Metinden ikiliye</button><button class="btn ghost sm" type="button" data-action="enc-tot">İkiliden metne</button></div>
+      <p class="calc-error" data-enc="err" role="alert"></p>
+    </div>
+    <div class="calc-card" data-rgb>
+      <strong>HEX ↔ RGB renk</strong>
+      <div class="rgb-grid">
+        <div class="rgb-sliders">
+          <label class="field"><span>Kırmızı: <b data-rout="r">27</b></span><input type="range" min="0" max="255" value="27" data-rin="r"></label>
+          <label class="field"><span>Yeşil: <b data-rout="g">107</b></span><input type="range" min="0" max="255" value="107" data-rin="g"></label>
+          <label class="field"><span>Mavi: <b data-rout="b">80</b></span><input type="range" min="0" max="255" value="80" data-rin="b"></label>
+        </div>
+        <div class="rgb-preview">
+          <div class="rgb-swatch" data-rgb="swatch" aria-label="Renk önizlemesi"></div>
+          <span class="rgb-hex" data-rgb="hex">#1B6B50</span>
+          <label class="field"><span>HEX kodu</span><input data-rgb="hexin" value="1B6B50" autocomplete="off" aria-label="HEX kodu"></label>
+        </div>
+      </div>
+      <p class="calc-error" data-rgb="err" role="alert"></p>
+    </div>
+    <div class="calc-card" data-binadd>
+      <strong>İkili toplama</strong>
+      <div class="grid-2">
+        <label class="field"><span>1. sayı</span><input data-bin="a" value="1101" autocomplete="off"></label>
+        <label class="field"><span>2. sayı</span><input data-bin="b" value="1011" autocomplete="off"></label>
+      </div>
+      <p class="calc-res" data-bin="res">–</p>
+      <p class="calc-error" data-bin="err" role="alert"></p>
+      <div class="table-scroll"><table class="bin-steps"><thead><tr><th>Sütun</th><th>A</th><th>B</th><th>Elden gelen</th><th>Toplam biti</th><th>Eldesi</th></tr></thead><tbody data-bin="steps"></tbody></table></div>
+    </div>
+  </div></div>`;
+}
+
+function setupEncoding() {
+  const card = document.querySelector('[data-enc]');
+  if (card) {
+    const text = card.querySelector('[data-enc=text]');
+    const bits = card.querySelector('[data-enc=bits]');
+    const err = card.querySelector('[data-enc=err]');
+    const showError = message => { err.textContent = message; };
+    card.querySelectorAll('[data-action]').forEach(button => button.addEventListener('click', () => {
+      err.textContent = '';
+      try {
+        if (button.dataset.action === 'enc-tob') {
+          if (!text.value.trim()) throw new Error('Önce bir metin yaz.');
+          bits.value = textToBinary(text.value);
+        } else {
+          if (!bits.value.trim()) throw new Error('Önce ikili değerleri yaz.');
+          text.value = binaryToText(bits.value);
+        }
+      } catch (error) {
+        showError(error.message);
+      }
+    }));
+  }
+
+  const rgb = document.querySelector('[data-rgb]');
+  if (rgb) {
+    const sliders = [...rgb.querySelectorAll('[data-rin]')];
+    const hexIn = rgb.querySelector('[data-rgb=hexin]');
+    const swatch = rgb.querySelector('[data-rgb=swatch]');
+    const hexLabel = rgb.querySelector('[data-rgb=hex]');
+    const err = rgb.querySelector('[data-rgb=err]');
+    const renderFromSliders = () => {
+      err.textContent = '';
+      try {
+        const values = { r: 0, g: 0, b: 0 };
+        sliders.forEach(s => { values[s.dataset.rin] = Number(s.value); });
+        rgb.querySelectorAll('[data-rout]').forEach(out => { out.textContent = values[out.dataset.rout]; });
+        const hex = rgbToHex(values.r, values.g, values.b);
+        hexLabel.textContent = `#${hex}`;
+        hexIn.value = hex;
+        swatch.style.backgroundColor = `#${hex}`;
+      } catch (error) {
+        err.textContent = error.message;
+      }
+    };
+    sliders.forEach(s => s.addEventListener('input', renderFromSliders));
+    const applyHex = () => {
+      err.textContent = '';
+      try {
+        const c = hexToRgb(hexIn.value);
+        sliders.forEach(s => { s.value = c[s.dataset.rin]; });
+        renderFromSliders();
+      } catch (error) {
+        err.textContent = error.message;
+      }
+    };
+    hexIn.addEventListener('change', applyHex);
+    hexIn.addEventListener('input', applyHex);
+    renderFromSliders();
+  }
+
+  const bin = document.querySelector('[data-binadd]');
+  if (bin) {
+    const a = bin.querySelector('[data-bin=a]');
+    const b = bin.querySelector('[data-bin=b]');
+    const res = bin.querySelector('[data-bin=res]');
+    const err = bin.querySelector('[data-bin=err]');
+    const body = bin.querySelector('[data-bin=steps]');
+    const update = () => {
+      try {
+        const r = binaryAdd(a.value.trim(), b.value.trim());
+        err.textContent = '';
+        res.innerHTML = `Toplam: <b>${esc(r.result)}</b>${r.carryOut ? ` · son elde: <b>${r.carryOut}</b>` : ''}`;
+        body.innerHTML = r.steps.map(() => '<tr><td></td><td></td><td></td><td></td><td class="bin-sum"></td><td></td></tr>').join('');
+        body.querySelectorAll('tr').forEach((tr, i) => {
+          const s = r.steps[i];
+          const cells = tr.querySelectorAll('td');
+          [String(s.position + 1), s.a, s.b, s.carryIn, s.sum, s.carryOut].forEach((v, ci) => { cells[ci].textContent = v; });
+        });
+      } catch (error) {
+        res.textContent = '–';
+        body.innerHTML = '';
+        err.textContent = error.message;
+      }
+    };
+    [a, b].forEach(el => { el.addEventListener('input', update); el.addEventListener('change', update); });
+    update();
+  }
+}
+
 async function pageBilgisayar() {
   return {
     html: `${head('Bilgisayar laboratuvarı', 'Sayı sistemlerini, mantık kapılarını ve sıralama algoritmasını adım adım inceleyin.', '')}
@@ -3429,8 +3739,12 @@ async function pageBilgisayar() {
         <div class="sort-bars" data-res="cubuklar"></div>
         <div class="sort-controls"><button class="btn ghost sm" type="button" data-action="sort-prev">Geri</button><span data-res="adim">Adım 0</span><button class="btn ghost sm" type="button" data-action="sort-next">İleri</button></div>
         <p class="lab-error" data-res="hata" role="alert"></p>
-      </div>`)}`,
-    after: setupComputing,
+      </div>`)}
+      ${panel('Kodlama ve renk atölyesi', 'Metni ikili koda çevirin, HEX ile RGB renk arasında geçiş yapın ve ikili toplamanın adımlarını izleyin.', labEncodingHtml())}`,
+    after: () => {
+      setupComputing();
+      setupEncoding();
+    },
   };
 }
 

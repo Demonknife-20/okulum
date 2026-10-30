@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseBase, toBase, evalLogic, truthTable, bubbleSortSteps } from '../public/computing.js';
+import { parseBase, toBase, evalLogic, truthTable, bubbleSortSteps, textToBinary, binaryToText, hexToRgb, rgbToHex, binaryAdd } from '../public/computing.js';
 
 test('sayı sistemleri: onluk, ikili, onaltılık dönüşümleri', () => {
   assert.equal(toBase(255, 2), '11111111');
@@ -37,4 +37,26 @@ test('kabarcık sıralama: sonuç sıralı, adımlar izlenebilir', () => {
   assert.deepEqual(steps[steps.length - 1].array, [1, 2, 4, 5]);
   assert.equal(steps[steps.length - 1].done, true);
   assert.ok(steps.some(s => s.swapped), 'en az bir değişim adımı var');
+});
+
+test('ASCII: metin ↔ ikili turda aynı metne döner', () => {
+  const bin = textToBinary('AB');
+  assert.equal(bin, '01000001 01000010');
+  assert.equal(binaryToText(bin), 'AB');
+  assert.throws(() => binaryToText('0102'), /Geçersiz ikili/);
+});
+
+test('renk dönüşümü: HEX ↔ RGB, kısa HEX desteklenir', () => {
+  assert.deepEqual(hexToRgb('FF8800'), { r: 255, g: 136, b: 0 });
+  assert.deepEqual(hexToRgb('#f00'), { r: 255, g: 0, b: 0 });
+  assert.equal(rgbToHex(255, 136, 0), 'FF8800');
+  assert.throws(() => rgbToHex(256, 0, 0), /0-255/);
+  assert.throws(() => hexToRgb('zz'), /Geçersiz HEX/);
+});
+
+test('ikili toplama: eldeli toplam ve sonuç', () => {
+  assert.equal(binaryAdd('1011', '1101').result, '11000');
+  assert.equal(binaryAdd('1', '1').carryOut, true);
+  assert.equal(binaryAdd('10', '01').result, '11');
+  assert.throws(() => binaryAdd('102', '11'), /Yalnızca 0 ve 1/);
 });

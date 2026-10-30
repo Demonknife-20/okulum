@@ -113,3 +113,34 @@ test('arama bütçesi: büyük karışım takılmadan sonuç döner', () => {
   bestReaction(big);
   assert.ok(Date.now() - started < 3000, 'arama 3 saniyeden kısa sürmeli');
 });
+
+import { molarMass, moles, molarity, dilutionVolume, strongAcidPH, strongBasePH, ATOMIC_MASS } from '../public/chem.js';
+
+test('molar kütle: H2O, CO2 ve H2SO4 beklenen değerlerde', () => {
+  assert.ok(Math.abs(molarMass('H2O') - 18.015) < 0.01);
+  assert.ok(Math.abs(molarMass('CO2') - 44.009) < 0.01);
+  assert.ok(Math.abs(molarMass('H2SO4') - 98.079) < 0.01);
+  assert.ok(Math.abs(molarMass('Ca(OH)2') - 74.092) < 0.01, 'parantezli formül');
+});
+
+test('molar kütle: desteklenmeyen elementte açık hata', () => {
+  assert.throws(() => molarMass('UO2'), /atom kütlesi tanımlı değil/);
+});
+
+test('mol ve molarite: 18 g su ≈ 1 mol; 0.5 mol / 2 L = 0,25 M', () => {
+  assert.ok(Math.abs(moles(18.015, molarMass('H2O')) - 1) < 1e-3);
+  assert.equal(molarity(0.5, 2), 0.25);
+  assert.throws(() => molarity(1, 0), /sıfırdan büyük/);
+});
+
+test('seyreltme: M1·V1 = M2·V2', () => {
+  assert.equal(dilutionVolume(1, 100, 0.1), 1000);
+  assert.throws(() => dilutionVolume(0.1, 100, 1), /küçük/);
+});
+
+test('güçlü asit/baz pH: 0,01 M HCl → pH 2; 0,01 M NaOH → pH 12', () => {
+  assert.equal(strongAcidPH(0.01), 2);
+  assert.equal(strongBasePH(0.01).pH, 12);
+  assert.equal(strongBasePH(0.01).pOH, 2);
+  assert.ok(ATOMIC_MASS.C === 12.011);
+});

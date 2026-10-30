@@ -840,7 +840,7 @@ on('GET', '/api/conversations/:id/messages', async ({ params, query, user }) => 
   const c = await conversationFor(user, params.id);
   const after = query.get('after'), before = query.get('before');
   if ((after && !/^\d+$/.test(after)) || (before && !/^\d+$/.test(before))) fail(400, 'Geçersiz mesaj kimliği.');
-  const columns = `m.id, m.body, m.created_at as "createdAt", m.sender_id as "senderId", u.name as "senderName"`;
+  const columns = `m.id, m.body, m.created_at as "createdAt", m.sender_id as "senderId", u.name as "senderName", m.deleted_at as "deletedAt"`;
   const base = `select ${columns} from messages m left join users u on u.id = m.sender_id where m.conversation_id = $1`;
   let rows;
   let size = 100;
@@ -866,6 +866,21 @@ on('POST', '/api/conversations/:id/messages', async ({ params, body, user }) => 
   const { rows: recipients } = await q('select user_id from conversation_members where conversation_id = $1 and user_id <> $2', [c.id, user.id]);
   push.notify(recipients.map(r => r.user_id), { title: `Yeni mesaj · ${user.name}`, body: raw.slice(0, 120), url: '/#/messages', tag: `mesaj-${c.id}` }).catch(() => {});
   return created({ message: { ...m, senderName: user.name } });
+});
+
+// Mesaj geri çağırma: gönderen (veya yetkili kişi) kendi mesajını silebilir.
+// KVKK uyumu: içerik satırda tutulmaz; body yer tutucuyla değiştirilir, silme damgası atanır.
+on('DELETE', '/api/messages/:id', async ({ params, user }) => {
+  if (!/^\d+$/.test(params.id)) fail(400, 'Geçersiz mesaj kimliği.');
+  const { rows: [m] } = await q(`select m.id, m.sender_id as "senderId", m.deleted_at as "deletedAt", c.kind
+    from messages m join conversations c on c.id = m.conversation_id where m.id = $1`, [Number(params.id)]);
+  if (!m) fail(404, 'Mesaj bulunamadı.');
+  // Yalnızca mesajı gönderen silebilir (davetli misafir mesajları gibi istisnalar yoktur).
+  if (String(m.senderId) !== String(user.id)) fail(403, 'Yalnızca kendi mesajınızı silebilirsiniz.');
+  if (m.deletedAt) return ok({ deleted: true, id: Number(params.id) });
+  await q(`update messages set deleted_at = now(), body = $2
+    where id = $1 and deleted_at is null`, [Number(params.id), 'Bu mesaj silindi.']);
+  return ok({ deleted: true, id: Number(params.id) });
 });
 
 // ---------- Genel bakış (rol bazlı, gerçek veriden) ----------

@@ -469,3 +469,60 @@ export function iconFor(name, comp) {
   const found = NAME_ICONS.find(([pattern]) => pattern.test(name));
   return found ? found[1] : '⚗️';
 }
+
+// ---------- Kimya hesaplamaları: molar kütle, mol, molarite, seyreltme, pH ----------
+
+// Standart atom kütleleri (g/mol, IUPAC yuvarlanmış). Eğitim amaçlı yaygın elementler.
+export const ATOMIC_MASS = {
+  H: 1.008, He: 4.0026, Li: 6.94, Be: 9.0122, B: 10.81, C: 12.011, N: 14.007, O: 15.999,
+  F: 18.998, Ne: 20.180, Na: 22.990, Mg: 24.305, Al: 26.982, Si: 28.085, P: 30.974, S: 32.06,
+  Cl: 35.45, Ar: 39.948, K: 39.098, Ca: 40.078, Ti: 47.867, Cr: 51.996, Mn: 54.938, Fe: 55.845,
+  Co: 58.933, Ni: 58.693, Cu: 63.546, Zn: 65.38, Br: 79.904, Ag: 107.868, I: 126.904,
+  Ba: 137.327, Pb: 207.2, Sn: 118.710,
+};
+
+// Molar kütle (g/mol): "H2SO4" → 98.08. Bilinmeyen/desteklenmeyen elementte açık hata verir.
+export function molarMass(formula) {
+  const comp = typeof formula === 'string' ? parseFormulaComp(formula) : formula;
+  let total = 0;
+  for (const [symbol, count] of Object.entries(comp)) {
+    const mass = ATOMIC_MASS[symbol];
+    if (mass === undefined) throw new Error(`${symbol} için atom kütlesi tanımlı değil.`);
+    total += mass * count;
+  }
+  return Number(total.toFixed(4));
+}
+
+// Mol sayısı = kütle (g) / molar kütle (g/mol).
+export function moles(massGrams, molarMassValue) {
+  if (!(molarMassValue > 0)) throw new Error('Molar kütle sıfırdan büyük olmalı.');
+  if (!(massGrams >= 0)) throw new Error('Kütle sıfır ya da pozitif olmalı.');
+  return Number((massGrams / molarMassValue).toFixed(6));
+}
+
+// Molarite (mol/L) = mol / hacim(L).
+export function molarity(mol, liters) {
+  if (!(liters > 0)) throw new Error('Hacim sıfırdan büyük olmalı.');
+  if (!(mol >= 0)) throw new Error('Mol sayısı sıfır ya da pozitif olmalı.');
+  return Number((mol / liters).toFixed(6));
+}
+
+// Seyreltme (M1·V1 = M2·V2): istenen M2 ve V1'den gereken son hacim V2 (aynı hacim birimi).
+export function dilutionVolume(m1, v1, m2) {
+  if (!(m1 > 0 && m2 > 0 && m2 < m1)) throw new Error('Hedef derişim, kaynak derişimden küçük ve sıfırdan büyük olmalı.');
+  if (!(v1 > 0)) throw new Error('Hacim sıfırdan büyük olmalı.');
+  return Number(((m1 * v1) / m2).toFixed(6));
+}
+
+// Güçlü asit pH'ı (tam iyonlaşma): pH = -log10(C). C mol/L.
+export function strongAcidPH(concentration) {
+  if (!(concentration > 0)) throw new Error('Derişim sıfırdan büyük olmalı.');
+  return Number((-Math.log10(concentration)).toFixed(4));
+}
+
+// Güçlü baz pOH ve pH'ı: pOH = -log10(C), pH = 14 - pOH.
+export function strongBasePH(concentration) {
+  if (!(concentration > 0)) throw new Error('Derişim sıfırdan büyük olmalı.');
+  const pOH = -Math.log10(concentration);
+  return { pOH: Number(pOH.toFixed(4)), pH: Number((14 - pOH).toFixed(4)) };
+}

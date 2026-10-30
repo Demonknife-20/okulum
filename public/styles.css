@@ -515,6 +515,14 @@ input:disabled,select:disabled{opacity:.6}
 .bubble p{white-space:pre-wrap;word-break:break-word;font-size:14.5px;line-height:1.5}
 .bubble time{display:block;margin-top:5px;font-size:11px;opacity:.7;text-align:right}
 .bubble .who{display:block;margin-bottom:4px;font:800 12px/1 var(--f-body);color:var(--brand)}
+.bubble{position:relative}
+.bubble.deleted{background:var(--surface-2);border-color:var(--line);color:var(--muted)!important;box-shadow:none;align-self:flex-end;font-style:italic}
+.bubble-del{position:absolute;top:6px;left:-30px;display:none;padding:4px;border:0;border-radius:8px;background:transparent;color:var(--muted);cursor:pointer;line-height:0}
+.bubble.mine:hover .bubble-del,.bubble.mine:focus-within .bubble-del{display:block}
+.bubble-del:hover{color:var(--danger);background:var(--surface-3)}
+.conv-list li{position:relative}
+.conv-del{position:absolute;right:10px;top:50%;transform:translateY(-50%);opacity:0}
+.conv-list li:hover .conv-del,.conv-list li:focus-within .conv-del{opacity:1}
 .older{display:flex;justify-content:center;margin-bottom:6px}
 .composer{display:flex;gap:10px;padding:14px;border-top:1px solid var(--line);background:var(--surface)}
 .composer input{flex:1;min-width:0}
@@ -2231,3 +2239,22 @@ body{
   .public-view,.content{animation:none!important}
 }
 html.fx-off .public-view,html.fx-off .content{animation:none!important}
+
+/* v?: laboratuvar hesap panelleri (fizik/kimya/bilişim) */
+.calc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px}
+.calc-card{display:grid;gap:8px;align-content:start;padding:14px;border:1px solid var(--line);border-radius:14px;background:var(--surface-2)}
+.calc-card>strong{font-family:var(--f-display);font-size:14px}
+.calc-card .field{margin:0}
+.calc-res{margin:0;font-size:14px;line-height:1.5;color:var(--ink)}
+.calc-res b{color:var(--brand)}
+.calc-error{margin:0;font-size:13px;color:var(--danger);min-height:1em}
+.rgb-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;align-items:start}
+.rgb-sliders{display:grid;gap:12px}
+.rgb-preview{display:grid;gap:10px;justify-items:center}
+.rgb-swatch{width:100%;max-width:220px;height:96px;border-radius:14px;border:1px solid var(--line);background:#1b6b50}
+.rgb-hex{font:700 16px/1 var(--f-mono,ui-monospace,monospace);letter-spacing:.06em}
+.bin-adds{display:grid;gap:16px}
+.bin-steps{width:100%;border-collapse:collapse;font-size:13.5px}
+.bin-steps th,.bin-steps td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:center;font-variant-numeric:tabular-nums}
+.bin-steps td:last-child,.bin-steps th:last-child{text-align:left}
+.bin-steps .bin-sum{font-weight:800;color:var(--brand)}

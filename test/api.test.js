@@ -410,6 +410,26 @@ test('mesajlaşma: kurallar uygulanır, öğrenciler birbirine yazamaz, sohbet g
   assert.equal(polled[0].body, 'Evet, 9. ders');
 });
 
+test('mesaj geri çağırma: gönderen siler, içerik kaldırılır, başkası ve yetkisiz silemez', async () => {
+  const sent = await call('POST', `/api/conversations/${state.dm}/messages`, { cookie: state.ece, body: { body: 'Geri çağırılacak mesaj' } });
+  assert.equal(sent.status, 201);
+  const messageId = sent.data.message.id;
+  // Kimliği olmayan (yanlış) mesaj silinemez.
+  assert.equal((await call('DELETE', '/api/messages/999999999', { cookie: state.ece })).status, 404);
+  // Geçersiz kimlik biçimi reddedilir.
+  assert.equal((await call('DELETE', '/api/messages/abc', { cookie: state.ece })).status, 400);
+  // Alıcı mesajı silemez.
+  assert.equal((await call('DELETE', `/api/messages/${messageId}`, { cookie: state.ayse })).status, 403);
+  assert.equal((await call('DELETE', `/api/messages/${messageId}`, { cookie: state.ece })).status, 200);
+  assert.equal((await call('DELETE', `/api/messages/${messageId}`, { cookie: state.ece })).status, 200, 'ikinci silme idempotent');
+  const rooms = (await call('GET', `/api/conversations/${state.dm}/messages`, { cookie: state.ece })).data.messages;
+  const deleted = rooms.find(m => String(m.id) === String(messageId));
+  assert.equal(deleted.body, 'Bu mesaj silindi.', 'içerik yer tutucuya dönüştü');
+  assert.ok(deleted.deletedAt, 'silme damgası okunur');
+  const otherSide = (await call('GET', `/api/conversations/${state.dm}/messages`, { cookie: state.ayse })).data.messages;
+  assert.equal(otherSide.find(m => String(m.id) === String(messageId)).body, 'Bu mesaj silindi.', 'karşı taraf da silinmiş görür');
+});
+
 test('mesaj geçmişi: before ile eski mesajlar sayfalanır', async () => {
   const list = (await call('GET', '/api/conversations', { cookie: state.ece })).data.conversations;
   const group = list.find(c => c.title === '6/A sınıf grubu').id;
@@ -849,7 +869,20 @@ test('asistan: günlük soru hakkı sınırlanır, yapay zekâ hatası sade mesa
 test('asistan: sohbet sahibi siler', async () => {
   const mine = (await call('POST', '/api/ai/chat', { cookie: state.ayse, body: { message: 'Ders planı önerir misin?' } })).data.conversationId;
   assert.equal((await call('DELETE', `/api/ai/conversations/${mine}`, { cookie: state.deryaCookie })).status, 404);
+  assert.equal((await call('GET', `/api/ai/conversations/${mine}/messages`, { cookie: state.ayse })).data.messages.length, 2, 'silinmeden önce mesajlar duruyor');
   assert.equal((await call('DELETE', `/api/ai/conversations/${mine}`, { cookie: state.ayse })).status, 200);
+  const list = (await call('GET', '/api/ai/conversations', { cookie: state.ayse })).data.conversations;
+  assert.ok(!list.some(c => c.id === mine), 'silinen sohbet listede kalmaz');
+  assert.equal((await call('GET', `/api/ai/conversations/${mine}/messages`, { cookie: state.ayse })).status, 404);
+  assert.equal((await call('DELETE', `/api/ai/conversations/${mine}`, { cookie: state.ayse })).status, 404, 'bir daha silinemez');
+  const db = await tenantClient();
+  try {
+    // Mesajlar kademeyle (on delete cascade) temizlenmeli, yetim kayıt kalmamalı.
+    const { rows } = await db.query('select count(*)::int as n from ai_messages where conversation_id = $1', [mine]);
+    assert.equal(rows[0].n, 0, 'sohbete ait mesajlar da silindi');
+  } finally {
+    await db.end();
+  }
 });
 
 test('asistan: kural dışı istemler yapay zekâya gitmeden reddedilir', async () => {

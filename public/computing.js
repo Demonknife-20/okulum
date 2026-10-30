@@ -109,3 +109,69 @@ export function bubbleSortSteps(input) {
   steps.push({ array: [...arr], compare: null, swapped: false, done: true });
   return steps;
 }
+
+// ---------- Sayı sistemleri II: ASCII, RGB ve ikili toplama ----------
+
+// Metinden ikili: her karakterin Unicode kod noktası 8 bitlik gruplara ayrılır.
+export function textToBinary(text, bits = 8) {
+  const out = [];
+  for (const ch of String(text)) {
+    const code = ch.codePointAt(0);
+    out.push(toBase(code, 2).padStart(bits, '0'));
+  }
+  return out.join(' ');
+}
+
+// İkili metne: boşlukla ayrılmış bit gruplarını çözer.
+export function binaryToText(bits) {
+  const groups = String(bits).trim().split(/\s+/).filter(Boolean);
+  let out = '';
+  for (const g of groups) {
+    if (!/^[01]+$/.test(g)) throw new Error(`Geçersiz ikili grup: ${g}`);
+    out += String.fromCodePoint(parseBase(g, 2));
+  }
+  return out;
+}
+
+// Onaltılık rengi RGB'ye: 'FF8800' → { r: 255, g: 136, b: 0 }.
+export function hexToRgb(hex) {
+  let value = String(hex).trim().replace(/^#/, '');
+  if (/^[0-9a-fA-F]{3}$/.test(value)) value = value.split('').map(c => c + c).join('');
+  if (!/^[0-9a-fA-F]{6}$/.test(value)) throw new Error('Geçersiz HEX (örn. #RRGGBB).');
+  return {
+    r: parseInt(value.slice(0, 2), 16),
+    g: parseInt(value.slice(2, 4), 16),
+    b: parseInt(value.slice(4, 6), 16),
+  };
+}
+
+// RGB'den onaltılıya: (255, 136, 0) → 'FF8800'.
+export function rgbToHex(r, g, b) {
+  const channel = v => {
+    if (!Number.isInteger(v) || v < 0 || v > 255) throw new Error('Her kanal 0-255 tam sayı olmalı.');
+    return toBase(v, 16).padStart(2, '0');
+  };
+  return `${channel(r)}${channel(g)}${channel(b)}`;
+}
+
+// İki ikili sayının toplanması: sonuç ve her sütunun girişi/eldesi adım adım gösterilir.
+export function binaryAdd(a, b) {
+  const valid = s => /^[01]+$/.test(String(s));
+  const x = String(a), y = String(b);
+  if (!valid(x) || !valid(y)) throw new Error('Yalnızca 0 ve 1 kullanılabilir.');
+  const len = Math.max(x.length, y.length);
+  const px = x.padStart(len, '0'), py = y.padStart(len, '0');
+  let carry = 0;
+  const bits = [];
+  const steps = [];
+  for (let i = len - 1; i >= 0; i -= 1) {
+    const carryIn = carry;
+    const total = Number(px[i]) + Number(py[i]) + carryIn;
+    const sum = total % 2;
+    carry = Math.floor(total / 2);
+    bits.unshift(String(sum));
+    steps.push({ position: len - i, a: px[i], b: py[i], carryIn, sum, carryOut: carry });
+  }
+  if (carry) bits.unshift('1');
+  return { result: bits.join(''), carryOut: Boolean(carry), steps };
+}
