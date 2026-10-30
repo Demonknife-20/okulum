@@ -62,6 +62,19 @@ function privacyPage(base, { school = null, schools = [], path = '/gizlilik' } =
   });
 }
 
+function schoolAppPage(html, base, school) {
+  const path = `/${encodeURIComponent(school.slug)}/`;
+  const title = `${school.name} · Okulum`;
+  const description = `${school.name}${school.city ? ` · ${school.city}` : ''}: okul hesabınıza giriş yapın, ders ve okul işlemlerinizi takip edin.`;
+  return html
+    .replace(/<title>[^<]*<\/title>/, `<title>${esc(title)}</title>`)
+    .replace(/<meta name="description" content="[^"]*">/, `<meta name="description" content="${esc(description)}">`)
+    .replace(/<link rel="canonical" href="[^"]*">/, `<link rel="canonical" href="${esc(base + path)}">`)
+    .replace(/<meta property="og:title" content="[^"]*">/, `<meta property="og:title" content="${esc(title)}">`)
+    .replace(/<meta property="og:description" content="[^"]*">/, `<meta property="og:description" content="${esc(description)}">`)
+    .replace(/<meta property="og:url" content="[^"]*">/, `<meta property="og:url" content="${esc(base + path)}">`);
+}
+
 function usagePage(base, { HELP_SECTIONS }) {
   const body = `<article class="help seo-article">
     <h1>Okulum kullanım kılavuzu</h1>
@@ -106,4 +119,4 @@ function notFoundPage(base) {
     .replace('content="index, follow"', 'content="noindex, nofollow"');
 }
 
-module.exports = { usagePage, aboutPage, privacyPage, notFoundPage, sitemap };
+module.exports = { usagePage, aboutPage, privacyPage, schoolAppPage, notFoundPage, sitemap };

@@ -26,6 +26,11 @@ function validSlug(slug) {
   return typeof slug === 'string' && SLUG.test(slug) && !RESERVED_SLUGS.has(slug);
 }
 
+function schoolUrl(slug) {
+  if (!validSlug(slug)) throw new Error('Okul adresi geçersiz.');
+  return `/${encodeURIComponent(slug)}/`;
+}
+
 async function initializeTenancy() {
   await migrate();
   await pool.query('create schema if not exists platform');
@@ -77,7 +82,7 @@ async function listSchools() {
       where name <> 'Okulum' or city <> '' or year <> ''
       order by lower(name), slug`,
   );
-  return rows;
+  return rows.map(school => ({ ...school, url: schoolUrl(school.slug) }));
 }
 
 async function syncTenantSchool(schema, school) {
@@ -102,4 +107,4 @@ async function forEachTenant(work) {
   if (failures.length) throw new AggregateError(failures, `${failures.length} okul işlemi tamamlanamadı.`);
 }
 
-module.exports = { initializeTenancy, findSchoolBySlug, listSchools, schemaForSlug, validSlug, slugify, syncTenantSchool, forEachTenant };
+module.exports = { initializeTenancy, findSchoolBySlug, listSchools, schemaForSlug, validSlug, slugify, schoolUrl, syncTenantSchool, forEachTenant };

@@ -27,7 +27,7 @@ function showLogin() {
 async function loadSchools() {
   const { schools } = await request('/schools');
   $('#schoolRows').innerHTML = schools.length
-    ? schools.map(school => `<tr><td>${esc(school.name)}</td><td>${esc(school.city)}</td><td><a href="/${encodeURIComponent(school.slug)}/" target="_blank" rel="noopener">/${esc(school.slug)}/</a></td></tr>`).join('')
+    ? schools.map(school => `<tr><td>${esc(school.name)}</td><td>${esc(school.city)}</td><td><a href="${esc(school.url || `/${encodeURIComponent(school.slug)}/`)}" target="_blank" rel="noopener">${esc(location.host + (school.url || `/${encodeURIComponent(school.slug)}/`))}</a></td></tr>`).join('')
     : '<tr><td colspan="3">Henüz okul yok.</td></tr>';
 }
 

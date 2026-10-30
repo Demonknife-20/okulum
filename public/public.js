@@ -21,16 +21,19 @@ const announcementsSection = list => !list.length ? '' : `
 
 const homeView = (announcements = [], schools = []) => {
   const firstSchool = schools[0];
-  const schoolPath = firstSchool ? `/${encodeURIComponent(firstSchool.slug)}` : '/okulum';
+  const schoolPath = firstSchool?.url || '/okulum/';
   const schoolDirectory = schools.length > 1 ? `
     <section class="school-directory" id="school-directory">
       <div class="announce-head"><h2>Okulunuzu seçin</h2><p class="muted">Devam etmek için okulunuza ait giriş sayfasını açın.</p></div>
-      <div class="announce-grid">${schools.map(school => `
-        <a class="role-card school-link" href="/${encodeURIComponent(school.slug)}/">
+      <label class="field school-search"><span>Okul ara</span><input type="search" data-school-search autocomplete="off" placeholder="Okul adı veya şehir yazın" aria-label="Okul adı veya şehre göre okul ara"></label>
+      <div class="announce-grid" data-school-list>${schools.map(school => `
+        <a class="role-card school-link" data-school-entry data-search="${esc(`${school.name} ${school.city}`.toLocaleLowerCase('tr-TR'))}" href="${esc(school.url || `/${encodeURIComponent(school.slug)}/`)}">
           <span class="role-tag green">${esc(school.city || 'Okulum')}</span>
           <h3>${esc(school.name)}</h3>
           <p>Okul giriş sayfasına git <span aria-hidden="true">→</span></p>
+          <code>${esc(school.url || `/${encodeURIComponent(school.slug)}/`)}</code>
         </a>`).join('')}</div>
+      <p class="muted school-search-empty" data-school-empty hidden>Aramanızla eşleşen okul bulunamadı.</p>
     </section>` : '';
   return { html: `
   <section class="hero">
@@ -169,6 +172,20 @@ document.addEventListener('click', event => {
   const button = event.target.closest('[data-action="school-directory"]');
   if (!button) return;
   document.querySelector('#school-directory')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+});
+
+document.addEventListener('input', event => {
+  if (!event.target.matches('[data-school-search]')) return;
+  const query = event.target.value.trim().toLocaleLowerCase('tr-TR');
+  const entries = [...document.querySelectorAll('[data-school-entry]')];
+  let visible = 0;
+  for (const entry of entries) {
+    const matches = entry.dataset.search.includes(query);
+    entry.hidden = !matches;
+    if (matches) visible += 1;
+  }
+  const empty = document.querySelector('[data-school-empty]');
+  if (empty) empty.hidden = visible > 0;
 });
 
 // Giriş ve kurulum formları. Başarılıysa uygulama kabuğuna geçilmesi için olay yayınlanır.

@@ -1,7 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { buildKvkkNotice } = require('../src/kvkk');
-const { privacyPage } = require('../src/seo');
+const { privacyPage, schoolAppPage } = require('../src/seo');
 
 test('school notice renders configured controller details and distinguishes acknowledgment from consent', () => {
   const school = {
@@ -46,6 +46,17 @@ test('school-controlled names are escaped inside structured SEO data', () => {
   });
   assert.doesNotMatch(html, /<\/script><script>alert\(1\)<\/script>/);
   assert.match(html, /\\u003c\/script>/);
+});
+
+test('school app landing metadata uses the school path and safely escapes school-controlled values', () => {
+  const html = schoolAppPage(
+    '<title>Okulum</title><meta name="description" content="Default"><link rel="canonical" href="/"><meta property="og:title" content="Okulum"><meta property="og:description" content="Default"><meta property="og:url" content="/">',
+    'https://okulum.example',
+    { slug: 'yildiz-okulu', name: '<Yıldız Okulu>', city: 'Ankara' },
+  );
+  assert.match(html, /<title>&lt;Yıldız Okulu&gt; · Okulum<\/title>/);
+  assert.match(html, /https:\/\/okulum\.example\/yildiz-okulu\//);
+  assert.doesNotMatch(html, /<Yıldız Okulu>/);
 });
 
 test('platform privacy page links to each registered school notice', () => {

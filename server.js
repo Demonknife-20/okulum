@@ -262,7 +262,18 @@ const server = http.createServer(async (req, res) => {
       if (!school) return sendNotFound(res, base);
       const suffix = url.pathname.slice(schoolMatch[0].indexOf(schoolMatch[1]) + schoolMatch[1].length + 1);
       if (suffix && suffix !== '/') return sendNotFound(res, base);
-      return serveStatic(res, '/index.html', base);
+      if (!suffix) {
+        res.writeHead(308, { Location: `${tenancy.schoolUrl(school.slug)}${url.search}`, 'Cache-Control': 'public, max-age=300' });
+        return res.end();
+      }
+      try {
+        const html = await fs.promises.readFile(path.join(PUBLIC, 'index.html'), 'utf8');
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
+        return res.end(seo.schoolAppPage(html, base, school));
+      } catch (error) {
+        console.error(new Date().toISOString(), 'okul uygulama sayfası', error);
+        return send(res, 500, { error: 'Okul sayfası hazırlanamadı.' });
+      }
     }
   }
 

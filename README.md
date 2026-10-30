@@ -45,7 +45,7 @@ Bu klasörü özel (private) bir depoya yükle. `.gitignore` `.env` ve `data/` k
    - `PLATFORM_ADMIN_PASSWORD`: en az 16 karakterli güçlü parola
    (`SESSION_SECRET` otomatik üretilir.)
 3. Dağıtım bitince `/platform` sayfasını açıp platform yöneticisi hesabıyla giriş yap; buradan okulları ve ilk müdür hesaplarını oluştur.
-4. Okullar ana sayfada listelenir ve `/{okul-adresi}` biçimindeki kendi adreslerinden giriş yapar.
+4. Okullar ana sayfada aranabilir biçimde listelenir ve `/{okul-adresi}/` biçimindeki kendi adreslerinden giriş yapar. Örneğin `okulum.com/yildiz-okulu/`. Bu, ana alan adı altındaki bir URL yoludur; okula ayrıca bir alan adı veya DNS kaydı gerekmez.
 
 > **Ücretsiz plan notu:** Render 15 dakika kullanılmazsa uyur, ilk istek 30–60 sn sürebilir.
 > Okul saatlerinde kesinti istemiyorsan ücretli plana geç.
@@ -80,6 +80,8 @@ npm run dev              # http://localhost:3000
 
 Yerelde `SUPABASE_*` boşsa dosyalar `data/uploads/` klasörüne yazılır. Üretimde bu kabul edilmez.
 `PLATFORM_ADMIN_USERNAME` ve `PLATFORM_ADMIN_PASSWORD`, ilk platform yöneticisini başlatırken gereklidir.
+
+Platform yöneticisi okul eklediğinde adres okul adından türetilir; adres küçük harf, rakam ve tire kullanır. Okullar ana sayfadaki aramayla bulunabilir. Her okul yolu okul adıyla canonical/arama motoru meta verisi sunar; eğik çizgisiz okul adresleri tek bir son-eğik-çizgi adresine yönlendirilir.
 
 ## KVKK ve gizlilik (v82)
 

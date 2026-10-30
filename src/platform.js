@@ -1,7 +1,7 @@
 const crypto = require('node:crypto');
 const { pool, migrateTenantSchema } = require('./db');
 const sec = require('./security');
-const { schemaForSlug, validSlug } = require('./tenancy');
+const { schemaForSlug, validSlug, schoolUrl } = require('./tenancy');
 const { createLimiter } = require('./security');
 
 const COOKIE = 'okulum_platform';
@@ -104,7 +104,8 @@ async function handlePlatformApi({ req, res, url, body }) {
   }
   if (url.pathname === '/api/platform/schools' && req.method === 'GET') {
     const { rows } = await pool.query('select slug, name, city, year, created_at as "createdAt" from platform.schools order by created_at desc');
-    return json(res, 200, { schools: rows });
+    const schools = rows.map(school => ({ ...school, url: schoolUrl(school.slug) }));
+    return json(res, 200, { schools });
   }
   if (url.pathname === '/api/platform/schools' && req.method === 'POST') {
     const name = str(body.schoolName, 120);
@@ -159,7 +160,7 @@ async function handlePlatformApi({ req, res, url, body }) {
     } finally {
       client.release();
     }
-    return json(res, 201, { school: { slug, name, city, year, url: `/${slug}/` } });
+    return json(res, 201, { school: { slug, name, city, year, url: schoolUrl(slug) } });
   }
 
   return json(res, 404, { error: 'Platform uç noktası bulunamadı.' });
