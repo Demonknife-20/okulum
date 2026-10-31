@@ -262,11 +262,14 @@ const server = http.createServer(async (req, res) => {
     if (rows.length > 1) return send(res, 404, { error: 'İşlem için okul adresini kullanın.' });
     tenantSchema = rows[0]?.schema_name || 'public';
   } else {
-    const schoolMatch = url.pathname.match(/^\/([a-z0-9](?:[a-z0-9-]{1,38}[a-z0-9]))(?:\/.*)?$/);
+    // Okul uygulama sayfası: `/slug` → `/slug/`'e yönlendir, `/slug/` → SPA'yı döndür.
+    // Regex grup 2 = slug'dan sonraki bölüm (`undefined`, `''` ya da `/foo/...`).
+    const schoolMatch = url.pathname.match(/^\/([a-z0-9](?:[a-z0-9-]{1,38}[a-z0-9]))(\/.*)?$/);
     if (schoolMatch) {
       const school = await tenancy.findSchoolBySlug(schoolMatch[1]);
       if (!school) return sendNotFound(res, base);
-      const suffix = url.pathname.slice(schoolMatch[0].indexOf(schoolMatch[1]) + schoolMatch[1].length + 1);
+      // `suffix` = '/' (trailing slash), '' (boş grup) ya da '/xyz/...' (alt yol).
+      const suffix = schoolMatch[2] == null ? '' : schoolMatch[2];
       if (suffix && suffix !== '/') return sendNotFound(res, base);
       if (!suffix) {
         res.writeHead(308, { Location: `${tenancy.schoolUrl(school.slug)}${url.search}`, 'Cache-Control': 'public, max-age=300' });
