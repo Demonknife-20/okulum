@@ -660,3 +660,9 @@ Müdür tüm okulu, öğretmen kendi derslerini, öğrenci yalnızca kendi devam
 - `/api/assignments` yanıtı artık `quizId`, `quizTitle`, `quizQuestionCount` ve öğrenci için `quizSubmitted` alanlarını taşıyor.
 - Öğrenci ödev kartında "Bu ödevin mini sınavı var … (tamamlandı)" satırı ve sınava köprü; öğretmen listesinde sınavın adı ve soru sayısı not olarak gösterilir.
 
+## Sürüm 85: arayüz cilası ve küçük API iyileştirmeleri
+
+- `GET /api/assignments` yanıtına `dueSoon` eklendi: teslimi 48 saatten yakın, henüz teslim edilmemiş ve zamanı geçmemiş ödevler. Öğrenci kartında sarı "Yakında teslim" rozeti.
+- Sayfa yüklenemezse boş ekran yerine kısa açıklamalı hata görünümü gelir: neden, "verin kaybolmaz" notu ve "Yeniden dene" düğmesi.
+- API hata mesajları netleştirildi: ağa ulaşılamıyorsa bağlantı, 5xx ise "birazdan tekrar dene", istemci hatasında girdileri kontrol etme yönlendirmesi.
+- Boş liste durumlarında ne yapılabileceği ikinci satırda anlatılıyor (sınavlar, soru bankası, ödevler).

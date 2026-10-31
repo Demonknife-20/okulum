@@ -22,6 +22,14 @@ const skeleton = () => `<div class="skeleton-page" aria-busy="true" aria-label="
   <div class="sk-grid"><div class="sk sk-card"></div><div class="sk sk-card"></div><div class="sk sk-card"></div><div class="sk sk-card"></div></div>
   <div class="sk sk-panel"></div></div>`;
 
+// Sayfa açılamadığında gösterilen ekran: kısa neden ve yeniden deneme düğmesi (v85)
+const errorView = error => `<div class="empty">
+  <p class="empty-title">Sayfa yüklenemedi</p>
+  <p>${esc(error.message)}</p>
+  <p class="muted small">Bağlantını kontrol edebilirsin; kaydedilmiş bir verin kaybolmaz.</p>
+  <button class="btn ghost" type="button" data-action="retry-page">Yeniden dene</button>
+</div>`;
+
 // ---------- Tema ----------
 function applyTheme(theme) {
   document.documentElement.dataset.theme = theme;
@@ -135,7 +143,7 @@ async function routePublic() {
     window.scrollTo({ top: 0 });
   } catch (error) {
     if (seq !== publicSeq) return;
-    view.innerHTML = `<div class="empty"><h3>Sayfa yüklenemedi</h3><p>${esc(error.message)}</p></div>`;
+    view.innerHTML = errorView(error);
   } finally {
     if (seq === publicSeq) setRouteProgress(false);
   }
@@ -181,7 +189,7 @@ async function routeApp() {
     else refreshBadges();
   } catch (error) {
     if (seq !== routeSeq) return;
-    view.innerHTML = `<div class="empty"><h3>Sayfa yüklenemedi</h3><p>${esc(error.message)}</p></div>`;
+    view.innerHTML = errorView(error);
   } finally {
     if (seq === routeSeq) setRouteProgress(false);
   }

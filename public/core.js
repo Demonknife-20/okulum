@@ -86,7 +86,7 @@ export async function api(path, { method = 'GET', body } = {}) {
   try {
     res = await fetch(apiUrl(path), init);
   } catch {
-    throw new Error('Sunucuya ulaşılamadı. Bağlantını kontrol et.');
+    throw new Error('Sunucuya ulaşılamadı. Bağlantını kontrol edip tekrar dene.');
   }
   const data = await res.json().catch(() => ({}));
   if (res.status === 401 && state.me) {
@@ -94,7 +94,8 @@ export async function api(path, { method = 'GET', body } = {}) {
     window.dispatchEvent(new Event('okulum:logged-out'));
     throw new Error('Oturumun sona erdi. Tekrar giriş yap.');
   }
-  if (!res.ok) throw new Error(data.error || 'İşlem tamamlanamadı.');
+  // Sunucu kaynaklı hatalarda kullanıcıya yeniden deneme yönlendirmesi gösterilir (v85)
+  if (!res.ok) throw new Error(data.error || (res.status >= 500 ? 'Sunucu şu anda yanıt veremiyor. Birazdan tekrar dene.' : 'İşlem tamamlanamadı. Girdiğin bilgileri kontrol edip tekrar dene.'));
   return data;
 }
 

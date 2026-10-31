@@ -38,6 +38,8 @@ const panel = (title, meta, body) => `
   </section>`;
 const empty = (title, text, action = '') => `<div class="empty"><p class="empty-title">${esc(title)}</p><p>${esc(text)}</p>${action}</div>`;
 const badge = (text, kind = 'neutral') => `<span class="badge ${kind}">${esc(text)}</span>`;
+// Sayfa yüklenemediğinde gösterilen "Yeniden dene" düğmesi (v85)
+ACTIONS['retry-page'] = () => location.reload();
 const meter = (present, total) => {
   const v = pct(present, total);
   if (v === null) return '<span class="muted">Kayıt yok</span>';
@@ -70,6 +72,7 @@ function assignmentStatus(a) {
   if (a.kind === 'paper') return badge('Kağıt ödev');
   if (a.mySubmission) return a.mySubmission.grade ? badge(`Not: ${a.mySubmission.grade}`, 'ok') : badge('Teslim edildi', 'ok');
   if (isPast(a.dueAt)) return badge('Süresi geçti', 'danger');
+  if (a.dueSoon) return badge('Yakında teslim', 'warn');
   return badge('Bekliyor', 'warn');
 }
 
@@ -209,7 +212,7 @@ async function pageClasses() {
 
 // ---------- Ödevler ----------
 function assignmentCards(items) {
-  if (!items.length) return empty('Henüz ödev yok', 'Öğretmenin ödev verdiğinde burada görünecek.');
+  if (!items.length) return empty('Henüz ödev yok', 'Öğretmenin ödev verdiğinde burada görünecek. Sınava girmek için Menü → Sınavlarım.');
   return `<div class="cards">${items.map(a => {
     const sub = a.mySubmission;
     const open = !isPast(a.dueAt);

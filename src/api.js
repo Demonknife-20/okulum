@@ -170,6 +170,8 @@ const ASSIGNMENT_COLUMNS = `a.id, a.title, a.kind, a.instructions, a.due_at as "
   (select count(*)::int from submissions x where x.assignment_id = a.id) as "submissionCount",
   (select count(*)::int from submissions x where x.assignment_id = a.id and x.grade is null) as "ungradedCount",
   (select count(*)::int from enrollments e where e.class_id = a.class_id) as "studentCount",
+  (case when (select x.id from submissions x where x.assignment_id = a.id and x.student_id = $1) is null
+     and a.due_at is not null and a.due_at > now() and a.due_at <= now() + interval '48 hours' then true else false end) as "dueSoon",
   (select json_build_object('id', x.id, 'fileName', x.file_name, 'submittedAt', x.submitted_at,
      'grade', x.grade, 'feedback', x.feedback, 'note', x.note)
    from submissions x where x.assignment_id = a.id and x.student_id = $1) as "mySubmission"`;

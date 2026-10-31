@@ -1122,6 +1122,29 @@ test('ödev: yayınlanmış sınav ödeve bağlanır, bağlantı kaldırılabili
   assert.equal((await call('DELETE', `/api/users/${kemal.data.user.id}`, { cookie: state.principal })).status, 200);
 });
 
+test('ödev: teslimine 48 saatten az kalanlar dueSoon olarak işaretlenir', async () => {
+  // Burak'ın hesabı önceki bir testte silindiği için teslim etmeyen ikinci öğrenci taze açılır.
+  const diger = await call('POST', '/api/users', { cookie: state.principal, body: {
+    role: 'student', name: 'Deniz Kaya', username: 'deniz', password: 'ogrenci-2468', studentNo: '103', classId: state.class6A,
+  } });
+  assert.equal(diger.status, 201, JSON.stringify(diger.data));
+  const deniz = await login('deniz', 'ogrenci-2468');
+  const make = async (title, dueInHours) => (await call('POST', '/api/assignments', { cookie: state.ayse, body: {
+    title, classId: state.class6A, subjectId: state.math, dueAt: new Date(Date.now() + dueInHours * 3600e3).toISOString(),
+  } })).data.id;
+  const soon = await make('Yakın teslim ödevi', 24);
+  const later = await make('Uzak teslim ödevi', 24 * 10);
+  const mine = async () => (await call('GET', '/api/assignments?size=50', { cookie: state.ece })).data.assignments;
+  assert.equal((await mine()).find(a => a.id === soon).dueSoon, true, '24 saat içinde teslim -> dueSoon');
+  assert.equal((await mine()).find(a => a.id === later).dueSoon, false, '10 gün sonra teslim -> dueSoon değil');
+  // Teslim edince işaret kalkar
+  await call('POST', `/api/assignments/${soon}/submission`, { cookie: state.ece, body: { file: { name: 'a.pdf', data: b64(PDF) } } });
+  assert.equal((await mine()).find(a => a.id === soon).dueSoon, false, 'teslim edilen ödev dueSoon olmaz');
+  assert.equal((await call('GET', '/api/assignments?size=50', { cookie: deniz })).data.assignments.find(a => a.id === soon).dueSoon, true, 'teslim etmeyen öğrenci için işaret sürer');
+  for (const id of [soon, later]) assert.equal((await call('DELETE', `/api/assignments/${id}`, { cookie: state.ayse })).status, 200);
+  assert.equal((await call('DELETE', `/api/users/${diger.data.user.id}`, { cookie: state.principal })).status, 200);
+});
+
 test('google sayfaları: kılavuz, hakkında, site haritası, robots ve kurulabilir uygulama dosyası yayında', async () => {
   const guide = await call('GET', '/kullanim');
   assert.equal(guide.status, 200);
