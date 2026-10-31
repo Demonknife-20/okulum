@@ -17,11 +17,17 @@ const PUBLIC = fs.existsSync(path.join(__dirname, 'dist', 'index.html')) ? path.
 const robotsPath = path.join(PUBLIC, 'robots.txt');
 const ROBOTS = fs.readFileSync(fs.existsSync(robotsPath) ? robotsPath : path.join(__dirname, 'public', 'robots.txt'), 'utf8');
 const BODY_LIMIT = 8 * 1024 * 1024;
-const IP_BACKSTOP = createLimiter({ max: Number(process.env.IP_RATE_PER_MIN || 30000), windowMs: 60 * 1000 });
-const API_LIMIT = createLimiter({ max: Number(process.env.API_RATE_PER_MIN || 3000), windowMs: 60 * 1000 });
-const WRITE_LIMIT = createLimiter({ max: Number(process.env.WRITE_RATE_PER_MIN || 600), windowMs: 60 * 1000 });
+// Varsayılanlar bilinçli olarak sıkı; Render panelinde env değişkenleriyle yükseltilebilir.
+// Eski varsayılanlar (30000/dk, 3000/dk, 600/dk) tek bir IP'nin okulu çökertmesine
+// veya anonim AI/eposta harcaması yapmasına izin verecek kadar yüksekti.
+const IP_BACKSTOP = createLimiter({ max: Number(process.env.IP_RATE_PER_MIN || 1200), windowMs: 60 * 1000 });
+const API_LIMIT = createLimiter({ max: Number(process.env.API_RATE_PER_MIN || 300), windowMs: 60 * 1000 });
+const WRITE_LIMIT = createLimiter({ max: Number(process.env.WRITE_RATE_PER_MIN || 60), windowMs: 60 * 1000 });
+// Oturumsuz istekler için ek katman: cookie yoksa IP daha sıkı sayılır.
+const ANON_LIMIT = createLimiter({ max: Number(process.env.ANON_RATE_PER_MIN || 30), windowMs: 60 * 1000 });
+const ANON_DAY_LIMIT = createLimiter({ max: Number(process.env.ANON_RATE_PER_DAY || 3000), windowMs: 24 * 60 * 60 * 1000 });
 // ---- Kopyalama (HTTrack, wget, WebCopier vb.) koruması ----
-const STATIC_LIMIT = createLimiter({ max: Number(process.env.STATIC_RATE_PER_MIN || 6000), windowMs: 60 * 1000 });
+const STATIC_LIMIT = createLimiter({ max: Number(process.env.STATIC_RATE_PER_MIN || 600), windowMs: 60 * 1000 });
 const HASHED_ASSET = /\.[A-Za-z0-9]{8,}\.(js|css|woff2?|png|jpg)$/;
 const BOT_UA = /httrack|webcopier|teleport|offline\s?explorer|sitesucker|webzip|webreaper|grab-site|getleft|website\s?quester|wget|scrapy|sitesnagger/i;
 // Gizli tuzak: normal kullanıcı bu adresleri görmez; kopyalayıcılar bağlantıları izleyince yakalanır.
@@ -287,10 +293,13 @@ const server = http.createServer(async (req, res) => {
   try {
     const key = clientKey(req);
     // Oturumu olan kullanıcılar kendi sınırlarıyla sayılır: aynı okul ağındaki herkes birbirini engellemez.
+    const hasSession = Boolean(req.headers.cookie && req.headers.cookie.includes('okulum_session='));
     const sessionKey = req.headers.cookie
       ? `s:${require('node:crypto').createHash('sha256').update(req.headers.cookie).digest('hex').slice(0, 32)}`
       : key;
-    if (IP_BACKSTOP(key) || API_LIMIT(sessionKey) || (!['GET', 'HEAD'].includes(req.method) && WRITE_LIMIT(sessionKey))) {
+    const anonTripped = !hasSession && (ANON_LIMIT(key) || ANON_DAY_LIMIT(key));
+    if (IP_BACKSTOP(key) || API_LIMIT(sessionKey) || anonTripped
+      || (!['GET', 'HEAD'].includes(req.method) && WRITE_LIMIT(sessionKey))) {
       throw new HttpError(429, 'Çok fazla istek gönderildi. Lütfen biraz bekleyin.');
     }
     if (!['GET', 'HEAD'].includes(req.method)) {
@@ -335,10 +344,28 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
+async function waitForDb({ maxDelayMs = 30_000, deadlineMs = 60_000 } = {}) {
+  // Supabase anlık koparsa sürecin sonsuz restart-döngüsüne girmesini engeller:
+  // üstel geri çekilme ile en fazla `deadlineMs` kadar sabreder, sonra patlar.
+  const started = Date.now();
+  let delay = 500;
+  for (;;) {
+    try { await q('select 1'); return; }
+    catch (error) {
+      const waited = Date.now() - started;
+      if (waited >= deadlineMs) throw error;
+      console.warn(`Veritabanına ulaşılamadı; ${delay}ms sonra tekrar denenecek (toplam ${waited}ms).`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+      delay = Math.min(delay * 2, maxDelayMs);
+    }
+  }
+}
+
 async function start() {
   if (process.env.NODE_ENV === 'production' && !storage.useSupabase) {
     throw new Error('Üretimde SUPABASE_URL ve SUPABASE_SERVICE_ROLE_KEY zorunlu (dosyalar Supabase Storage\'da tutulur).');
   }
+  await waitForDb();
   await tenancy.initializeTenancy();
   await platform.bootstrapPlatformAdmin();
   await storage.ensureBucket();
@@ -357,10 +384,17 @@ function shutdown() {
   setTimeout(() => process.exit(0), 5000).unref();
 }
 // Hata raporu: isteğe bağlı webhook (ERROR_WEBHOOK_URL, ör. Slack/Discord). Kullanıcı verisi gönderilmez.
+// Aynı context 5 dakika içinde tekrar gelirse yutulur — boot-loop sırasında webhook'un patlamasını engeller.
+const webhookSeen = new Map();
+const WEBHOOK_COOLDOWN_MS = 5 * 60 * 1000;
 function reportError(context, error) {
   console.error(new Date().toISOString(), context, error?.stack || error);
   const hook = process.env.ERROR_WEBHOOK_URL || '';
   if (!hook.startsWith('https://')) return;
+  const last = webhookSeen.get(context) || 0;
+  if (Date.now() - last < WEBHOOK_COOLDOWN_MS) return;
+  webhookSeen.set(context, Date.now());
+  if (webhookSeen.size > 200) for (const [k, t] of webhookSeen) if (Date.now() - t > WEBHOOK_COOLDOWN_MS) webhookSeen.delete(k);
   fetch(hook, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

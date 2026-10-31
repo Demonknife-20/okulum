@@ -76,6 +76,19 @@ function clientIp(req) {
   return req.socket.remoteAddress || 'unknown';
 }
 
+// ---- Oturumsuz (giriş gerektirmeyen) uç noktalar için IP başına sert limitler ----
+// Global limiter'lar (server.js) çok yüksek geldiğinde bu ikinci katman tek bir IP'nin
+// şifre sıfırlama e-postası / SMS / AI / tarama gibi işlemleri suistimal etmesini engeller.
+const AUTH_MIN = sec.createLimiter({ max: Number(process.env.AUTH_RATE_PER_MIN || 5), windowMs: 60_000 });
+const AUTH_DAY = sec.createLimiter({ max: Number(process.env.AUTH_RATE_PER_DAY || 100), windowMs: 24 * 60 * 60 * 1000 });
+const MAIL_MIN = sec.createLimiter({ max: Number(process.env.MAIL_RATE_PER_MIN || 2), windowMs: 60_000 });
+const MAIL_DAY = sec.createLimiter({ max: Number(process.env.MAIL_RATE_PER_DAY || 20), windowMs: 24 * 60 * 60 * 1000 });
+const PUB_MIN = sec.createLimiter({ max: Number(process.env.PUBLIC_RATE_PER_MIN || 30), windowMs: 60_000 });
+const FEED_MIN = sec.createLimiter({ max: Number(process.env.FEED_RATE_PER_MIN || 60), windowMs: 60_000 });
+function guardIp(limiter, ip, message = 'Çok fazla istek. Lütfen biraz bekleyin.') {
+  if (limiter(ip)) fail(429, message);
+}
+
 // ---------- Yetki kuralları (tek yer) ----------
 async function canTeach(user, classId, subjectId) {
   if (user.role !== 'teacher') return false;
@@ -203,7 +216,9 @@ on('GET', '/api/setup', async () => {
   return ok({ setupRequired: n === 0 });
 }, { auth: false });
 
-on('POST', '/api/setup', async ({ body, res }) => {
+on('POST', '/api/setup', async ({ req, body, res }) => {
+  guardIp(AUTH_MIN, `setup:${clientIp(req)}`);
+  guardIp(AUTH_DAY, `setupD:${clientIp(req)}`, 'Kurulum için fazla deneme. Yarın tekrar dene.');
   const schoolName = str(body.schoolName, 120), schoolCity = str(body.schoolCity, 80);
   const schoolYear = str(body.schoolYear, 20) || defaultSchoolYear();
   const controllerName = str(body.controllerName, 120);
@@ -244,6 +259,9 @@ on('POST', '/api/login', async ({ req, res, body }) => {
   const pass = typeof body.password === 'string' ? body.password : '';
   const ipKey = `ip:${clientIp(req)}`, userKey = `user:${username}`;
   if (sec.isLimited(ipKey) || sec.isLimited(userKey)) fail(429, 'Çok fazla deneme yaptın. 15 dakika sonra tekrar dene.');
+  // Başarılı girişleri de sayan ikinci bir katman: credential-stuffing botlarını dizginler.
+  guardIp(AUTH_MIN, `log:${clientIp(req)}`);
+  guardIp(AUTH_DAY, `logD:${clientIp(req)}`, 'Bugün bu cihazdan çok fazla giriş denemesi. Yarın tekrar dene.');
   const { rows: [user] } = await q('select id, username, name, role, student_no, password_hash, session_version, totp_enabled, totp_secret, totp_last_step from users where username = $1', [username]);
   let valid = false;
   if (user) valid = await sec.verifyPasswordAsync(pass, user.password_hash);
@@ -1583,11 +1601,15 @@ on('GET', '/api/files/board-note/:id', async ({ params, query, user }) => {
 });
 
 // Ana sayfadaki okul duyuruları: yalnızca okul panolarındaki notlar, giriş gerektirmez.
-on('GET', '/api/public/announcements', async () => {
+// Oturumsuz ziyaretçiye yalnızca YÖNETİCİ ONAYLI okul panosu duyuruları görünür.
+// Onaysız taslaklar, sınıf panoları ve kişisel notlar asla dışarıya sızmaz.
+on('GET', '/api/public/announcements', async ({ req }) => {
+  guardIp(PUB_MIN, `pa:${clientIp(req)}`);
   const { rows } = await q(`select n.title, n.body, n.link, n.color, n.created_at as "createdAt",
       b.title as "boardTitle", (n.file_path is not null) as "hasFile"
     from board_notes n join boards b on b.id = n.board_id
-    where b.scope = 'school' order by n.created_at desc limit 6`);
+    where b.scope = 'school' and n.approved = true
+    order by n.created_at desc limit 6`);
   return ok({ announcements: rows });
 }, { auth: false });
 
@@ -1641,6 +1663,10 @@ async function aiPrepare(user, body) {
   if ((usage?.used ?? 0) >= ai.DAILY_LIMIT) fail(429, `Bugünkü ${ai.DAILY_LIMIT} soru hakkınızı kullandınız. Yarın tekrar deneyin.`);
   const { rows: [all] } = await q('select coalesce(sum(used), 0)::int as n from ai_usage where day = current_date');
   if (all.n >= ai.GLOBAL_DAILY) fail(429, 'Asistan bugün çok yoğun. Lütfen yarın tekrar deneyin.');
+  // Aylık sert tavan: günlük sayılar aşılsa bile bu ayki bütçe bitince Gemini'ye gitmez.
+  const month = await ai.monthUsed(user.id);
+  if (month.user >= ai.MONTHLY_LIMIT_USER) fail(429, `Bu ayki ${ai.MONTHLY_LIMIT_USER} soru hakkınızı kullandınız.`);
+  if (month.global >= ai.MONTHLY_LIMIT) fail(429, 'Bu ay okul genelinde asistan kotası doldu. Yöneticinizle konuşun.');
   const conversationId = body.conversationId ? requireId(body.conversationId, 'sohbet') : null;
   let history = [];
   if (conversationId) {
@@ -1704,6 +1730,9 @@ on('POST', '/api/ai/quiz-draft', async ({ body, user }) => {
   if ((usage?.used ?? 0) >= ai.DAILY_LIMIT) fail(429, `Bugünkü ${ai.DAILY_LIMIT} soru hakkınızı kullandınız. Yarın tekrar deneyin.`);
   const { rows: [all] } = await q('select coalesce(sum(used), 0)::int as n from ai_usage where day = current_date');
   if (all.n >= ai.GLOBAL_DAILY) fail(429, 'Asistan bugün çok yoğun. Lütfen yarın tekrar deneyin.');
+  const month = await ai.monthUsed(user.id);
+  if (month.user >= ai.MONTHLY_LIMIT_USER) fail(429, `Bu ayki ${ai.MONTHLY_LIMIT_USER} soru hakkınızı kullandınız.`);
+  if (month.global >= ai.MONTHLY_LIMIT) fail(429, 'Bu ay okul genelinde asistan kotası doldu. Yöneticinizle konuşun.');
   await aiSpend(user.id);
   // Günlük: yalnızca olay bilgisi ve sayılar; konu, örnek soru ve model çıktısı yazılmaz
   const logEvent = (outcome, extra = {}) => {
@@ -2886,8 +2915,11 @@ function requestOrigin(req) {
 }
 
 // Şifremi unuttum: e-posta adresi kayıtlıysa 15 dakika geçerli 6 haneli kod gönderilir. Yanıt her durumda aynıdır.
-on('POST', '/api/password/forgot', async ({ body }) => {
+on('POST', '/api/password/forgot', async ({ req, body }) => {
   if (!mail.configured()) fail(503, 'E-posta ile şifre sıfırlama kapalı. Lütfen okul müdürünüze başvurun.');
+  // IP başına e-posta gönderme limiti: tek bir makineden spam / fatura saldırısı engellenir.
+  guardIp(MAIL_MIN, `fg:${clientIp(req)}`, 'Çok fazla sıfırlama talebi. Biraz sonra tekrar dene.');
+  guardIp(MAIL_DAY, `fgD:${clientIp(req)}`, 'Bugün çok fazla sıfırlama talebi gönderildi. Yarın tekrar dene.');
   const generic = { sent: true, message: 'Bu adresle kayıtlı bir hesap varsa sıfırlama kodu gönderildi.' };
   const email = str(body.email, 120).toLowerCase();
   if (!email) return ok(generic);
@@ -2909,7 +2941,9 @@ on('POST', '/api/password/forgot', async ({ body }) => {
 }, { auth: false });
 
 // Kodu doğrular (en fazla 5 deneme), yeni şifreyi kaydeder ve tüm eski oturumları düşürür.
-on('POST', '/api/password/reset', async ({ body }) => {
+on('POST', '/api/password/reset', async ({ req, body }) => {
+  guardIp(AUTH_MIN, `rs:${clientIp(req)}`, 'Çok fazla doğrulama denemesi. Biraz sonra tekrar dene.');
+  guardIp(AUTH_DAY, `rsD:${clientIp(req)}`, 'Bugün fazla doğrulama yapıldı. Yarın tekrar dene.');
   const email = str(body.email, 120).toLowerCase();
   const code = String(body.code ?? '').trim();
   const invalid = () => fail(400, 'Kod hatalı veya süresi dolmuş.');
@@ -3117,7 +3151,8 @@ function buildIcs(items) {
   return `${lines.join('\r\n')}\r\n`;
 }
 
-on('GET', '/api/calendar/feed/:file', async ({ params }) => {
+on('GET', '/api/calendar/feed/:file', async ({ req, params }) => {
+  guardIp(FEED_MIN, `cal:${clientIp(req)}`, 'Takvim çok sık yenileniyor. Biraz sonra tekrar dene.');
   const token = String(params.file || '').replace(/\.ics$/i, '');
   if (!/^[a-f0-9]{48}$/.test(token)) fail(404, 'Takvim bulunamadı.');
   const { rows: [owner] } = await q('select id, role from users where calendar_token = $1', [token]);
@@ -3188,6 +3223,7 @@ function istanbulNow(date) {
 }
 
 function startDigestSchedule() {
+  let busy = false;
   const tick = async () => {
     const now = istanbulNow(new Date());
     if (now.weekday !== 'Sun' || now.hour < 17) return;
@@ -3196,7 +3232,13 @@ function startDigestSchedule() {
     await q(`insert into app_settings (key, value) values ('digest_last', $1) on conflict (key) do update set value = excluded.value`, [now.day]);
     await sendWeeklyDigest();
   };
-  const safeTick = () => forEachTenant(tick).catch(error => console.error('Haftalık özet hatası:', error.message));
+  const safeTick = async () => {
+    if (busy) return; // önceki tur sürüyorsa üstüne bindirme (kaçak mail/push patlaması koruması)
+    busy = true;
+    try { await forEachTenant(tick); }
+    catch (error) { console.error('Haftalık özet hatası:', error.message); }
+    finally { busy = false; }
+  };
   setTimeout(safeTick, 2 * 60 * 1000).unref();
   setInterval(safeTick, 30 * 60 * 1000).unref();
 }
@@ -3328,6 +3370,7 @@ async function sendDueReminders() {
 
 // Her gün 18:00'den sonra (İstanbul) bir kez çalışır.
 function startReminderSchedule() {
+  let busy = false;
   const tick = async () => {
     const now = istanbulNow(new Date());
     if (now.hour < 18) return;
@@ -3336,7 +3379,13 @@ function startReminderSchedule() {
     await q(`insert into app_settings (key, value) values ('reminder_last', $1) on conflict (key) do update set value = excluded.value`, [now.day]);
     await sendDueReminders();
   };
-  const safeTick = () => forEachTenant(tick).catch(error => console.error('Hatırlatma hatası:', error.message));
+  const safeTick = async () => {
+    if (busy) return; // bindirmeyi engelle; push patlamasına karşı
+    busy = true;
+    try { await forEachTenant(tick); }
+    catch (error) { console.error('Hatırlatma hatası:', error.message); }
+    finally { busy = false; }
+  };
   setTimeout(safeTick, 3 * 60 * 1000).unref();
   setInterval(safeTick, 30 * 60 * 1000).unref();
 }

@@ -20,8 +20,17 @@ const BASE = (process.env.GEMINI_BASE_URL || 'https://generativelanguage.googlea
 const MODEL = process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite';
 const DAILY_LIMIT = Number(process.env.AI_DAILY_LIMIT || 30);
 const GLOBAL_DAILY = Number(process.env.AI_GLOBAL_DAILY || 400);
+// Aylık sert tavanlar: sürpriz faturaya karşı son savunma hattı.
+// Sağlayıcı panelindeki harcama limitiyle birlikte kullan (bkz. README).
+const MONTHLY_LIMIT = Number(process.env.AI_MONTHLY_LIMIT || 5000);
+const MONTHLY_LIMIT_USER = Number(process.env.AI_MONTHLY_LIMIT_USER || 300);
+// Tek yanıt için maksimum çıktı jetonu. Quiz taslağı için ayrıca ~3x büyür.
+const MAX_OUTPUT_TOKENS = Number(process.env.AI_MAX_OUTPUT_TOKENS || 900);
+const QUIZ_MAX_OUTPUT_TOKENS = Number(process.env.QUIZ_MAX_OUTPUT_TOKENS || 3500);
 const RETENTION_DAYS = Number(process.env.AI_RETENTION_DAYS || 180);
-const enabled = () => Boolean(process.env.GEMINI_API_KEY);
+// Müdür panelinden veya env ile anında kapatılabilen ana şalter.
+// app_settings tablosunda `ai_paused = '1'` varsa istekler Gemini'ye gitmez.
+const enabled = () => Boolean(process.env.GEMINI_API_KEY) && process.env.AI_DISABLED !== '1';
 
 // Kural dışı yönlendirme denemeleri (talimatları öğrenme, değiştirme, yok sayma). Bunlar yapay zekâya gitmez.
 const INJECTION = /(sistem\s*talimat|system\s*prompt|talimatlar[ıi]n[ıi]\s*(göster|yaz|söyle|unut|yok)|önceki\s*talimat|kurallar[ıi]n[ıi]\s*(unut|yok|değiştir)|prompt'?\s*unu|ignore\s+(all\s+|the\s+)?(previous\s+|above\s+)?instructions|reveal\s+(your\s+)?(system|instructions))/i;
@@ -60,14 +69,15 @@ function systemPrompt(role) {
   return [...common, ...(byRole[role] || byRole.student)].join('\n');
 }
 
-async function askGemini({ role, history, message, maxTokens = 900 }) {
+async function askGemini({ role, history, message, maxTokens = MAX_OUTPUT_TOKENS }) {
+  const cap = Math.min(Number(maxTokens) || MAX_OUTPUT_TOKENS, QUIZ_MAX_OUTPUT_TOKENS);
   const body = {
     systemInstruction: { parts: [{ text: systemPrompt(role) }] },
     contents: [
       ...history.map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] })),
       { role: 'user', parts: [{ text: message }] },
     ],
-    generationConfig: { temperature: 0.5, maxOutputTokens: maxTokens },
+    generationConfig: { temperature: 0.5, maxOutputTokens: cap },
   };
   let res;
   try {
@@ -100,7 +110,7 @@ async function streamGemini({ role, history, message, onDelta, signal }) {
       ...history.map(m => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] })),
       { role: 'user', parts: [{ text: message }] },
     ],
-    generationConfig: { temperature: 0.5, maxOutputTokens: 900 },
+    generationConfig: { temperature: 0.5, maxOutputTokens: MAX_OUTPUT_TOKENS },
   };
   const timeout = AbortSignal.timeout(60000);
   let res;
@@ -157,11 +167,27 @@ function startRetention() {
   setInterval(safePurge, 24 * 60 * 60 * 1000).unref();
 }
 
+// Aylık kota denetimi. `assertBudget` Gemini'ye gitmeden önce çağrılır; aşarsa 429 fırlatır.
+async function monthUsed(userId) {
+  const { rows: [mine] } = await q(
+    "select coalesce(sum(used), 0)::int as n from ai_usage where user_id = $1 and day >= date_trunc('month', current_date)::date",
+    [userId]);
+  const { rows: [all] } = await q(
+    "select coalesce(sum(used), 0)::int as n from ai_usage where day >= date_trunc('month', current_date)::date");
+  return { user: mine?.n ?? 0, global: all?.n ?? 0 };
+}
+
 // Sınav taslağı: sorular doğrulanmış biçimde döner (bkz. quizdraft.js)
 async function draftQuiz({ topic, example, count, withImages }) {
   const { buildQuizPrompt, parseQuizDraft } = require('./quizdraft');
-  const text = await askGemini({ role: 'teacher', history: [], message: buildQuizPrompt({ topic, example, count, withImages }), maxTokens: 3500 });
+  const text = await askGemini({ role: 'teacher', history: [], message: buildQuizPrompt({ topic, example, count, withImages }), maxTokens: QUIZ_MAX_OUTPUT_TOKENS });
   return parseQuizDraft(text);
 }
 
-module.exports = { draftQuiz, NOTICE, NOTICE_VERSION, DAILY_LIMIT, GLOBAL_DAILY, enabled, askGemini, streamGemini, AiError, systemPrompt, startRetention, isInjection, INJECTION_REPLY };
+module.exports = {
+  draftQuiz, NOTICE, NOTICE_VERSION,
+  DAILY_LIMIT, GLOBAL_DAILY, MONTHLY_LIMIT, MONTHLY_LIMIT_USER,
+  MAX_OUTPUT_TOKENS, QUIZ_MAX_OUTPUT_TOKENS,
+  enabled, askGemini, streamGemini, AiError, systemPrompt,
+  startRetention, isInjection, INJECTION_REPLY, monthUsed,
+};

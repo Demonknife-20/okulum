@@ -73,12 +73,21 @@ async function readBackup(id) {
 }
 
 // Son yedek 24 saatten eskiyse yenisini alır. Saatte bir kontrol eder.
+// `busy` kilidi: yedek uzarsa bir sonraki tick üstüne binmez, eşzamanlı koşan
+// ikinci yedek tabloyu iki kez doldurup depolama ücretini katlamaz.
 function startBackupSchedule() {
+  let busy = false;
   const tick = async () => {
     const { rows: [last] } = await q('select created_at from backups order by created_at desc limit 1');
     if (!last || Date.now() - new Date(last.created_at).getTime() > 24 * 3600e3) await runBackup('zamanlanmış');
   };
-  const safeTick = () => forEachTenant(tick).catch(error => console.error('Yedek hatası:', error.message));
+  const safeTick = async () => {
+    if (busy) return;
+    busy = true;
+    try { await forEachTenant(tick); }
+    catch (error) { console.error('Yedek hatası:', error.message); }
+    finally { busy = false; }
+  };
   setTimeout(safeTick, 60 * 1000).unref();
   setInterval(safeTick, 60 * 60 * 1000).unref();
 }
