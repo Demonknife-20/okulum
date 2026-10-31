@@ -2258,3 +2258,14 @@ html.fx-off .public-view,html.fx-off .content{animation:none!important}
 .bin-steps th,.bin-steps td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:center;font-variant-numeric:tabular-nums}
 .bin-steps td:last-child,.bin-steps th:last-child{text-align:left}
 .bin-steps .bin-sum{font-weight:800;color:var(--brand)}
+
+/* ===== v83: soru bankası ===== */
+/* Bankadan getirme listesi: her satır bir soru, sola yerleşen onay kutusu */
+[data-bank-results] .quiz-opt{grid-template-columns:auto 1fr;align-items:start;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r);background:var(--surface)}
+[data-bank-results] .quiz-opt:hover{border-color:color-mix(in srgb,var(--brand) 40%,var(--line))}
+[data-bank-results] .quiz-opt input[type=checkbox]{width:18px;height:18px;margin-top:2px;min-height:0;accent-color:var(--brand)}
+[data-bank-results] .quiz-opt span{display:grid;gap:2px}
+.quiz-q-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+/* Bankaya kaydedilen sorunun düğmesi kaldırılır, yerine rozet gelir */
+.quiz-q-head .badge{margin-right:auto}
+

@@ -93,7 +93,7 @@ before(async () => {
   fs.rmSync(path.join(ROOT, 'data'), { recursive: true, force: true });
   child = spawn(process.execPath, [path.join(ROOT, 'server.js')], {
     cwd: ROOT,
-    env: { ...process.env, DATABASE_URL: DB, PORT: String(PORT), HOST: '127.0.0.1', PUBLIC_URL: BASE, SESSION_SECRET: 'test-secret-value-0123456789', API_RATE_PER_MIN: '100000', WRITE_RATE_PER_MIN: '100000', STATIC_RATE_PER_MIN: '100000', TRUST_PROXY: '1', GEMINI_API_KEY: 'test-key', GEMINI_BASE_URL: `http://127.0.0.1:${GEMINI_PORT}`, AI_DAILY_LIMIT: '5', AI_GLOBAL_DAILY: '1000', BACKUP_KEY: 'test-backup-key', MAIL_OUTBOX_FILE: '/tmp/okulum-outbox-test.jsonl' },
+    env: { ...process.env, DATABASE_URL: DB, PORT: String(PORT), HOST: '127.0.0.1', PUBLIC_URL: BASE, SESSION_SECRET: 'test-secret-value-0123456789', API_RATE_PER_MIN: '100000', WRITE_RATE_PER_MIN: '100000', STATIC_RATE_PER_MIN: '100000', IP_RATE_PER_MIN: '1000000', ANON_RATE_PER_MIN: '100000', ANON_RATE_PER_DAY: '1000000', AUTH_RATE_PER_MIN: '100000', AUTH_RATE_PER_DAY: '100000', MAIL_RATE_PER_MIN: '100000', MAIL_RATE_PER_DAY: '100000', PUBLIC_RATE_PER_MIN: '100000', FEED_RATE_PER_MIN: '100000', TRUST_PROXY: '1', GEMINI_API_KEY: 'test-key', GEMINI_BASE_URL: `http://127.0.0.1:${GEMINI_PORT}`, AI_DAILY_LIMIT: '5', AI_GLOBAL_DAILY: '1000', BACKUP_KEY: 'test-backup-key', MAIL_OUTBOX_FILE: '/tmp/okulum-outbox-test.jsonl' },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   await new Promise((resolve, reject) => {
@@ -997,6 +997,65 @@ test('sınav: açılmamış, yayınlanmamış ve süresi dolan sınavlar kuralla
   assert.match(late.data.error, /Süreniz doldu/);
   const view = await call('GET', `/api/quizzes/${timed.data.id}`, { cookie: state.ece });
   assert.ok(view.data.attempt.submittedAt, 'süre dolunca deneme otomatik teslim edilir');
+});
+
+test('soru bankası: soru kaydedilir, filtrelenir, yalnızca sahibi düzenler', async () => {
+  const created = await call('POST', '/api/qbank', { cookie: state.ayse, body: {
+    topic: 'Kesirler', text: '1/2 + 1/4 kaçtır?', options: ['1/6', '3/4', '3/2'], correctIndex: 1, points: 3, difficulty: 2, explanation: 'Paydalar eşitlenir.',
+  } });
+  assert.equal(created.status, 201, JSON.stringify(created.data));
+  state.bankQuestion = created.data.id;
+  const list = await call('GET', '/api/qbank', { cookie: state.ayse });
+  assert.equal(list.status, 200);
+  const saved = list.data.questions.find(x => x.id === created.data.id);
+  assert.equal(saved.topic, 'Kesirler');
+  assert.equal(saved.correctIndex, 1);
+  assert.deepEqual(saved.options, ['1/6', '3/4', '3/2']);
+  assert.equal(saved.difficulty, 2);
+  assert.equal(saved.points, 3);
+  // Başka öğretmen bankayı göremez, düzenleyemez, silemez
+  assert.equal((await call('GET', '/api/qbank', { cookie: state.ali })).data.questions.find(x => x.id === created.data.id), undefined);
+  assert.equal((await call('PATCH', `/api/qbank/${created.data.id}`, { cookie: state.ali, body: { text: 'Ali değiştirdi' } })).status, 404);
+  assert.equal((await call('DELETE', `/api/qbank/${created.data.id}`, { cookie: state.ali })).status, 404);
+  assert.equal((await call('GET', '/api/qbank', { cookie: state.ece })).status, 403, 'öğrenci bankaya erişemez');
+  // Doğrulama kuralları
+  assert.equal((await call('POST', '/api/qbank', { cookie: state.ayse, body: { topic: 'Kesirler', text: 'Tek seçenek', options: ['a'], correctIndex: 0 } })).status, 400, 'tek seçenek kabul edilmez');
+  assert.equal((await call('POST', '/api/qbank', { cookie: state.ayse, body: { topic: 'Kesirler', text: 'Boş şık', options: ['a', '  '], correctIndex: 0 } })).status, 400, 'boş seçenek kabul edilmez');
+  assert.equal((await call('POST', '/api/qbank', { cookie: state.ayse, body: { topic: 'Kesirler', text: 'Yanlış şık', options: ['a', 'b'], correctIndex: 5 } })).status, 400);
+  assert.equal((await call('POST', '/api/qbank', { cookie: state.ayse, body: { topic: 'K', text: 'Kısa konu', options: ['a', 'b'], correctIndex: 0 } })).status, 400, 'konu en az 2 karakter');
+  assert.equal((await call('POST', '/api/qbank', { cookie: state.ayse, body: { topic: 'Kesirler', text: 'Puan taşkın', options: ['a', 'b'], correctIndex: 0, points: 40 } })).status, 400);
+  assert.equal((await call('POST', '/api/qbank', { cookie: state.ayse, body: { topic: 'Kesirler', text: 'Zorluk taşkın', options: ['a', 'b'], correctIndex: 0, difficulty: 9 } })).status, 400);
+  // Açık uçlu soru şıksız kaydedilir
+  const openEnded = await call('POST', '/api/qbank', { cookie: state.ayse, body: { topic: 'Kesirler', kind: 'text', text: 'Kesir nedir?' } });
+  assert.equal(openEnded.status, 201);
+  // Filtreler: tür ve metin araması
+  assert.equal((await call('GET', '/api/qbank?kind=text', { cookie: state.ayse })).data.questions.every(x => x.kind === 'text'), true);
+  const search = await call('GET', `/api/qbank?q=${encodeURIComponent('nedir')}`, { cookie: state.ayse });
+  assert.equal(search.data.questions.length, 1);
+  assert.equal(search.data.questions[0].id, openEnded.data.id);
+  assert.equal((await call('GET', '/api/qbank?q=olmayansoru', { cookie: state.ayse })).data.total, 0);
+  // Sahibi düzenleyebilir; gönderilmeyen alan mevcut kayıtla tamamlanır
+  assert.equal((await call('PATCH', `/api/qbank/${created.data.id}`, { cookie: state.ayse, body: { points: 5 } })).status, 200);
+  const afterEdit = (await call('GET', '/api/qbank', { cookie: state.ayse })).data.questions.find(x => x.id === created.data.id);
+  assert.equal(afterEdit.points, 5);
+  assert.equal(afterEdit.text, '1/2 + 1/4 kaçtır?', 'gönderilmeyen alan korunmalı');
+  assert.equal((await call('DELETE', `/api/qbank/${openEnded.data.id}`, { cookie: state.ayse })).status, 200);
+});
+
+test('soru bankasından sınava soru eklenir (banka kaydı silinse de sınav bozulmaz)', async () => {
+  const now = Date.now();
+  const created = await call('POST', '/api/quizzes', { cookie: state.ayse, body: {
+    title: 'Bankadan sınav', classId: state.class6A, subjectId: state.math,
+    opensAt: new Date(now - 60e3).toISOString(), closesAt: new Date(now + 86400e3).toISOString(), published: false,
+    questions: [{ text: '1/2 + 1/4 kaçtır?', options: ['1/6', '3/4', '3/2'], correctIndex: 1, points: 3 }],
+  } });
+  assert.equal(created.status, 201, JSON.stringify(created.data));
+  const detail = await call('GET', `/api/quizzes/${created.data.id}`, { cookie: state.ayse });
+  assert.equal(detail.data.questions[0].text, '1/2 + 1/4 kaçtır?');
+  // Bankadaki soru silinir; sınava kopyalanan soru yerinde kalır
+  assert.equal((await call('DELETE', `/api/qbank/${state.bankQuestion}`, { cookie: state.ayse })).status, 200);
+  assert.equal((await call('GET', `/api/quizzes/${created.data.id}`, { cookie: state.ayse })).data.questions.length, 1);
+  assert.equal((await call('DELETE', `/api/quizzes/${created.data.id}`, { cookie: state.ayse })).status, 200);
 });
 
 test('google sayfaları: kılavuz, hakkında, site haritası, robots ve kurulabilir uygulama dosyası yayında', async () => {

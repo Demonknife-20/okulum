@@ -2379,6 +2379,96 @@ on('GET', '/api/quizzes/:id/results', async ({ params, user }) => {
   });
 }, { auth: true });
 
+// ---------- Soru bankası (v83) ----------
+// Kayıtlı sorular tek yerden doğrulanır: hem banka kayıtları hem bankadan sınava
+// eklenen sorular aynı kurallara uyar (2-5 şık, doğru şık seçili, puan 1-10).
+function normalizeBankQuestion(item) {
+  const topic = str(item?.topic, 160);
+  if (topic.length < 2) fail(400, 'Konu en az 2 karakter olmalı.');
+  const kind = item?.kind === 'text' ? 'text' : 'choice';
+  const text = str(item?.text, 1000);
+  if (!text) fail(400, 'Soru metni boş olamaz.');
+  const points = Number.isInteger(item?.points) ? item.points : 1;
+  if (points < 1 || points > 10) fail(400, 'Puan 1-10 arasında olmalı.');
+  const difficulty = Number.isInteger(item?.difficulty) ? item.difficulty : 3;
+  if (difficulty < 1 || difficulty > 5) fail(400, 'Zorluk 1-5 arasında olmalı.');
+  const explanation = item?.explanation ? str(item.explanation, 1000) : null;
+  if (kind === 'text') return { topic, kind, text, points, difficulty, explanation, options: null, correctIndex: null };
+  const options = Array.isArray(item?.options) ? item.options.slice(0, 5).map(v => str(v, 300)) : [];
+  if (options.length < 2 || options.some(v => !v)) fail(400, 'Soruda en az iki dolu seçenek olmalı.');
+  const correctIndex = Number.isInteger(item?.correctIndex) ? item.correctIndex : -1;
+  if (correctIndex < 0 || correctIndex >= options.length) fail(400, 'Doğru cevap seçilmemiş.');
+  return { topic, kind, text, points, difficulty, explanation, options, correctIndex };
+}
+
+on('GET', '/api/qbank', async ({ user, query }) => {
+  const params = [user.id];
+  const conditions = ['owner_id = $1'];
+  const topic = str(query.get('topic'), 160).toLocaleLowerCase('tr-TR');
+  if (topic) { params.push(`%${escapeLike(topic)}%`); conditions.push(`lower(topic) like $${params.length}`); }
+  const kind = ['choice', 'text'].includes(query.get('kind')) ? query.get('kind') : null;
+  if (kind) { params.push(kind); conditions.push(`kind = $${params.length}`); }
+  const search = str(query.get('q'), 80).toLocaleLowerCase('tr-TR');
+  if (search) { params.push(`%${escapeLike(search)}%`); conditions.push(`lower(text) like $${params.length}`); }
+  const where = conditions.join(' and ');
+  const { page, size, offset } = pageOf(query, 25);
+  const { rows: [{ n }] } = await q(`select count(*)::int as n from quiz_bank where ${where}`, params);
+  params.push(size, offset);
+  const { rows } = await q(`select id, topic, subject_id as "subjectId", kind, text, options,
+      correct_index as "correctIndex", explanation, points, difficulty, created_at as "createdAt"
+    from quiz_bank where ${where} order by created_at desc
+    limit $${params.length - 1} offset $${params.length}`, params);
+  return ok({ questions: rows, total: n, page, size });
+}, { roles: STAFF });
+
+on('POST', '/api/qbank', async ({ body, user }) => {
+  const item = normalizeBankQuestion(body);
+  const subjectId = body.subjectId ? requireId(body.subjectId, 'ders') : null;
+  const { rows: [row] } = await q(`insert into quiz_bank (owner_id, topic, subject_id, kind, text, options, correct_index, explanation, points, difficulty)
+    values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) returning id`,
+  [user.id, item.topic, subjectId, item.kind, item.text, item.options ? JSON.stringify(item.options) : null, item.correctIndex, item.explanation, item.points, item.difficulty]);
+  await audit(user, 'qbank_created', item.topic, { kind: item.kind });
+  return created({ id: row.id });
+}, { roles: STAFF });
+
+on('PATCH', '/api/qbank/:id', async ({ params, body, user }) => {
+  const id = requireId(params.id, 'soru');
+  const { rows: [existing] } = await q(`select topic, kind, text, options, correct_index as "correctIndex",
+      explanation, points, difficulty, subject_id as "subjectId" from quiz_bank where id = $1 and owner_id = $2`, [id, user.id]);
+  if (!existing) fail(404, 'Soru bulunamadı.');
+  // Gövdede gelmeyen alanlar mevcut kayıtla tamamlanır; sahiplik doğrulaması önce yapılır.
+  const item = normalizeBankQuestion({
+    topic: body.topic ?? existing.topic,
+    kind: body.kind ?? existing.kind,
+    text: body.text ?? existing.text,
+    options: body.options ?? existing.options,
+    correctIndex: body.correctIndex ?? existing.correctIndex,
+    explanation: body.explanation ?? existing.explanation,
+    points: body.points ?? existing.points,
+    difficulty: body.difficulty ?? existing.difficulty,
+  });
+  const values = [id, user.id];
+  const sets = [];
+  for (const [column, value] of [['topic', item.topic], ['kind', item.kind], ['text', item.text],
+    ['options', item.options ? JSON.stringify(item.options) : null], ['correct_index', item.correctIndex],
+    ['explanation', item.explanation], ['points', item.points], ['difficulty', item.difficulty],
+    ['subject_id', body.subjectId ? requireId(body.subjectId, 'ders') : existing.subjectId]]) {
+    values.push(value); sets.push(`${column} = $${values.length}`);
+  }
+  await q(`update quiz_bank set ${sets.join(', ')} where id = $1 and owner_id = $2`, values);
+  await audit(user, 'qbank_updated', item.topic);
+  return ok({ updated: true });
+}, { roles: STAFF });
+
+on('DELETE', '/api/qbank/:id', async ({ params, user }) => {
+  const id = requireId(params.id, 'soru');
+  const { rows: [row] } = await q('select topic from quiz_bank where id = $1 and owner_id = $2', [id, user.id]);
+  if (!row) fail(404, 'Soru bulunamadı.');
+  await q('delete from quiz_bank where id = $1', [id]);
+  await audit(user, 'qbank_deleted', row.topic);
+  return ok({ deleted: true });
+}, { roles: STAFF });
+
 // ---------- Davranış, gözlem notları, ders programı, takvim, karne (v16) ----------
 const BADGE_RULES = [[1, 'İlk adım'], [10, 'Yıldız'], [25, 'Usta'], [50, 'Efsane']];
 const badgesFor = total => BADGE_RULES.filter(([min]) => total >= min).map(([, name]) => name);

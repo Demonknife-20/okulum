@@ -2035,6 +2035,7 @@ function quizQuestionBlock() {
   const uid = Math.random().toString(36).slice(2, 8);
   return `<div class="quiz-q" data-kind="choice">
     <div class="quiz-q-head"><strong class="qno">Soru</strong>
+      <button class="icon-btn sm" type="button" data-action="quiz-save-bank" title="Bankaya kaydet" aria-label="Soruyu soru bankasına kaydet">${icon('star')}</button>
       <button class="icon-btn sm" type="button" data-action="quiz-remove-q" aria-label="Soruyu kaldır">${icon('close')}</button></div>
     <label class="field"><span>Soru türü</span><select name="kind" data-change="quizKind">
       <option value="choice">Çoktan seçmeli</option><option value="text">Açık uçlu (elle puanlanır)</option></select></label>
@@ -2086,7 +2087,9 @@ function quizForm() {
         <button class="btn ghost" type="button" data-action="quiz-ai-run">${icon('spark')}<span>Taslağı oluştur</span></button>
       </div>
     </details>
+    ${bankPullBox()}
     <div id="quizQuestions">${quizQuestionBlock()}</div>
+    <button class="btn ghost" type="button" data-action="quiz-bank-add">${icon('download')}<span>Seçili soruları sınava ekle</span></button>
     <button class="btn ghost" type="button" data-action="quiz-add-q">${icon('plus')}<span>Soru ekle</span></button>
     <label class="switch switch-line"><input type="checkbox" name="shuffleOptions"><span class="switch-ui" aria-hidden="true"></span><span><strong>Seçenekleri karıştır</strong><small>Her öğrenciye şıklar farklı sırada gösterilir. Puanlama değişmez.</small></span></label>
     <p class="form-error" data-error role="alert"></p>
@@ -2220,6 +2223,219 @@ ACTIONS['quiz-delete'] = async el => {
   await api(`/quizzes/${el.dataset.id}`, { method: 'DELETE' });
   toast('Sınav silindi');
   refresh();
+};
+
+// ---------- Soru bankası (v83) ----------
+const DIFF_LABEL = ['', 'Çok kolay', 'Kolay', 'Orta', 'Zor', 'Çok zor'];
+
+function bankQuestionForm(q = {}) {
+  const options = q.options && q.options.length ? q.options : ['', '', '', ''];
+  const correct = q.correctIndex ?? 0;
+  const kind = q.kind === 'text' ? 'text' : 'choice';
+  const uid = Math.random().toString(36).slice(2, 8);
+  return `<form class="stack" data-form="qbank-save" ${q.id ? `data-id="${esc(q.id)}"` : ''}>
+    <div class="grid-2">
+      <label class="field"><span>Konu</span><input name="topic" required maxlength="160" value="${esc(q.topic || '')}" placeholder="Örn. Kesirler"></label>
+      <label class="field"><span>Soru türü</span><select name="kind" data-change="bankModalKind">
+        <option value="choice" ${kind === 'choice' ? 'selected' : ''}>Çoktan seçmeli</option><option value="text" ${kind === 'text' ? 'selected' : ''}>Açık uçlu</option></select></label>
+    </div>
+    <label class="field"><span>Soru metni</span><textarea name="text" rows="3" maxlength="1000" required>${esc(q.text || '')}</textarea></label>
+    <div data-bank-opts ${kind === 'text' ? 'hidden' : ''}>${[0, 1, 2, 3].map(i => `<label class="quiz-opt">
+      <input type="radio" name="bankcorrect-${uid}" value="${i}" ${i === correct ? 'checked' : ''} aria-label="Doğru cevap ${i + 1}">
+      <input name="opt" maxlength="300" placeholder="Seçenek ${i + 1}" value="${esc(options[i] ?? '')}">
+    </label>`).join('')}</div>
+    <label class="field"><span>Açıklama (isteğe bağlı)</span><input name="explanation" maxlength="1000" value="${esc(q.explanation || '')}"></label>
+    <div class="grid-2">
+      <label class="field"><span>Puan</span><select name="points">${[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(v => `<option value="${v}" ${v === (q.points ?? 1) ? 'selected' : ''}>${v}</option>`).join('')}</select></label>
+      <label class="field"><span>Zorluk</span><select name="difficulty">${[1, 2, 3, 4, 5].map(v => `<option value="${v}" ${v === (q.difficulty ?? 3) ? 'selected' : ''}>${DIFF_LABEL[v]}</option>`).join('')}</select></label>
+    </div>
+    <p class="form-error" data-error role="alert"></p>
+    <div class="form-actions"><button class="btn ghost" type="button" data-action="close-modal">Vazgeç</button><button class="btn primary" type="submit">Kaydet</button></div>
+  </form>`;
+}
+
+CHANGES.bankModalKind = el => {
+  const box = el.closest('form').querySelector('[data-bank-opts]');
+  if (box) box.hidden = el.value === 'text';
+};
+
+async function pageQbank(params) {
+  const search = params.q || '';
+  const kind = params.kind || '';
+  const query = new URLSearchParams({ ...(search ? { q: search } : {}), ...(kind ? { kind } : {}) });
+  const { questions, total } = await api(`/qbank?${query}`);
+  bankIndex = new Map(questions.map(item => [item.id, item]));
+  const rows = questions.map(item => `<tr>
+    <td><strong>${esc(item.topic)}</strong></td>
+    <td><small class="cell-note">${esc(item.text.slice(0, 90))}${item.text.length > 90 ? '…' : ''}</small></td>
+    <td>${badge(item.kind === 'text' ? 'Açık uçlu' : 'Çoktan seçmeli', item.kind === 'text' ? 'neutral' : 'ok')}</td>
+    <td>${esc(DIFF_LABEL[item.difficulty])}</td>
+    <td>${item.points}</td>
+    <td class="row-actions">
+      <button class="icon-btn sm" type="button" data-action="bank-edit" data-id="${esc(item.id)}" aria-label="Soruyu düzenle">✎</button>
+      <button class="icon-btn sm" type="button" data-action="bank-delete" data-id="${esc(item.id)}" aria-label="Soruyu sil">${icon('trash')}</button>
+    </td></tr>`).join('');
+  return { html: `${head('Soru Bankası', 'Kayrettiğin soruları sakla; yeni sınav hazırlarken bankadan seçip kullan.',
+      `<button class="btn primary" type="button" data-action="bank-new">${icon('plus')}<span>Yeni soru</span></button>`)}
+    <section class="panel">
+      <div class="toolbar">
+        <form class="search-form" data-form="bank-search" role="search">
+          <input type="search" name="q" value="${esc(search)}" placeholder="Soru veya konu ara…" maxlength="80" aria-label="Bankada ara">
+          <button class="btn ghost sm" type="submit">Ara</button>
+        </form>
+        <label class="inline-field"><span>Tür</span>
+          <select data-change="filterBank"><option value="">Tümü</option>
+            <option value="choice" ${kind === 'choice' ? 'selected' : ''}>Çoktan seçmeli</option>
+            <option value="text" ${kind === 'text' ? 'selected' : ''}>Açık uçlu</option></select></label>
+        <span class="muted">${total} soru</span>
+      </div>
+      ${questions.length
+        ? `<div class="table-wrap"><table class="table"><thead><tr><th>Konu</th><th>Soru</th><th>Tür</th><th>Zorluk</th><th>Puan</th><th><span class="sr-only">İşlemler</span></th></tr></thead><tbody>${rows}</tbody></table></div>`
+        : empty(search || kind ? 'Bu filtrede soru yok' : 'Banka boş',
+          search || kind ? 'Filtreyi temizleyip yeniden dene ya da yeni bir soru ekle.' : 'Bir sınav sorusunu "Bankaya kaydet" düğmesiyle buraya ekleyebilir ya da yeni soru oluşturabilirsin.')}
+    </section>` };
+}
+
+let bankIndex = new Map();
+
+FORMS['bank-search'] = async form => setQuery('qbank', { q: val(form, 'q').trim(), kind: parseHash().params.kind || '' });
+CHANGES.filterBank = el => setQuery('qbank', { ...parseHash().params, kind: el.value });
+
+ACTIONS['bank-new'] = () => openModal('Bankaya yeni soru', bankQuestionForm());
+ACTIONS['bank-edit'] = el => {
+  const item = bankIndex.get(el.dataset.id);
+  if (item) openModal('Soruyu düzenle', bankQuestionForm(item));
+};
+ACTIONS['bank-delete'] = async el => {
+  const yes = await confirmDialog('Soruyu sil', 'Kayıt kalıcı olarak silinir. Sınavlara eklenmiş sorular etkilenmez.');
+  if (!yes) return;
+  await api(`/qbank/${el.dataset.id}`, { method: 'DELETE' });
+  toast('Soru bankadan silindi');
+  refresh();
+};
+
+FORMS['qbank-save'] = async form => {
+  const kind = val(form, 'kind');
+  const body = {
+    topic: val(form, 'topic').trim(),
+    kind,
+    text: val(form, 'text').trim(),
+    explanation: val(form, 'explanation').trim() || undefined,
+    points: Number(val(form, 'points')),
+    difficulty: Number(val(form, 'difficulty')),
+  };
+  if (kind === 'choice') {
+    const inputs = [...form.querySelectorAll('[data-bank-opts] input[name=opt]')];
+    const values = inputs.map(i => i.value.trim());
+    const checked = form.querySelector('[data-bank-opts] input[type=radio]:checked');
+    const options = values.filter(Boolean);
+    if (options.length < 2) throw new Error('En az iki seçenek yaz.');
+    if (!checked || !values[Number(checked.value)]) throw new Error('Doğru cevabı işaretleyin (işaretli seçenek boş olamaz).');
+    body.options = options;
+    body.correctIndex = options.indexOf(values[Number(checked.value)]);
+  }
+  if (form.dataset.id) await api(`/qbank/${form.dataset.id}`, { method: 'PATCH', body });
+  else await api('/qbank', { method: 'POST', body });
+  closeModal();
+  toast(form.dataset.id ? 'Soru güncellendi' : 'Soru bankaya eklendi');
+  if (parseHash().page === 'qbank') refresh();
+};
+
+// Sınav formundaki soru bloğundan banka kaydına gövde üretir
+function bankBodyFromBlock(block, topic) {
+  const text = block.querySelector('[name=qtext]').value.trim();
+  if (!text) throw new Error('Boş soru bankaya kaydedilemez.');
+  const kind = block.querySelector('[name=kind]').value === 'text' ? 'text' : 'choice';
+  const body = { topic, kind, text, points: Number(block.querySelector('[name=points]').value) || 1 };
+  if (kind === 'text') return body;
+  const rows = [...block.querySelectorAll('.quiz-opt')];
+  const values = rows.map(row => row.querySelector('input[name=opt]').value.trim());
+  const checked = rows.findIndex(row => row.querySelector('input[type=radio]').checked);
+  const options = values.filter(Boolean);
+  if (options.length < 2) throw new Error('Bankaya kaydetmeden önce bu soruya en az iki seçenek yaz.');
+  if (checked < 0 || !values[checked]) throw new Error('Doğru cevabı işaretleyin.');
+  body.options = options;
+  body.correctIndex = options.indexOf(values[checked]);
+  return body;
+}
+
+ACTIONS['quiz-save-bank'] = async el => {
+  const block = el.closest('.quiz-q');
+  if (block.dataset.bankId) { toast('Bu soru zaten bankada'); return; }
+  const topic = (document.querySelector('#modalBody [name=title]')?.value || '').trim();
+  if (topic.length < 2) { toast('Sınav başlığı konu olarak kullanılacak; önce başlığı yaz.', 'error'); return; }
+  const { id } = await api('/qbank', { method: 'POST', body: bankBodyFromBlock(block, topic) });
+  block.dataset.bankId = id;
+  el.remove();
+  block.querySelector('.quiz-q-head')?.insertAdjacentHTML('afterbegin', '<span class="badge ok">bankada</span>');
+  toast('Soru bankaya kaydedildi');
+};
+
+// Sınav formundaki "bankadan getir" kutusunun son arama sonuçları
+const bankPullIndex = new Map();
+
+// Bankadan getirme kutusu: konu araması ve şık özeti sınav formunun içinde açılır
+function bankPullBox() {
+  return `<details class="ai-box">
+    <summary><span>Soru bankasından getir</span><small>Kaydettiğin soruları ara, seçip sınava ekle.</small></summary>
+    <div class="ai-box-body">
+      <div class="grid-2">
+        <label class="field"><span>Konu veya soru ara</span><input name="bankTopic" maxlength="160" placeholder="Örn. Kesirler"></label>
+        <label class="field"><span>Tür</span><select name="bankKind"><option value="">Tümü</option><option value="choice">Çoktan seçmeli</option><option value="text">Açık uçlu</option></select></label>
+      </div>
+      <button class="btn ghost" type="button" data-action="quiz-bank-search">${icon('help')}<span>Listele</span></button>
+      <div data-bank-results class="stack"></div>
+    </div>
+  </details>`;
+}
+
+ACTIONS['quiz-bank-search'] = async el => {
+  const box = el.closest('.ai-box-body');
+  const results = box.querySelector('[data-bank-results]');
+  el.disabled = true;
+  try {
+    const topicInput = box.querySelector('[name=bankTopic]');
+    const kindSelect = box.querySelector('[name=bankKind]');
+    const query = new URLSearchParams({ ...(topicInput.value.trim() ? { q: topicInput.value.trim() } : {}), ...(kindSelect.value ? { kind: kindSelect.value } : {}) });
+    const { questions } = await api(`/qbank?${query}`);
+    questions.forEach(item => bankPullIndex.set(item.id, item));
+    results.innerHTML = questions.length
+      ? questions.slice(0, 25).map(item => `<label class="quiz-opt"><input type="checkbox" value="${esc(item.id)}">
+          <span><strong>${esc(item.topic)}</strong><small class="cell-note">${esc(item.text.slice(0, 80))}${item.text.length > 80 ? '…' : ''}</small>${item.kind === 'choice' ? `<small class="cell-note">${(item.options || []).map((o, i) => `${i === item.correctIndex ? '✓ ' : ''}${esc(o)}`).join(' · ')}</small>` : ''}</span></label>`).join('')
+      : '<p class="muted small">Bu filtrede soru yok. Sınav sorularını "Bankaya kaydet" ile buraya ekleyebilirsin.</p>';
+  } finally {
+    el.disabled = false;
+  }
+};
+
+ACTIONS['quiz-bank-add'] = async () => {
+  const checked = [...document.querySelectorAll('[data-bank-results] input[type=checkbox]:checked')];
+  if (!checked.length) { toast('Bankadan eklemek için en az bir soru seç.', 'error'); return; }
+  for (const input of checked) {
+    const item = bankPullIndex.get(input.value);
+    if (!item) continue;
+    const box = document.querySelector('#quizQuestions');
+    if (box.querySelectorAll('.quiz-q').length >= 50) throw new Error('Bir sınavda en fazla 50 soru olabilir.');
+    box.insertAdjacentHTML('beforeend', quizQuestionBlock());
+    const block = box.lastElementChild;
+    block.querySelector('[name=qtext]').value = item.text;
+    block.querySelector('[name=kind]').value = item.kind;
+    block.dataset.kind = item.kind;
+    const pointsSelect = block.querySelector('[name=points]');
+    if (pointsSelect) pointsSelect.value = String(item.points);
+    if (item.kind === 'choice') {
+      const rows = [...block.querySelectorAll('.quiz-opt')];
+      rows.forEach((row, index) => { row.querySelector('input[name=opt]').value = item.options[index] ?? ''; });
+      const radio = rows[item.correctIndex]?.querySelector('input[type=radio]');
+      if (radio) radio.checked = true;
+    }
+    block.dataset.bankId = item.id;
+    block.querySelector('.quiz-q-head')?.insertAdjacentHTML('afterbegin', '<span class="badge ok">bankada</span>');
+    block.querySelector('[data-action=quiz-save-bank]')?.remove();
+    input.closest('label').remove();
+  }
+  renumberQuestions();
+  toast('Bankadan sorular eklendi');
 };
 
 // Sınav detayı: öğretmen sonuçları, öğrenci çözme ve sonuç ekranı
@@ -4570,7 +4786,7 @@ const PAGES = {
   yardim: async () => ({ html: helpHtml() }),
   panolar: pagePanolar, pano: pageBoard, asistan: pageAsistan,
   cocuklar: pageCocuklar, sinavlar: pageSinavlar, sinav: pageSinav, notlar: pageNotlar,
-  davranis: pageDavranis, puanlarim: pagePuanlarim, program: pageProgram, takvim: pageTakvim, karne: pageKarne, canli: pageCanli, analiz: pageAnaliz, izin: pageIzin, gece: pageGece, geogebra: pageGeogebra, deneyler: pageFizik, fizik: pageFizik, kimya: pageKimya, bilgisayar: pageBilgisayar,
+  davranis: pageDavranis, puanlarim: pagePuanlarim, program: pageProgram, takvim: pageTakvim, karne: pageKarne, canli: pageCanli, analiz: pageAnaliz, izin: pageIzin, gece: pageGece, geogebra: pageGeogebra, deneyler: pageFizik, fizik: pageFizik, kimya: pageKimya, bilgisayar: pageBilgisayar, qbank: pageQbank,
 };
 export function renderView(page, params) {
   if (page === 'overview' && state.me.role === 'parent') return pageParentOverview();

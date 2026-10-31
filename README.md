@@ -643,3 +643,12 @@ Müdür tüm okulu, öğretmen kendi derslerini, öğrenci yalnızca kendi devam
 
 - Tüm ana sayfalar tarayıcıda taranıp ihlaller giderildi: başlık sırası (kart, gün, boş durum ve pano başlıkları anlamsal paragrafa çevrildi), yinelenen gezinme etiketi, takvim diğer ay gün kontrastı, tablo başlığı metinleri.
 - Tarama `test/e2e/erisilebilirlik.py` içinde 22 rota ile çalışır. Taramada ihlal kalmadı; bu yalnızca otomatik kontrollerin sonucudur.
+
+## Sürüm 83: soru bankası
+
+- `quiz_bank` tablosu (sürüm 12'de kurulmuş, arayüzü hiç yoktu) artık tam olarak kullanılıyor: `#/soru-bankasi` sayfası, konu ve tür filtresi, sayfalı liste, ekleme/düzenleme/silme.
+- Yeni alanlar: `difficulty` (1-5) ve `points` (1-10) — migrasyon `0017_quiz_bank_expand.sql`.
+- Banka kişiseldir: soruları yalnızca sahibi olan öğretmen görür ve düzenler. Müdür başka öğretmenin bankasını listelemez; öğrenci uçlarına 403 döner. Kayıt, güncelleme ve silme denetim kaydına yazılır.
+- Sınav formuna iki yeni bağlantı: soru bloğundaki yıldız düğmesi soruyu bankaya kaydeder (kaydedilen bloğun yerinde "bankada" rozeti kalır), "Bankadan getir" kutusu ise konu araması yapıp seçilen soruları sınavın soru listesine ekler.
+- Bankadan eklenen soru sınavın kopyası olur: banka kaydı silinse bile sınav bozulmaz.
+
