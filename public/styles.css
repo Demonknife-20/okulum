@@ -2269,3 +2269,6 @@ html.fx-off .public-view,html.fx-off .content{animation:none!important}
 /* Bankaya kaydedilen sorunun düğmesi kaldırılır, yerine rozet gelir */
 .quiz-q-head .badge{margin-right:auto}
 
+/* ===== v84: ödev içine bağlanan sınav ===== */
+/* Ödev kartındaki sınav satırı talimat metninden ayrışır, bağlantı öne çıkar */
+.instructions.quiz-attach{border-left:3px solid color-mix(in srgb,var(--brand) 45%,var(--line));padding-left:10px}

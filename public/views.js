@@ -221,6 +221,7 @@ function assignmentCards(items) {
         </header>
         ${a.instructions ? `<p class="instructions">${esc(a.instructions)}</p>` : ''}
         ${sub?.feedback ? `<p class="feedback"><strong>Öğretmen notu:</strong> ${esc(sub.feedback)}</p>` : ''}
+        ${a.quizId ? `<p class="instructions quiz-attach">Bu ödevin mini sınavı var${a.quizSubmitted ? ' (tamamlandı)' : ''}: <a class="link" href="#/sinav?id=${esc(a.quizId)}">${esc(a.quizTitle || 'Sınava git')}</a> (${a.quizQuestionCount} soru)</p>` : ''}
         <footer class="card-actions">
           ${a.hasFile ? `<a class="btn ghost sm" href="${apiUrl(`/files/assignment/${esc(a.id)}`)}">${icon('download')}<span>Ödev dosyası</span></a>` : ''}
           ${sub ? `<a class="btn ghost sm" href="${apiUrl(`/files/submission/${esc(sub.id)}`)}">${icon('download')}<span>Teslimim</span></a>` : ''}
@@ -249,7 +250,7 @@ async function pageAssignments(params) {
     : state.classes;
   const rows = assignments.map(a => `
     <tr>
-      <td><strong>${esc(a.title)}</strong>${a.instructions ? `<small class="cell-note">${esc(a.instructions.slice(0, 100))}</small>` : ''}</td>
+      <td><strong>${esc(a.title)}</strong>${a.instructions ? `<small class="cell-note">${esc(a.instructions.slice(0, 100))}</small>` : ''}${a.quizId ? `<small class="cell-note">Sınav: ${esc(a.quizTitle)} (${a.quizQuestionCount} soru)</small>` : ''}</td>
       <td>${esc(a.className)}<small class="cell-note">${esc(a.subjectName)}</small></td>
       <td>${esc(fmtDate(a.dueAt))}</td>
       <td>${badge(kindLabel(a.kind), a.kind === 'online' ? 'ok' : 'neutral')}</td>
@@ -304,16 +305,22 @@ ACTIONS['edit-assignment'] = el => {
     <label class="field"><span>Ödev başlığı</span><input name="title" required maxlength="160" value="${esc(a.title)}"></label>
     <label class="field"><span>Son teslim</span><input name="dueAt" type="datetime-local" value="${esc(toLocalInput(a.dueAt))}"></label>
     <label class="field"><span>Yönerge</span><textarea name="instructions" rows="3" maxlength="2000">${esc(a.instructions)}</textarea></label>
+    <label class="field"><span>Sınavı ödeve bağla</span>
+      <select name="quizId" disabled><option value="">Yükleniyor…</option></select>
+      <small>Yalnızca bu sınıf ve dersin yayınlanmış sınavları listelenir.</small></label>
     <p class="muted small">Dosyayı değiştirmek için ödevi silip yeniden oluşturman gerekir.</p>
     <p class="form-error" data-error role="alert"></p>
     <div class="form-actions"><button class="btn ghost" type="button" data-action="close-modal">Vazgeç</button><button class="btn primary" type="submit">Kaydet</button></div>
   </form>`);
+  const form = document.querySelector('#modalBody form');
+  fillAssignmentQuizSelect(form.querySelector('[name=quizId]'), a.classId, a.subjectId, a.quizId || '');
 };
 
 FORMS['edit-assignment'] = async form => {
   const due = val(form, 'dueAt');
   await api(`/assignments/${form.dataset.id}`, { method: 'PATCH', body: {
     title: val(form, 'title'), instructions: val(form, 'instructions'), dueAt: due ? new Date(due).toISOString() : null,
+    quizId: val(form, 'quizId') || null,
   } });
   closeModal();
   toast('Ödev güncellendi');
@@ -324,7 +331,7 @@ function assignmentForm() {
   return `<form class="stack" data-form="assignment">
     <label class="field"><span>Ödev başlığı</span><input name="title" required maxlength="160" placeholder="Örn. Kesirler çalışma kâğıdı"></label>
     <label class="field"><span>Sınıf ve ders</span>
-      <select name="pair" required>${state.teaching.map(t => `<option value="${esc(t.classId)}|${esc(t.subjectId)}">${esc(t.className)} · ${esc(t.subjectName)}</option>`).join('')}</select>
+      <select name="pair" data-change="assignPair" required>${state.teaching.map(t => `<option value="${esc(t.classId)}|${esc(t.subjectId)}">${esc(t.className)} · ${esc(t.subjectName)}</option>`).join('')}</select>
     </label>
     <div class="grid-2">
       <label class="field"><span>Tür</span>
@@ -333,6 +340,10 @@ function assignmentForm() {
       <label class="field"><span>Son teslim</span><input name="dueAt" type="datetime-local"></label>
     </div>
     <label class="field"><span>Yönerge</span><textarea name="instructions" rows="3" maxlength="2000" placeholder="Örn. Ders kitabı sayfa 42, 1–10 arası sorular"></textarea></label>
+    <label class="field"><span>Sınavı ödeve bağla (isteğe bağlı)</span>
+      <select name="quizId" disabled><option value="">Yükleniyor…</option></select>
+      <small>Yalnızca seçilen sınıf ve dersin yayınlanmış sınavları listelenir. Öğrenci ödev kartından sınava girer.</small>
+    </label>
     <label class="field"><span>Ödev dosyası (isteğe bağlı)</span>
       <input name="file" type="file" accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"><small>PDF, Word veya görsel · en fazla 5 MB</small>
     </label>
@@ -341,7 +352,34 @@ function assignmentForm() {
   </form>`;
 }
 
-ACTIONS['new-assignment'] = () => openModal('Yeni ödev', assignmentForm());
+// Ödeve bağlanabilecek yayınlanmış sınavları seçme kutusuna doldurur (v84)
+async function fillAssignmentQuizSelect(select, classId, subjectId, selectedId = '') {
+  if (!select) return;
+  select.disabled = true;
+  select.innerHTML = '<option value="">Yükleniyor…</option>';
+  try {
+    const { quizzes } = await api('/quizzes');
+    const options = quizzes.filter(z => z.published && z.classId === classId && z.subjectId === subjectId);
+    select.innerHTML = `<option value="">Bağlı sınav yok</option>${options.map(z => `<option value="${esc(z.id)}" ${z.id === selectedId ? 'selected' : ''}>${esc(z.title)} · ${z.questionCount} soru</option>`).join('')}`;
+    select.disabled = false;
+  } catch {
+    select.innerHTML = '<option value="">Sınavlar yüklenemedi</option>';
+  }
+}
+
+CHANGES.assignPair = el => {
+  const [classId, subjectId] = el.value.split('|');
+  const select = el.closest('form').querySelector('[name=quizId]');
+  fillAssignmentQuizSelect(select, classId, subjectId);
+};
+
+ACTIONS['new-assignment'] = () => {
+  openModal('Yeni ödev', assignmentForm());
+  const form = document.querySelector('#modalBody form');
+  if (!form) return;
+  const [classId, subjectId] = form.querySelector('[name=pair]').value.split('|');
+  fillAssignmentQuizSelect(form.querySelector('[name=quizId]'), classId, subjectId);
+};
 
 FORMS.assignment = async form => {
   const [classId, subjectId] = val(form, 'pair').split('|');
@@ -350,6 +388,7 @@ FORMS.assignment = async form => {
   const body = {
     title: val(form, 'title'), classId, subjectId, kind: val(form, 'kind'),
     instructions: val(form, 'instructions'), dueAt: due ? new Date(due).toISOString() : null,
+    quizId: val(form, 'quizId') || null,
   };
   if (file) body.file = await readFile(file);
   await api('/assignments', { method: 'POST', body });

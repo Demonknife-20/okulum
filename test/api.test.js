@@ -1058,6 +1058,70 @@ test('soru bankasından sınava soru eklenir (banka kaydı silinse de sınav boz
   assert.equal((await call('DELETE', `/api/quizzes/${created.data.id}`, { cookie: state.ayse })).status, 200);
 });
 
+test('ödev: yayınlanmış sınav ödeve bağlanır, bağlantı kaldırılabilir', async () => {
+  const now = Date.now();
+  const attachable = await call('POST', '/api/quizzes', { cookie: state.ayse, body: {
+    title: 'Ödev yan sınavı', classId: state.class6A, subjectId: state.math,
+    opensAt: new Date(now - 60e3).toISOString(), closesAt: new Date(now + 86400e3).toISOString(), timeLimitMinutes: 10, published: true,
+    questions: [{ text: '2/4 sadeleştirilmiş hali?', options: ['1/2', '2/1'], correctIndex: 0 }],
+  } });
+  assert.equal(attachable.status, 201, JSON.stringify(attachable.data));
+  const draft = await call('POST', '/api/quizzes', { cookie: state.ayse, body: {
+    title: 'Taslak yan sınav', classId: state.class6A, subjectId: state.math,
+    opensAt: new Date(now - 60e3).toISOString(), closesAt: new Date(now + 86400e3).toISOString(), published: false,
+    questions: [{ text: 'Soru', options: ['a', 'b'], correctIndex: 0 }],
+  } });
+  assert.equal(draft.status, 201, JSON.stringify(draft.data));
+  // 7/B sınıfı daha eski bir testte silindiği için "başka sınıf-ders çifti" örneği
+  // taze açılan bir öğretmenin 6/A Türkçe dersiyle kurulur.
+  const kemal = await call('POST', '/api/users', { cookie: state.principal, body: {
+    role: 'teacher', name: 'Kemal Hoca', username: 'kemal', password: 'ogretmen-4321',
+    teaching: [{ classId: state.class6A, subjectId: state.turkish }],
+  } });
+  assert.equal(kemal.status, 201, JSON.stringify(kemal.data));
+  const kemalCookie = await login('kemal', 'ogretmen-4321');
+  const otherPair = await call('POST', '/api/quizzes', { cookie: kemalCookie, body: {
+    title: '6/A Türkçe sınavı', classId: state.class6A, subjectId: state.turkish,
+    opensAt: new Date(now - 60e3).toISOString(), closesAt: new Date(now + 86400e3).toISOString(), published: true,
+    questions: [{ text: 'Soru', options: ['a', 'b'], correctIndex: 0 }],
+  } });
+  assert.equal(otherPair.status, 201, JSON.stringify(otherPair.data));
+  // Kurallar: taslak ve başka sınıf-ders çiftine ait sınav bağlanamaz
+  const base = { title: 'Bağlantılı ödev', classId: state.class6A, subjectId: state.math };
+  assert.equal((await call('POST', '/api/assignments', { cookie: state.ayse, body: { ...base, quizId: draft.data.id } })).status, 400, 'taslak sınav bağlanamaz');
+  assert.equal((await call('POST', '/api/assignments', { cookie: state.ayse, body: { ...base, quizId: otherPair.data.id } })).status, 400, 'başka sınıf-ders sınavı bağlanamaz');
+  assert.equal((await call('POST', '/api/assignments', { cookie: state.ayse, body: { ...base, quizId: 'bozuk-id' } })).status, 400, 'geçersiz kimlik');
+  const linked = await call('POST', '/api/assignments', { cookie: state.ayse, body: { ...base, quizId: attachable.data.id } });
+  assert.equal(linked.status, 201, JSON.stringify(linked.data));
+  const teacherView = (await call('GET', '/api/assignments?size=50', { cookie: state.ayse })).data.assignments.find(a => a.id === linked.data.id);
+  assert.equal(teacherView.quizId, attachable.data.id);
+  assert.equal(teacherView.quizTitle, 'Ödev yan sınavı');
+  assert.equal(teacherView.quizQuestionCount, 1);
+  // Öğrenci: sınava henüz girmediği için quizSubmitted false; girince true
+  const studentView = () => call('GET', '/api/assignments?size=50', { cookie: state.ece });
+  const before = (await studentView()).data.assignments.find(a => a.id === linked.data.id);
+  assert.equal(before.quizSubmitted, false);
+  const attempt = await call('POST', `/api/quizzes/${attachable.data.id}/attempts`, { cookie: state.ece });
+  assert.equal(attempt.status, 201, JSON.stringify(attempt.data));
+  const qs = (await call('GET', `/api/quizzes/${attachable.data.id}`, { cookie: state.ece })).data.questions;
+  await call('PUT', `/api/quiz-attempts/${attempt.data.attemptId}/answers`, { cookie: state.ece, body: { answers: [{ questionId: qs[0].id, selected: 0 }] } });
+  assert.equal((await call('POST', `/api/quiz-attempts/${attempt.data.attemptId}/submit`, { cookie: state.ece })).status, 200);
+  const after = (await studentView()).data.assignments.find(a => a.id === linked.data.id);
+  assert.equal(after.quizSubmitted, true, 'tamamlanan sınav öğrenci kartında görünür');
+  // Düzenleme: bağlantı kaldırılabilir
+  assert.equal((await call('PATCH', `/api/assignments/${linked.data.id}`, { cookie: state.ayse, body: { quizId: null } })).status, 200);
+  assert.equal((await call('GET', '/api/assignments?size=50', { cookie: state.ayse })).data.assignments.find(a => a.id === linked.data.id).quizId, null);
+  // Sınav silinince bağlantı kendiliğinden kalkar (on delete set null)
+  assert.equal((await call('PATCH', `/api/assignments/${linked.data.id}`, { cookie: state.ayse, body: { quizId: attachable.data.id } })).status, 200);
+  assert.equal((await call('DELETE', `/api/quizzes/${attachable.data.id}`, { cookie: state.ayse })).status, 200);
+  assert.equal((await call('GET', '/api/assignments?size=50', { cookie: state.ayse })).data.assignments.find(a => a.id === linked.data.id).quizId, null);
+  assert.equal((await call('DELETE', `/api/assignments/${linked.data.id}`, { cookie: state.ayse })).status, 200);
+  assert.equal((await call('DELETE', `/api/quizzes/${draft.data.id}`, { cookie: state.ayse })).status, 200);
+  assert.equal((await call('DELETE', `/api/quizzes/${otherPair.data.id}`, { cookie: kemalCookie })).status, 200);
+  // Kemal'in dersi ve hesabı kaldırılır: sonraki testlerin kişi sayıları değişmez
+  assert.equal((await call('DELETE', `/api/users/${kemal.data.user.id}`, { cookie: state.principal })).status, 200);
+});
+
 test('google sayfaları: kılavuz, hakkında, site haritası, robots ve kurulabilir uygulama dosyası yayında', async () => {
   const guide = await call('GET', '/kullanim');
   assert.equal(guide.status, 200);

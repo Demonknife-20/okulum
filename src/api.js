@@ -164,6 +164,9 @@ async function assignmentFiles(ids) {
 const ASSIGNMENT_COLUMNS = `a.id, a.title, a.kind, a.instructions, a.due_at as "dueAt", a.created_at as "createdAt",
   a.file_name as "fileName", (a.file_path is not null) as "hasFile",
   a.class_id as "classId", c.name as "className", a.subject_id as "subjectId", s.name as "subjectName",
+  a.quiz_id as "quizId", quiz.title as "quizTitle",
+  (select count(*)::int from quiz_questions x where x.quiz_id = a.quiz_id) as "quizQuestionCount",
+  coalesce((select x.submitted_at is not null from quiz_attempts x where x.quiz_id = a.quiz_id and x.student_id = $1), false) as "quizSubmitted",
   (select count(*)::int from submissions x where x.assignment_id = a.id) as "submissionCount",
   (select count(*)::int from submissions x where x.assignment_id = a.id and x.grade is null) as "ungradedCount",
   (select count(*)::int from enrollments e where e.class_id = a.class_id) as "studentCount",
@@ -176,6 +179,7 @@ async function assignmentsFor(user, { limit = 200, upcomingOnly = false } = {}) 
   const order = upcomingOnly ? 'coalesce(a.due_at, a.created_at) asc' : 'coalesce(a.due_at, a.created_at) desc';
   const { rows } = await q(`select ${ASSIGNMENT_COLUMNS} from assignments a
     join classes c on c.id = a.class_id join subjects s on s.id = a.subject_id
+    left join quizzes quiz on quiz.id = a.quiz_id
     where (${assignmentScope(user)})${extra} order by ${order} limit ${Math.max(1, Number(limit) | 0)}`, [user.id]);
   return rows;
 }
@@ -546,6 +550,15 @@ on('DELETE', '/api/users/:id', async ({ params, user }) => {
 }, { roles: PRINCIPAL });
 
 // ---------- Ödevler ----------
+// Ödeve bağlanacak sınav: aynı sınıf-ders çiftine ait ve yayınlanmış olmalı (v84).
+async function requireAttachableQuiz(quizId, classId, subjectId) {
+  const id = requireId(quizId, 'sınav');
+  const { rows: [quiz] } = await q('select id, published, class_id, subject_id from quizzes where id = $1', [id]);
+  if (!quiz || quiz.class_id !== classId || quiz.subject_id !== subjectId) fail(400, 'Seçilen sınav bu sınıf ve derse ait değil.');
+  if (!quiz.published) fail(400, 'Önce sınavı yayınlayın; taslak sınav ödeve bağlanamaz.');
+  return id;
+}
+
 async function assignmentPage(user, query) {
   const { page, size, offset } = pageOf(query, 20);
   const params = [user.id];
@@ -559,6 +572,7 @@ async function assignmentPage(user, query) {
   params.push(size, offset);
   const { rows } = await q(`select ${ASSIGNMENT_COLUMNS} from assignments a
     join classes c on c.id = a.class_id join subjects s on s.id = a.subject_id
+    left join quizzes quiz on quiz.id = a.quiz_id
     where ${where} order by coalesce(a.due_at, a.created_at) desc
     limit $${params.length - 1} offset $${params.length}`, params);
   return { assignments: rows, total: n, page, size };
@@ -584,13 +598,14 @@ on('POST', '/api/assignments', async ({ body, user }) => {
     filePath = storage.newPath('assignments', upload.ext, upload.name);
     await storage.put(filePath, upload.buffer, upload.mime);
   }
+  const quizId = body.quizId ? await requireAttachableQuiz(body.quizId, classId, subjectId) : null;
   try {
     const { rows: [row] } = await q(`insert into assignments (title, class_id, subject_id, created_by, kind, instructions, due_at,
-        file_path, file_name, file_mime, file_size)
-      values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) returning id`,
+        file_path, file_name, file_mime, file_size, quiz_id)
+      values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) returning id`,
       [title, classId, subjectId, user.id, kind, instructions, dueAt, filePath,
-        upload?.name ?? null, upload?.mime ?? null, upload?.buffer.length ?? null]);
-    await audit(user, 'assignment_created', title, { kind, dueAt });
+        upload?.name ?? null, upload?.mime ?? null, upload?.buffer.length ?? null, quizId]);
+    await audit(user, 'assignment_created', title, { kind, dueAt, quiz: Boolean(quizId) });
     const { rows: classStudents } = await q('select student_id from enrollments where class_id = $1', [classId]);
     push.notify(classStudents.map(s => s.student_id), { title: 'Yeni ödev', body: dueAt ? `${title} · son teslim ${new Date(dueAt).toLocaleDateString('tr-TR')}` : title, url: '/#/assignments', tag: `odev-${row.id}` }).catch(() => {});
   return created({ id: row.id });
@@ -994,6 +1009,11 @@ on('PATCH', '/api/assignments/:id', async ({ params, body, user }) => {
       dueAt = date.toISOString();
     }
     values.push(dueAt); sets.push(`due_at = $${values.length}`);
+  }
+  if (body.quizId !== undefined) {
+    // null: bağlantıyı kaldır; değer: aynı sınıf-ders çiftinden yayınlanmış sınav olmalı
+    const quizId = body.quizId ? await requireAttachableQuiz(body.quizId, a.class_id, a.subject_id) : null;
+    values.push(quizId); sets.push(`quiz_id = $${values.length}`);
   }
   if (!sets.length) fail(400, 'Güncellenecek alan yok.');
   await q(`update assignments set ${sets.join(', ')} where id = $1`, values);

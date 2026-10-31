@@ -652,3 +652,11 @@ Müdür tüm okulu, öğretmen kendi derslerini, öğrenci yalnızca kendi devam
 - Sınav formuna iki yeni bağlantı: soru bloğundaki yıldız düğmesi soruyu bankaya kaydeder (kaydedilen bloğun yerinde "bankada" rozeti kalır), "Bankadan getir" kutusu ise konu araması yapıp seçilen soruları sınavın soru listesine ekler.
 - Bankadan eklenen soru sınavın kopyası olur: banka kaydı silinse bile sınav bozulmaz.
 
+## Sürüm 84: ödev içine gömülü sınav
+
+- `assignments.quiz_id` (migrasyon `0018_assignment_quiz.sql`): bir ödev en fazla bir sınavla ilişkilendirilir. Sınav silinirse bağlantı kendiliğinden kalkar (`on delete set null`).
+- Sunucu tarafı doğrulama: ödeve yalnızca **aynı sınıf-ders çiftine ait ve yayınlanmış** bir sınav bağlanabilir; taslak veya başka sınıftan sınav 400 döner.
+- Ödev formunda sınıf-ders seçildikçe dolayan "Sınavı ödeve bağla" kutusu; ödev düzenleme penceresinde de aynı kutu var.
+- `/api/assignments` yanıtı artık `quizId`, `quizTitle`, `quizQuestionCount` ve öğrenci için `quizSubmitted` alanlarını taşıyor.
+- Öğrenci ödev kartında "Bu ödevin mini sınavı var … (tamamlandı)" satırı ve sınava köprü; öğretmen listesinde sınavın adı ve soru sayısı not olarak gösterilir.
+
