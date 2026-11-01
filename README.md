@@ -666,3 +666,10 @@ Müdür tüm okulu, öğretmen kendi derslerini, öğrenci yalnızca kendi devam
 - Sayfa yüklenemezse boş ekran yerine kısa açıklamalı hata görünümü gelir: neden, "verin kaybolmaz" notu ve "Yeniden dene" düğmesi.
 - API hata mesajları netleştirildi: ağa ulaşılamıyorsa bağlantı, 5xx ise "birazdan tekrar dene", istemci hatasında girdileri kontrol etme yönlendirmesi.
 - Boş liste durumlarında ne yapılabileceği ikinci satırda anlatılıyor (sınavlar, soru bankası, ödevler).
+
+## Sürüm 86: alt kaynak bütünlüğü (SRI) ve harici betik temizliği
+
+- Ana sayfadaki AdSense betiği kaldırıldı: `script-src 'self'` onu zaten engellediği için hiç yüklenmiyordu, tek yaptığı her ziyaretçinin adresini Google'a göndermekti. `ads.txt` yayında kalır.
+- Derleme artık `dist/index.html` ve `dist/platform.html` içindeki her betik ve stil etiketine `integrity="sha384-…" crossorigin="anonymous"` yazıyor: sunucu ya da aradaki bir katman dosyayı değiştirirse tarayıcı onu çalıştırmaz.
+- Google Yazı Tipi bağlantısına özet konmaz: içeriği tarayıcıya göre üretildiği için sabit özet sayfayı kırardı.
+- Yeni denetim `test/build.test.mjs`: harici betik olmadığını doğruluyor ve dist özetlerinin dosya içerikleriyle birebir eşleştiğini kontrol ediyor.

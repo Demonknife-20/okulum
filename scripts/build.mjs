@@ -1,6 +1,7 @@
 // Üretim derlemesi: JS ve CSS'i küçültür, içerik özetiyle adlandırır, index.html'i buna göre günceller.
 // Çıktı dist/ klasörüne yazılır; sunucu dist varsa onu kullanır.
 import { build } from 'esbuild';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -26,18 +27,31 @@ const css = await build({
 const jsFile = path.basename(Object.keys(js.metafile.outputs).find(file => file.endsWith('.js')));
 const cssFile = path.basename(Object.keys(css.metafile.outputs).find(file => file.endsWith('.css')));
 
+// Alt kaynak bütünlüğü (SRI): tarayıcı, indirilen betiğin ya da stilin özeti buradakiyle
+// eşleşmezse onu çalıştırmaz/uygulamaz. Sunucu veya aradaki bir katman manipüle edilse
+// bile bozuk dosya uygulamaya giremez. Yalnızca kendi ürettiğimiz dosyalara konur;
+// üçüncü taraf (yazı tipi) dosyalar sürekli değiştiği için sabit özet kabul etmez.
+const sri = file => `sha384-${createHash('sha384').update(fs.readFileSync(path.join(out, file))).digest('base64')}`;
+const sriTag = digest => `integrity="${digest}" crossorigin="anonymous"`;
+const jsSri = sri(jsFile);
+const cssSri = sri(cssFile);
+
 let html = fs.readFileSync(path.join(src, 'index.html'), 'utf8');
-const replaceOnce = (text, from, to) => {
-  if (text.split(from).length !== 2) throw new Error(`index.html içinde beklenen metin bulunamadı: ${from}`);
+const replaceOnce = (text, from, to, file = 'index.html') => {
+  if (text.split(from).length !== 2) throw new Error(`${file} içinde beklenen metin bulunamadı: ${from}`);
   return text.replace(from, to);
 };
-html = replaceOnce(html, 'src="/app.js"', `src="/${jsFile}"`);
-html = replaceOnce(html, 'href="/styles.css"', `href="/${cssFile}"`);
+html = replaceOnce(html, 'src="/app.js"', `src="/${jsFile}" ${sriTag(jsSri)}`);
+html = replaceOnce(html, 'href="/styles.css"', `href="/${cssFile}" ${sriTag(cssSri)}`);
 fs.writeFileSync(path.join(out, 'index.html'), html);
-const platformHtml = fs.readFileSync(path.join(src, 'platform.html'), 'utf8')
-  .replace('href="/styles.css"', `href="/${cssFile}"`);
-fs.writeFileSync(path.join(out, 'platform.html'), platformHtml);
 fs.copyFileSync(path.join(src, 'platform.js'), path.join(out, 'platform.js'));
+const platformHtml = replaceOnce(
+  fs.readFileSync(path.join(src, 'platform.html'), 'utf8'),
+  'href="/styles.css"',
+  `href="/${cssFile}" ${sriTag(cssSri)}`,
+  'platform.html'
+).replace('src="/platform.js"', `src="/platform.js" ${sriTag(sri('platform.js'))}`);
+fs.writeFileSync(path.join(out, 'platform.html'), platformHtml);
 fs.copyFileSync(path.join(src, 'interactions.js'), path.join(out, 'interactions.js'));
 fs.copyFileSync(path.join(src, 'icon.svg'), path.join(out, 'icon.svg'));
 fs.copyFileSync(path.join(src, 'styles.css'), path.join(out, 'styles.css'));
