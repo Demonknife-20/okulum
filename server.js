@@ -1,7 +1,7 @@
 const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
-const { q, pool, withTenant } = require('./src/db');
+const { q, pool, withTenant, hasDatabase } = require('./src/db');
 const storage = require('./src/storage');
 const { handleApi, toHttpError, HttpError } = require('./src/api');
 const { createLimiter } = require('./src/security');
@@ -368,13 +368,19 @@ async function start() {
   if (process.env.NODE_ENV === 'production' && !storage.useSupabase) {
     throw new Error('Üretimde SUPABASE_URL ve SUPABASE_SERVICE_ROLE_KEY zorunlu (dosyalar Supabase Storage\'da tutulur).');
   }
+  if (!hasDatabase) {
+    console.warn('Uyarı: DATABASE_URL tanımlı değil. Sadece statik sayfalar ve giriş sayfaları gösterilecek.');
+    await server.listen(PORT, HOST);
+    console.log(`Okulum hazır: http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT} · depolama: yerel (geliştirme)`);
+    console.log('Veritabanı yapılandırılmadı — lütfen .env dosyasını oluşturun.');
+    return;
+  }
   await waitForDb();
   await tenancy.initializeTenancy();
   await platform.bootstrapPlatformAdmin();
   await storage.ensureBucket();
   await require('./src/push').init();
   require('./src/ai').startRetention();
-  require('./src/backup').startBackupSchedule();
   require('./src/api').startDigestSchedule();
   require('./src/api').startReminderSchedule();
   server.listen(PORT, HOST, () => {

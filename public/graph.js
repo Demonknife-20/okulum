@@ -466,14 +466,14 @@ export function mountGraph(root, initial = { lines: [] }, options = {}) {
     scheduleDraw();
   }
 
-  function renderRows() {
+function renderRows() {
     rowsEl.innerHTML = lines.map((line, index) => `<div class="gx-row" data-index="${index}">
-        <span class="gx-dot" style="background:${colorOf(index)}"></span>
+        <span class="gx-dot c${index % 8}"></span>
         <input class="gx-input" value="${escapeHtml(line)}" ${readOnly ? 'readonly' : ''} aria-label="Satır ${index + 1}">
         ${readOnly ? '' : '<button type="button" class="gx-del" data-gx="del" aria-label="Satırı sil">×</button>'}
         ${model.errors[index] ? `<small class="gx-error">${escapeHtml(model.errors[index])}</small>` : ''}
       </div>`).join('') || '<p class="gx-empty">Bir ifade ya da nokta yazın.</p>';
-  }
+}
 
   function updateErrors() {
     rowsEl.querySelectorAll('.gx-row').forEach((row, index) => {

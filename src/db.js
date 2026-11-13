@@ -7,17 +7,26 @@ const { Pool, types } = require('pg');
 types.setTypeParser(1082, value => value);
 
 const url = process.env.DATABASE_URL;
-if (!url) throw new Error('DATABASE_URL tanımlı değil.');
-
-// Yerel bağlantıda SSL yok; Supabase/Render bağlantısında SSL zorunlu.
-const local = /localhost|127\.0\.0\.1|\?host=\//.test(url);
-const pool = new Pool({
-  connectionString: url,
-  max: Number(process.env.PG_POOL_SIZE || 10),
-  idleTimeoutMillis: 30_000,
-  ssl: local || process.env.DATABASE_SSL === 'false' ? false : { rejectUnauthorized: false },
-});
-pool.on('error', error => console.error('Veritabanı boşta bağlantı hatası:', error.message));
+if (!url) {
+  console.warn('Uyarı: DATABASE_URL tanımlı değil. Geliştirme modunda sınırlı özellikler.');
+  module.exports.hasDatabase = false;
+  // DB erişimi yok; q() çağrıları belirli bir hata fırlatacak
+  pool = {
+    query: async (text, params) => {
+      throw new Error('Veritabanı bağlantısı yapılandırılmamış. .env dosyası oluşturun.');
+    },
+  };
+} else {
+  const local = /localhost|127\.0\.0\.1|\?host=\//.test(url);
+  pool = new Pool({
+    connectionString: url,
+    max: Number(process.env.PG_POOL_SIZE || 10),
+    idleTimeoutMillis: 30_000,
+    ssl: local || process.env.DATABASE_SSL === 'false' ? false : { rejectUnauthorized: false },
+  });
+  pool.on('error', error => console.error('Veritabanı boşta bağlantı hatası:', error.message));
+}
+module.exports.hasDatabase = !!url;
 
 const tenantContext = new AsyncLocalStorage();
 const schemaPattern = /^(public|tenant_[a-f0-9]{20})$/;

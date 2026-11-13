@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { projectile, trajectory, titrationPH, equivalenceVolume, titrationSeries, ohm, equivalentResistance, pendulum, thinLens, uniformlyAccelerated, kineticEnergy, potentialEnergy, waveSpeed } from '../public/labs.js';
+import { projectile, trajectory, titrationPH, equivalenceVolume, titrationSeries, ohm, equivalentResistance, pendulum, thinLens, uniformlyAccelerated, kineticEnergy, potentialEnergy, waveSpeed, density, pressure, buoyancy, work, power, momentum, springForce, capacitorCharge, rcCircuit } from '../public/labs.js';
 
 test('eğik atış: menzil, yükseklik ve süre bilinen değerlerle uyuşur', () => {
   // 45°, 10 m/s, Dünya: menzil v²/g ≈ 10.19 m, en yüksek nokta ≈ 2.55 m
@@ -74,4 +74,74 @@ test('düzgün ivmeli hareket ve enerji', () => {
 test('dalga hızı: v = f · λ', () => {
   assert.equal(waveSpeed(50, 2), 100);
   assert.throws(() => waveSpeed(-1, 2), /pozitif/);
+});
+
+test('yoğunluk: ρ = m/V, sıfır kütle veya pozitif olmayan hacim hata verir', () => {
+  assert.equal(density(10, 2), 5);
+  assert.ok(Math.abs(density(1, 0.25) - 4) < 1e-9);
+  assert.throws(() => density(0, 5), /sıfır/);
+  assert.throws(() => density(10, 0), /sıfır/);
+  assert.throws(() => density(10, -2), /sıfır/);
+});
+
+test('basınç: P = F/A, sıfır veya negatif alan hata verir', () => {
+  assert.equal(pressure(100, 5), 20);
+  assert.ok(Math.abs(pressure(50, 2.5) - 20) < 1e-9);
+  assert.throws(() => pressure(100, 0), /sıfır/);
+  assert.throws(() => pressure(100, -3), /sıfır/);
+});
+
+test('münaşaburet: Fb = ρ·V·g, tüm değerler pozitif olmalı', () => {
+  assert.ok(Math.abs(buoyancy(1000, 0.5, 9.81) - 4905) < 1e-6);
+  assert.ok(Math.abs(buoyancy(1000, 1, 9.81) - 9810) < 1e-6);
+  assert.throws(() => buoyancy(0, 1, 9.81), /pozitif/);
+  assert.throws(() => buoyancy(1000, -1, 9.81), /pozitif/);
+  assert.throws(() => buoyancy(1000, 1, 0), /pozitif/);
+});
+
+test('iş: W = F·d·cos(θ), mesafe negatif olamaz', () => {
+  assert.equal(work(10, 5, 0), 50);
+  assert.ok(Math.abs(work(10, 5, 60) - 25) < 1e-9, 'cos(60°) = 0.5');
+  assert.ok(Math.abs(work(10, 5, 90)) < 1e-9, 'cos(90°) = 0');
+  assert.throws(() => work(10, -1, 0), /negatif/);
+  assert.throws(() => work(10, -5, 45), /negatif/);
+});
+
+test('güç: P = W/t, sıfır veya negatif süre hata verir', () => {
+  assert.equal(power(100, 5), 20);
+  assert.ok(Math.abs(power(90, 3) - 30) < 1e-9);
+  assert.throws(() => power(100, 0), /sıfır/);
+  assert.throws(() => power(100, -2), /sıfır/);
+});
+
+test('momentum: p = m·v, negatif kütle olamaz', () => {
+  assert.equal(momentum(5, 3), 15);
+  assert.equal(momentum(2, -4), -8);
+  assert.throws(() => momentum(-1, 5), /negatif/);
+  assert.throws(() => momentum(-3, 10), /negatif/);
+});
+
+test('yay kuvveti: F = k·x, k ve x pozitif olmalı, mutlak değer döner', () => {
+  assert.equal(springForce(100, 0.1), 10);
+  assert.equal(springForce(50, -0.2), 10, 'x negatifse mutlak değer');
+  assert.throws(() => springForce(0, 0.1), /pozitif/);
+  assert.throws(() => springForce(100, 0), /pozitif/);
+  assert.throws(() => springForce(-50, 0.2), /pozitif/);
+});
+
+test('kondansatör şarjı: Q = C·V, c ve v pozitif olmalı', () => {
+  assert.equal(capacitorCharge(0.001, 5), 0.005);
+  assert.ok(Math.abs(capacitorCharge(0.1, 12) - 1.2) < 1e-9);
+  assert.throws(() => capacitorCharge(0, 5), /pozitif/);
+  assert.throws(() => capacitorCharge(0.001, 0), /pozitif/);
+  assert.throws(() => capacitorCharge(-0.1, 12), /pozitif/);
+});
+
+test('RC devresi: Vc = V·(1-e^(-t/RC)), r, c, t pozitif olmalı', () => {
+  const rc = 1000 * 0.001; // τ = 1 saniye
+  assert.ok(Math.abs(rcCircuit(1000, 0.001, rc, 5) - 5 * (1 - Math.exp(-1))) < 1e-6);
+  assert.ok(Math.abs(rcCircuit(1000, 0.001, 2 * rc, 5) - 5 * (1 - Math.exp(-2))) < 1e-6);
+  assert.throws(() => rcCircuit(0, 0.001, 1, 5), /pozitif/);
+  assert.throws(() => rcCircuit(1000, 0, 1, 5), /pozitif/);
+  assert.throws(() => rcCircuit(1000, 0.001, -1, 5), /pozitif/);
 });

@@ -246,6 +246,19 @@ img{max-width:100%}
 }
 .school-chip strong{display:block;font-size:14px;line-height:1.25;font-family:var(--f-display)}
 .school-chip small{display:block;font-size:12px;color:var(--muted)}
+
+/* Grafik nokta renk sınıfları (CSP uyumlu: inline style yerine CSS class) */
+.gx-dot{cursor:default}
+.gx-dot.c0{background:#1b6b50}
+.gx-dot.c1{background:#e5484d}
+.gx-dot.c2{background:#3e7cf0}
+.gx-dot.c3{background:#f5b93a}
+.gx-dot.c4{background:#8b5cf6}
+.gx-dot.c5{background:#e8590c}
+.gx-dot.c6{background:#0d9488}
+.gx-dot.c7{background:#be185d}
+
+/* ---------- 6. Formlar ---------- */
 .school-mark{width:38px;height:38px;flex:0 0 auto;display:grid;place-items:center;border-radius:12px;background:var(--brand-soft);color:var(--brand);font:800 14px var(--f-display)}
 .nav{display:grid;gap:4px}
 .nav-item{
@@ -2269,6 +2282,383 @@ html.fx-off .public-view,html.fx-off .content{animation:none!important}
 /* Bankaya kaydedilen sorunun düğmesi kaldırılır, yerine rozet gelir */
 .quiz-q-head .badge{margin-right:auto}
 
-/* ===== v84: ödev içine bağlanan sınav ===== */
-/* Ödev kartındaki sınav satırı talimat metninden ayrışır, bağlantı öne çıkar */
-.instructions.quiz-attach{border-left:3px solid color-mix(in srgb,var(--brand) 45%,var(--line));padding-left:10px}
+/* ===== v85: yeni animasyonlar ve hareket sınıfları =====
+   Kurallar: sadece transform/opacity animate edilir (GPU kompozit), prefers-reduced-motion saygı görür,
+   mobil öncelikli (360px), mevcut --brand/--ease tokenları kullanılır.
+*/
+
+/* Yumuşak yukarı-aşağı süzülme (ikon, rozet, kart için) */
+@keyframes float{
+  0%{transform:translateY(0)}
+  50%{transform:translateY(-6px)}
+  100%{transform:translateY(0)}
+}
+.animate-float{animation:float 4s var(--ease-soft) infinite}
+
+/* Bounce giriş: öğe ekranda yumuşakça çıkar */
+@keyframes bounce-in{
+  0%{opacity:0;transform:scale(.6) translateY(20px)}
+  60%{opacity:1;transform:scale(1.05) translateY(-4px)}
+  100%{opacity:1;transform:scale(1) translateY(0)}
+}
+.animate-bounce-in{animation:bounce-in .55s var(--ease) both}
+
+/* Fade-in yukarıdan: liste satırı, kart, modal içeriği */
+@keyframes fade-in-up{
+  from{opacity:0;transform:translateY(14px)}
+  to{opacity:1;transform:none}
+}
+.animate-fade-in-up{animation:fade-in-up .45s var(--ease) both}
+
+/* Ölçekli giriş: düğme, rozet, avatar */
+@keyframes scale-in{
+  from{opacity:0;transform:scale(.85)}
+  to{opacity:1;transform:scale(1)}
+}
+.animate-scale-in{animation:scale-in .35s var(--ease) both}
+
+/* Kenardan sola/sağa giriş: bildirim, sidebar, panel */
+@keyframes slide-in-left{
+  from{opacity:0;transform:translateX(-20px)}
+  to{opacity:1;transform:none}
+}
+@keyframes slide-in-right{
+  from{opacity:0;transform:translateX(20px)}
+  to{opacity:1;transform:none}
+}
+.animate-slide-in-left{animation:slide-in-left .4s var(--ease) both}
+.animate-slide-in-right{animation:slide-in-right .4s var(--ease) both}
+
+/* Kalp atışı / dikkat çekici titreşim (hata, uyarı, yeni mesaj) */
+@keyframes heartbeat{
+  0%{transform:scale(1)}
+  14%{transform:scale(1.18)}
+  28%{transform:scale(1)}
+  42%{transform:scale(1.18)}
+  70%{transform:scale(1)}
+  100%{transform:scale(1)}
+}
+.animate-heartbeat{animation:heartbeat 1.6s var(--ease-soft) infinite}
+
+/* Dönme (yükleme spinner) */
+@keyframes spin{
+  from{transform:rotate(0deg)}
+  to{transform:rotate(360deg)}
+}
+.animate-spin{animation:spin 1s linear infinite}
+
+/* Titreşim (yanlış giriş, hata) */
+@keyframes wiggle{
+  0%,100%{transform:translateX(0)}
+  20%{transform:translateX(-4px)}
+  40%{transform:translateX(4px)}
+  60%{transform:translateX(-4px)}
+  80%{transform:translateX(4px)}
+}
+.animate-wiggle{animation:wiggle .4s var(--ease) both}
+
+/* Kayan metin (haber şeridi, duyuru) */
+@keyframes marquee{
+  0%{transform:translateX(0)}
+  100%{transform:translateX(-50%)}
+}
+.marquee{
+  display:inline-block;
+  white-space:nowrap;
+  animation:marquee 14s linear infinite;
+}
+.marquee:hover{animation-play-state:paused}
+
+/* Parlayan kenarlık (ödül, başarı, yeni kayıt) */
+@keyframes glow-border{
+  0%,100%{box-shadow:0 0 0 0 color-mix(in srgb,var(--brand) 40%,transparent)}
+  50%{box-shadow:0 0 0 6px color-mix(in srgb,var(--brand) 20%,transparent)}
+}
+.animate-glow-border{animation:glow-border 2s var(--ease-soft) infinite}
+
+/* Yavaş parlama (boş durum, onay bekleyen öğe) */
+@keyframes shimmer-pulse{
+  0%,100%{opacity:.4}
+  50%{opacity:1}
+}
+.animate-shimmer-pulse{animation:shimmer-pulse 2s var(--ease-soft) infinite}
+
+/* Çıkış (kapanış) animasyonu: modal, bildirim, kart */
+@keyframes fade-out{
+  from{opacity:1;transform:none}
+  to{opacity:0;transform:translateY(8px)}
+}
+.animate-fade-out{animation:fade-out .3s var(--ease) both}
+
+/* Yükleme spinner bileşeni */
+.loader-spinner{
+  width:40px;height:40px;border:4px solid color-mix(in srgb,var(--line) 50%,transparent);
+  border-top-color:var(--brand);border-radius:50%;animation:spin .9s linear infinite;
+}
+.loader-spinner.sm{width:28px;height:28px;border-width:3px}
+.loader-spinner.lg{width:56px;height:56px;border-width:5px}
+.loader-spinner.center{display:inline-grid;place-items:center;margin:auto}
+
+/* Cam efekli kart (glass) - telefon üzerinde hafif */
+.glass-card{
+  background:color-mix(in srgb,var(--surface) 72%,transparent);
+  border:1px solid color-mix(in srgb,var(--line) 60%,transparent);
+  -webkit-backdrop-filter:saturate(1.6) blur(12px);
+  backdrop-filter:saturate(1.6) blur(12px);
+  box-shadow:var(--sh-1);
+  border-radius:var(--r-lg);
+}
+
+/* Neon parılama (vurgu, başarı) */
+.neon-glow{
+  box-shadow:0 0 14px color-mix(in srgb,var(--brand) 45%,transparent);
+  transition:box-shadow .3s var(--ease);
+}
+.neon-glow:hover,.neon-glow:focus{
+  box-shadow:0 0 24px color-mix(in srgb,var(--brand) 65%,transparent);
+}
+
+/* Sıcak vurgu arka planı (yeni öğe, bildirim kartı) */
+.warm-glow{
+  background:var(--grad-warm);
+  border-radius:var(--r-lg);
+  color:#fff;
+  padding:var(--sp-4);
+}
+
+/* Etkileşimli kart: dokunma geri bildirimi */
+.touch-card{
+  transition:transform .18s var(--ease),box-shadow .2s var(--ease),border-color .2s var(--ease);
+}
+.touch-card:active{transform:scale(.975)}
+.touch-card:hover{transform:translateY(-2px);box-shadow:var(--sh-2)}
+
+/* İlerleme çubuğu canlandırması */
+.progress-live{
+  height:8px;border-radius:var(--r-pill);background:var(--surface-3);overflow:hidden;
+  position:relative;
+}
+.progress-live b{
+  position:absolute;inset:0 auto 0 0;height:100%;border-radius:inherit;
+  background:var(--grad-brand);width:0;transition:width .6s var(--ease-soft);
+}
+.progress-live.animate b{width:70%}
+
+/* Telefon ekranında parmakla dokunulabilir öğeler için aktif durum */
+@media (hover:hover){
+  .btn:not(:disabled):hover{transform:translateY(-1px)}
+}
+@media (hover:none) and (pointer:coarse){
+  .btn:active{transform:scale(.97)}
+  .icon-btn:active{transform:scale(.92)}
+}
+
+/* ===== v86: genel CSS iyileştirmeleri — mobil öncelikli, erişilebilir, performanslı =====
+   Kurallar: sadece transform/opacity animate edilir, prefers-reduced-motion saygı görür,
+   mevcut --brand/--ease/--ease-soft/--sh-* tokenları kullanılır, 360px+'den başlar.
+*/
+
+/* ---------- 1. Yeni giriş animasyonları ---------- */
+@keyframes zoom-in{
+  from{opacity:0;transform:scale(.92)}
+  to{opacity:1;transform:scale(1)}
+}
+.animate-zoom-in{animation:zoom-in .4s var(--ease) both}
+
+@keyframes flip-in{
+  from{opacity:0;transform:rotateY(-20deg) scale(.95)}
+  to{opacity:1;transform:rotateY(0) scale(1)}
+}
+.animate-flip-in{animation:flip-in .5s var(--ease) both}
+
+@keyframes roll-in{
+  from{opacity:0;transform:translateX(-14px) rotate(-2deg)}
+  to{opacity:1;transform:none}
+}
+.animate-roll-in{animation:roll-in .45s var(--ease) both}
+
+@keyframes fade-in{
+  from{opacity:0}
+  to{opacity:1}
+}
+.animate-fade-in{animation:fade-in .35s var(--ease) both}
+
+/* Staggerli liste girişi: her satır biraz gecikli görünür */
+.stagger > *{animation:fade-in-up .4s var(--ease) both}
+.stagger > *:nth-child(1){animation-delay:.04s}
+.stagger > *:nth-child(2){animation-delay:.08s}
+.stagger > *:nth-child(3){animation-delay:.12s}
+.stagger > *:nth-child(4){animation-delay:.16s}
+.stagger > *:nth-child(5){animation-delay:.2s}
+.stagger > *:nth-child(n+6){animation-delay:.24s}
+
+/* ---------- 2. Buton iyileştirmeleri ---------- */
+.btn-outline{
+  position:relative;display:inline-flex;align-items:center;justify-content:center;gap:8px;
+  min-height:44px;padding:0 20px;border-radius:var(--r-sm);border:2px solid var(--line-2);
+  background:transparent;color:var(--ink);font:700 14px/1 var(--f-body);letter-spacing:.005em;
+  box-shadow:var(--sh-1);overflow:hidden;isolation:isolate;text-decoration:none;white-space:nowrap;
+  transition:transform .25s var(--ease),box-shadow .25s,border-color .25s,color .25s,background .25s;
+}
+.btn-outline:hover{border-color:var(--brand);color:var(--brand);background:var(--brand-soft);transform:translateY(-1px)}
+.btn-outline:active{transform:scale(.98)}
+.btn-outline .ico{width:17px;height:17px;flex:0 0 auto}
+
+.btn-success{color:#fff;border-color:transparent;background:linear-gradient(135deg,#1d7a52,#145a3e)}
+.btn-success:hover{box-shadow:0 14px 28px -14px rgba(29,122,82,.9)}
+.btn-warning{color:#fff;border-color:transparent;background:linear-gradient(135deg,#b8842c,#a46a1c)}
+.btn-warning:hover{box-shadow:0 14px 28px -14px rgba(184,132,44,.9)}
+
+.btn.round{padding:0 12px;width:44px;height:44px;border-radius:50%;min-height:auto}
+.btn.round .ico{width:18px;height:18px}
+
+/* ---------- 3. Kart iyileştirmeleri ---------- */
+.card-hover{
+  transition:transform .3s var(--ease),box-shadow .3s,border-color .3s;
+}
+.card-hover:hover{transform:translateY(-4px);box-shadow:var(--sh-3);border-color:color-mix(in srgb,var(--brand) 24%,var(--line))}
+.card-hover:active{transform:translateY(-2px) scale(.995)}
+
+.card-bordered{
+  border:2px solid var(--line-2);
+  border-radius:var(--r-lg);
+  background:var(--surface);
+  transition:border-color .3s,box-shadow .3s;
+}
+.card-bordered:hover{border-color:var(--brand);box-shadow:var(--sh-2)}
+
+.card-elevated{
+  border-radius:var(--r-lg);
+  background:var(--surface);
+  border:1px solid color-mix(in srgb,var(--line) 90%,transparent);
+  box-shadow:var(--sh-2);
+  transition:box-shadow .3s,transform .3s;
+}
+.card-elevated:hover{box-shadow:var(--sh-3);transform:translateY(-2px)}
+
+/* ---------- 4. Form iyileştirmeleri ---------- */
+.field-group{display:grid;gap:6px}
+.field-hint{font-size:12px;color:var(--muted);margin-top:4px}
+.field-helper{font-size:12px;color:var(--muted);line-height:1.45}
+
+.input-with-icon{position:relative;width:100%}
+.input-with-icon .ico{position:absolute;left:14px;top:50%;transform:translateY(-50%);width:18px;height:18px;color:var(--muted);pointer-events:none}
+.input-with-icon input{padding-left:44px}
+
+.password-toggle{position:absolute;right:14px;top:50%;transform:translateY(-50%);width:36px;height:36px;display:grid;place-items:center;border:0;background:transparent;color:var(--muted);cursor:pointer;border-radius:10px;transition:background .2s,color .2s}
+.password-toggle:hover{background:var(--surface-2);color:var(--brand)}
+
+textarea.auto-grow{resize:none;overflow:hidden}
+input:invalid:not(:placeholder-shown){border-color:var(--danger);box-shadow:0 0 0 4px color-mix(in srgb,var(--danger) 12%,transparent)}
+input:valid:not(:placeholder-shown){border-color:var(--ok);box-shadow:0 0 0 4px color-mix(in srgb,var(--ok) 12%,transparent)}
+
+/* ---------- 5. Erişilebilirlik ve odak ---------- */
+:focus-visible{
+  outline:3px solid color-mix(in srgb,var(--brand) 34%,transparent);
+  outline-offset:3px;
+  border-radius:var(--r-xs);
+}
+.skip-link{
+  position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden;z-index:-1;
+}
+.sr-only{
+  position:absolute!important;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0;
+}
+
+/* ---------- 6. Mobil dokunma iyileştirmeleri ---------- */
+@media (hover:none) and (pointer:coarse){
+  .btn:active,.icon-btn:active,.nav-item:active,.chip:active{transform:scale(.96)}
+  .card-hover:active{transform:translateY(-2px) scale(.99)}
+  .touch-card:active{transform:scale(.97)}
+  .list-row:active{background:color-mix(in srgb,var(--brand) 8%,transparent)}
+}
+.tap-target{min-width:44px;min-height:44px;display:inline-grid;place-items:center}
+
+/* ---------- 7. Yükleme ve boş durum ---------- */
+.skeleton-text{height:14px;border-radius:6px;background:linear-gradient(90deg,color-mix(in srgb,var(--line) 70%,transparent) 25%,color-mix(in srgb,var(--line) 100%,transparent) 37%,color-mix(in srgb,var(--line) 70%,transparent) 63%);background-size:200% 100%;animation:shimmer 1.5s ease-in-out infinite}
+.skeleton-title{height:24px;width:min(60%,320px);border-radius:8px}
+.skeleton-line{height:14px;width:min(80%,480px);border-radius:6px;margin-top:8px}
+.skeleton-avatar{width:40px;height:40px;border-radius:50%}
+
+.empty-state{display:grid;gap:12px;justify-items:center;text-align:center;padding:clamp(40px,8vw,80px) 24px;color:var(--muted)}
+.empty-state .ico{width:64px;height:64px;border-radius:20px;background:var(--brand-soft);color:var(--brand);display:grid;place-items:center;font-size:32px;animation:bounce-in .6s var(--ease) both}
+.empty-state h3{color:var(--ink);font-size:clamp(20px,2.5vw,24px);margin:12px 0 6px}
+.empty-state p{max-width:420px;font-size:15px;line-height:1.6;margin:0 auto}
+
+/* ---------- 8. İlerleme ve durum ---------- */
+.progress-ring{width:56px;height:56px;border-radius:50%;position:relative;display:grid;place-items:center}
+.progress-ring svg{width:100%;height:100%;transform:rotate(-90deg)}
+.progress-ring circle{fill:none;stroke:var(--line-2);stroke-width:6;stroke-linecap:round}
+.progress-ring .ring-prog{stroke:var(--brand);stroke-dasharray:283;stroke-dashoffset:283;transition:stroke-dashoffset .6s var(--ease-soft)}
+.progress-ring.done .ring-prog{stroke-dashoffset:0}
+.progress-ring .ring-val{font:800 11px/1 var(--f-display);fill:var(--ink)}
+
+.status-pill{display:inline-flex;align-items:center;gap:7px;padding:5px 12px;border-radius:var(--r-pill);font:700 12px/1 var(--f-body);white-space:nowrap}
+.status-pill.ok{background:var(--ok-bg);color:var(--ok)}
+.status-pill.warn{background:var(--warn-bg);color:var(--warn)}
+.status-pill.danger{background:var(--danger-bg);color:var(--danger)}
+.status-pill.neutral{background:var(--neutral-bg);color:var(--muted)}
+.status-pill::before{content:'';width:8px;height:8px;border-radius:50%;background:currentColor;opacity:.85;animation:pulse-dot 2s var(--ease-soft) infinite}
+@keyframes pulse-dot{0%,100%{opacity:.4;transform:scale(1)}50%{opacity:1;transform:scale(1.15)}}
+
+/* ---------- 9. Bildirim ve toast iyileştirmeleri ---------- */
+.toast-success{background:linear-gradient(135deg,#1d7a52,#145a3e)}
+.toast-error{background:linear-gradient(135deg,#c2453b,#8f2620)}
+.toast-info{background:linear-gradient(135deg,#3d7cc2,#2b5ccc)}
+.toast-close{background:none;border:0;color:#fff;opacity:.7;font-size:18px;line-height:1;padding:4px;margin-left:12px;transition:opacity .2s}
+.toast-close:hover{opacity:1}
+
+/* ---------- 10. Tablo iyileştirmeleri ---------- */
+.table-compact td,.table-compact th{padding:10px 14px;font-size:13px}
+.table-zebra tbody tr:nth-child(even) td{background:color-mix(in srgb,var(--surface-2) 40%,transparent)}
+.table-scroll::-webkit-scrollbar{height:6px}
+.table-scroll::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:3px}
+
+/* ---------- 11. Renk ve tema yardımcıları ---------- */
+.text-brand{color:var(--brand)}
+.text-muted{color:var(--muted)}
+.text-danger{color:var(--danger)}
+.text-ok{color:var(--ok)}
+.text-ink{color:var(--ink)}
+.bg-brand{background:var(--brand);color:#fff}
+.bg-brand-soft{background:var(--brand-soft);color:var(--brand)}
+.bg-surface-2{background:var(--surface-2)}
+.border-brand{border-color:var(--brand)}
+.border-line{border-color:var(--line)}
+.rounded-sm{border-radius:var(--r-xs)}
+.rounded-md{border-radius:var(--r-sm)}
+.rounded-lg{border-radius:var(--r-lg)}
+.rounded-xl{border-radius:var(--r-xl)}
+.rounded-pill{border-radius:var(--r-pill)}
+.shadow-1{box-shadow:var(--sh-1)}
+.shadow-2{box-shadow:var(--sh-2)}
+.shadow-3{box-shadow:var(--sh-3)}
+.opacity-50{opacity:.5}
+.opacity-75{opacity:.75}
+
+/* ---------- 12. Grid ve düzen ---------- */
+.grid-3{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:var(--sp-4)}
+.grid-4{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:var(--sp-4)}
+@media (max-width:760px){.grid-3,.grid-4{grid-template-columns:1fr}}
+.flex-between{display:flex;justify-content:space-between;align-items:center}
+.flex-center{display:flex;justify-content:center;align-items:center}
+.flex-wrap{flex-wrap:wrap}
+.gap-2{gap:var(--sp-2)}
+.gap-4{gap:var(--sp-4)}
+.gap-6{gap:var(--sp-6)}
+
+/* ---------- 13. Telefon güvenli alan ve scroll ---------- */
+.safe-bottom{padding-bottom:calc(16px + env(safe-area-inset-bottom,0px))}
+.safe-top{padding-top:calc(12px + env(safe-area-inset-top,0px))}
+.no-scrollbar::-webkit-scrollbar{display:none}
+.no-scrollbar{-ms-overflow-style:none;scrollbar-width:none}
+
+/* ---------- 14. Hareket azaltma ---------- */
+@media (prefers-reduced-motion:reduce){
+  .animate-zoom-in,.animate-flip-in,.animate-roll-in,.animate-fade-in,
+  .stagger > *,.card-hover:hover,.card-bordered:hover,.card-elevated:hover,
+  .touch-card:hover,.touch-card:active,.btn:hover,.icon-btn:hover,.nav-item:hover{
+    animation:none!important;transition:none!important;transform:none!important
+  }
+  html.fx-off *,html.fx-off *::before,html.fx-off *::after{transition:none!important;animation:none!important}
+}

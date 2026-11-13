@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseBase, toBase, evalLogic, truthTable, bubbleSortSteps, textToBinary, binaryToText, hexToRgb, rgbToHex, binaryAdd } from '../public/computing.js';
+import { parseBase, toBase, evalLogic, truthTable, bubbleSortSteps, textToBinary, binaryToText, hexToRgb, rgbToHex, binaryAdd, mergeSortSteps, quickSortSteps, bfs, dfs } from '../public/computing.js';
 
 test('sayı sistemleri: onluk, ikili, onaltılık dönüşümleri', () => {
   assert.equal(toBase(255, 2), '11111111');
@@ -59,4 +59,71 @@ test('ikili toplama: eldeli toplam ve sonuç', () => {
   assert.equal(binaryAdd('1', '1').carryOut, true);
   assert.equal(binaryAdd('10', '01').result, '11');
   assert.throws(() => binaryAdd('102', '11'), /Yalnızca 0 ve 1/);
+});
+
+test('birleştirme sıralaması: adımlarla sıralama, sonuç doğru', () => {
+  const result = mergeSortSteps([5, 1, 4, 2, 3]);
+  assert.deepEqual(result.sorted, [1, 2, 3, 4, 5]);
+  assert.ok(Array.isArray(result.steps), 'adımlar dizi olmalı');
+  assert.ok(result.steps.length > 0, 'en az bir adım olmalı');
+});
+
+test('birleştirme sıralaması: tek elemanlı ve boş dizi', () => {
+  assert.deepEqual(mergeSortSteps([1]).sorted, [1]);
+  assert.deepEqual(mergeSortSteps([]).sorted, []);
+});
+
+test('birleştirme sıralaması: zaten sıralı dizi', () => {
+  const result = mergeSortSteps([1, 2, 3, 4, 5]);
+  assert.deepEqual(result.sorted, [1, 2, 3, 4, 5]);
+});
+
+test('hızlı sıralama: adımlarla sıralama, sonuç doğru', () => {
+  const result = quickSortSteps([5, 1, 4, 2, 3]);
+  assert.deepEqual(result.sorted, [1, 2, 3, 4, 5]);
+  assert.ok(Array.isArray(result.steps), 'adımlar dizi olmalı');
+});
+
+test('hızlı sıralama: zaten sıralı ve ters sıralı dizi', () => {
+  assert.deepEqual(quickSortSteps([1, 2, 3]).sorted, [1, 2, 3]);
+  assert.deepEqual(quickSortSteps([3, 2, 1]).sorted, [1, 2, 3]);
+});
+
+test('hızlı sıralama: tek elemanlı ve boş dizi', () => {
+  assert.deepEqual(quickSortSteps([1]).sorted, [1]);
+  assert.deepEqual(quickSortSteps([]).sorted, []);
+});
+
+test('genişlik öncelikli arama: ziyaret sırası döner', () => {
+  const graph = {
+    A: ['B', 'C'],
+    B: ['D', 'E'],
+    C: ['F'],
+    D: [],
+    E: ['F'],
+    F: [],
+  };
+  assert.deepEqual(bfs(graph, 'A'), ['A', 'B', 'C', 'D', 'E', 'F']);
+});
+
+test('bfs: tek düğüm ve geçersiz başlangıç', () => {
+  assert.deepEqual(bfs({ A: [] }, 'A'), ['A']);
+  assert.throws(() => bfs({}, 'A'), /bulunamadı/);
+});
+
+test('derinlik öncelikli arama: ziyaret sırası döner', () => {
+  const graph = {
+    A: ['B', 'C'],
+    B: ['D', 'E'],
+    C: ['F'],
+    D: [],
+    E: ['F'],
+    F: [],
+  };
+  assert.deepEqual(dfs(graph, 'A'), ['A', 'B', 'D', 'E', 'F', 'C']);
+});
+
+test('dfs: tek düğüm ve geçersiz başlangıç', () => {
+  assert.deepEqual(dfs({ A: [] }, 'A'), ['A']);
+  assert.throws(() => dfs({}, 'A'), /bulunamadı/);
 });

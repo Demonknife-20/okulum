@@ -108,7 +108,7 @@ export function thinLens(focal, objectDist) {
   };
 }
 
-// Düzgün ivmeli hareket: v = v0 + a·t, y = v0·t + ½·a·t².
+// Düzgün ivmemi hareket: v = v0 + a·t, y = v0·t + ½·a·t².
 export function uniformlyAccelerated({ v0 = 0, a, t }) {
   if (!Number.isFinite(a) || !Number.isFinite(t) || t < 0) throw new Error('İvme ve süre gerekli.');
   return { velocity: Number((v0 + a * t).toFixed(4)), distance: Number((v0 * t + 0.5 * a * t * t).toFixed(4)) };
@@ -130,4 +130,70 @@ export function potentialEnergy(mass, height, g = 9.81) {
 export function waveSpeed(frequency, wavelength) {
   if (!(frequency >= 0) || !(wavelength >= 0)) throw new Error('Frekans ve dalga boyu sıfır ya da pozitif olmalı.');
   return Number((frequency * wavelength).toFixed(4));
+}
+
+// ---------- Fizik: yoğunluk, basınç, itkinin Kuvveti, iş, güç, momentum, yay, kondansator, RC devresi ----------
+
+// Yoğunluk: ρ = m / V (kg/m³)
+export function density(mass, volume) {
+  if (mass <= 0) throw new Error('Kütle sıfırdan büyük olmalı.');
+  if (volume <= 0) throw new Error('Hacim sıfırdan büyük olmalı.');
+  return Number((mass / volume).toFixed(4));
+}
+
+// Basınç: P = F / A (Pa)
+export function pressure(force, area) {
+  if (!(area > 0)) throw new Error('Alan sıfırdan büyük olmalı.');
+  return Number((force / area).toFixed(4));
+}
+
+// Itkinin Kuvveti: Fb = ρ · V · g (N)
+export function buoyancy(fluidDensity, volume, g = 9.81) {
+  if (!(fluidDensity > 0)) throw new Error('Sıvı yoğunluğu pozitif olmalı.');
+  if (!(volume > 0)) throw new Error('Hacim pozitif olmalı.');
+  if (!(g > 0)) throw new Error('Yerçekimi ivmesi pozitif olmalı.');
+  return Number((fluidDensity * volume * g).toFixed(4));
+}
+
+// İş: W = F · d · cos(θ) (J)
+export function work(force, distance, angleDeg) {
+  if (!(distance >= 0)) throw new Error('Mesafe negatif olamaz.');
+  const theta = (angleDeg * Math.PI) / 180;
+  return Number((force * distance * Math.cos(theta)).toFixed(4));
+}
+
+// Güç: P = W / t (W)
+export function power(work, time) {
+  if (!(time > 0)) throw new Error('Süre sıfırdan büyük olmalı.');
+  return Number((work / time).toFixed(4));
+}
+
+// Momentum: p = m · v (kg·m/s)
+export function momentum(mass, velocity) {
+  if (!(mass >= 0)) throw new Error('Kütle negatif olamaz.');
+  return Number((mass * velocity).toFixed(4));
+}
+
+// Yay Kuvveti (Hooke): F = k · x, mutlak değer (N)
+export function springForce(k, x) {
+  if (!(k > 0)) throw new Error('Yay sabiti pozitif olmalı.');
+  if (x === 0) throw new Error('Deformasyon pozitif ya da negatif olmalı, sıfır olamaz.');
+  return Number(Math.abs(k * x).toFixed(4));
+}
+
+// Kondansator Şarjı: Q = C · V (C)
+export function capacitorCharge(c, v) {
+  if (!(c > 0)) throw new Error('Kapasitans pozitif olmalı.');
+  if (!(v > 0)) throw new Error('Gerilim pozitif olmalı.');
+  return Number((c * v).toFixed(4));
+}
+
+// RC Devresi Kondansator Gerilimi: Vc = V · (1 - e^(-t/RC)), V = 1 varsayılır
+export function rcCircuit(r, c, t, v = 1) {
+  if (!(r > 0)) throw new Error('Direnç pozitif olmalı.');
+  if (!(c > 0)) throw new Error('Kapasitans pozitif olmalı.');
+  if (!(t > 0)) throw new Error('Zaman pozitif olmalı.');
+  if (!(v > 0)) throw new Error('Voltaj pozitif olmalı.');
+  const val = v * (1 - Math.exp(-t / (r * c)));
+  return Number(val.toFixed(6));
 }

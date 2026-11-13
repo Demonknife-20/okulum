@@ -175,3 +175,133 @@ export function binaryAdd(a, b) {
   if (carry) bits.unshift('1');
   return { result: bits.join(''), carryOut: Boolean(carry), steps };
 }
+
+// ---------- Sıralama algoritmaları (adımlı) ve graf gezinme ----------
+
+// Birleştirme sıralaması: her adımda dizi durumu ve işlem kaydı
+export function mergeSortSteps(input) {
+  const arr = [...input];
+  const steps = [{ array: [...arr], compare: null, action: 'start' }];
+
+  function sort(left, right) {
+    if (right - left <= 1) return;
+    const mid = Math.floor((left + right) / 2);
+    sort(left, mid);
+    sort(mid, right);
+
+    const leftPart = arr.slice(left, mid);
+    const rightPart = arr.slice(mid, right);
+    let i = 0;
+    let j = 0;
+    let k = left;
+
+    while (i < leftPart.length && j < rightPart.length) {
+      steps.push({ array: [...arr], compare: [k], action: 'compare' });
+      if (leftPart[i] <= rightPart[j]) {
+        arr[k] = leftPart[i];
+        i += 1;
+      } else {
+        arr[k] = rightPart[j];
+        j += 1;
+      }
+      steps.push({ array: [...arr], compare: [k], action: 'place' });
+      k += 1;
+    }
+
+    while (i < leftPart.length) {
+      arr[k] = leftPart[i];
+      steps.push({ array: [...arr], compare: [k], action: 'place' });
+      i += 1;
+      k += 1;
+    }
+    while (j < rightPart.length) {
+      arr[k] = rightPart[j];
+      steps.push({ array: [...arr], compare: [k], action: 'place' });
+      j += 1;
+      k += 1;
+    }
+  }
+
+  sort(0, arr.length);
+  steps.push({ array: [...arr], compare: null, action: 'done' });
+  return { steps, sorted: arr };
+}
+
+// Hızlı sıralama: her adımda dizi durumu ve işlem kaydı
+export function quickSortSteps(input) {
+  const arr = [...input];
+  const steps = [{ array: [...arr], compare: null, action: 'start' }];
+
+  function sort(left, right) {
+    if (left >= right) return;
+    const pivotIndex = partition(left, right);
+    sort(left, pivotIndex - 1);
+    sort(pivotIndex + 1, right);
+  }
+
+  function partition(left, right) {
+    const pivot = arr[right];
+    let i = left;
+    for (let j = left; j < right; j += 1) {
+      steps.push({ array: [...arr], compare: [j, right], action: 'compare' });
+      if (arr[j] <= pivot) {
+        if (i !== j) {
+          steps.push({ array: [...arr], compare: [i, j], action: 'swap' });
+          [arr[i], arr[j]] = [arr[j], arr[i]];
+        }
+        i += 1;
+      }
+    }
+    if (i !== right) {
+      steps.push({ array: [...arr], compare: [i, right], action: 'swap' });
+      [arr[i], arr[right]] = [arr[right], arr[i]];
+    }
+    return i;
+  }
+
+  sort(0, arr.length - 1);
+  steps.push({ array: [...arr], compare: null, action: 'done' });
+  return { steps, sorted: arr };
+}
+
+// Genişlik öncelikli arama: ziyaret sırasını döner
+export function bfs(graph, start) {
+  if (!(start in graph)) throw new Error('Başlangıç düğümü grafikte bulunamadı.');
+  const visited = new Set([start]);
+  const queue = [start];
+  const order = [];
+
+  while (queue.length > 0) {
+    const node = queue.shift();
+    order.push(node);
+    const neighbors = graph[node] || [];
+    for (const neighbor of neighbors) {
+      if (!visited.has(neighbor)) {
+        visited.add(neighbor);
+        queue.push(neighbor);
+      }
+    }
+  }
+  return order;
+}
+
+// Derinlik öncelikli arama: ziyaret sırasını döner
+export function dfs(graph, start) {
+  if (!(start in graph)) throw new Error('Başlangıç düğümü grafikte bulunamadı.');
+  const visited = new Set();
+  const order = [];
+
+  function traverse(node) {
+    visited.add(node);
+    order.push(node);
+    const neighbors = graph[node] || [];
+    for (const neighbor of neighbors) {
+      if (!visited.has(neighbor)) {
+        traverse(neighbor);
+      }
+    }
+  }
+
+  traverse(start);
+  return order;
+}

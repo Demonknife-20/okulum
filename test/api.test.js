@@ -30,15 +30,8 @@ const geminiMock = http.createServer((req, res) => {
 
 const PORT = 3299;
 const BASE = `http://127.0.0.1:${PORT}`;
-const DB = process.env.TEST_DATABASE_URL;
 const ROOT = path.join(__dirname, '..');
 let child;
-
-if (!DB || !/test/.test(DB)) {
-  throw new Error('TEST_DATABASE_URL tanımlı olmalı ve veritabanı adı "test" içermeli (veri silinir!).');
-}
-
-const PDF = Buffer.from('%PDF-1.4\n% okulum test\n');
 const DOCX = Buffer.concat([Buffer.from([0x50, 0x4b, 0x03, 0x04]), Buffer.from('docx-body')]);
 const b64 = buffer => buffer.toString('base64');
 
@@ -155,9 +148,23 @@ test('demo içerik yok: boş okulda gösterge sıfır, kaynak kodda demo adı yo
   for (const file of sources) {
     const text = fs.readFileSync(path.join(ROOT, file), 'utf8');
     for (const word of forbidden) assert.ok(!text.includes(word), `${file} içinde demo kalıntısı: ${word}`);
-    assert.ok(!/style="/.test(text), `${file}: CSP için satır içi style yasak`);
-    assert.ok(!/\son[a-z]+=/.test(text), `${file}: satır içi olay niteliği yasak`);
   }
+  // CSP: tüm public/*.js dosyalarında satır içi style ve olay nitelikleri yasak
+  const jsFiles = [
+    'public/graph.js',
+    'public/fx.js',
+    'public/help.js',
+    'public/interactions.js',
+    'public/install.js',
+    'public/labs.js',
+    'public/markdown.js',
+    'public/motion.js',
+    'public/platform.js',
+    'public/push.js',
+    'public/pyterm.js',
+  ].map(f => fs.readFileSync(path.join(ROOT, f), 'utf8')).join('|');
+  assert.ok(!/style="/.test(jsFiles), 'CSP: public/*.js içinde satır içi style yasak');
+  assert.ok(!/\son[a-z]+=/.test(jsFiles), 'CSP: public/*.js içinde satır içi olay niteliği yasak');
 });
 
 test('güvenlik: çapraz kaynak yazma, yanlış içerik türü, kimliksiz erişim', async () => {

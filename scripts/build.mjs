@@ -56,8 +56,8 @@ fs.copyFileSync(path.join(src, 'interactions.js'), path.join(out, 'interactions.
 fs.copyFileSync(path.join(src, 'icon.svg'), path.join(out, 'icon.svg'));
 fs.copyFileSync(path.join(src, 'styles.css'), path.join(out, 'styles.css'));
 fs.copyFileSync(path.join(src, 'manifest.webmanifest'), path.join(out, 'manifest.webmanifest'));
-fs.copyFileSync(path.join(src, 'robots.txt'), path.join(out, 'robots.txt'));
 fs.copyFileSync(path.join(src, 'sw.js'), path.join(out, 'sw.js'));
+fs.copyFileSync(path.join(src, 'google7d574616643a9434.html'), path.join(out, 'google7d574616643a9434.html'));
 for (const asset of ['icon-192.png', 'icon-512.png', 'brand-mark.png', 'logo.png']) {
   fs.copyFileSync(path.join(src, asset), path.join(out, asset));
 }

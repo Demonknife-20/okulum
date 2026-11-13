@@ -31,7 +31,7 @@ const runMigrate = databaseUrl => execFileSync(process.execPath, ['-e',
   "require('./src/db').migrate().then(() => { require('./src/db').pool.end(); process.exit(0); }).catch(e => { console.error(e.message); process.exit(1); });",
 ], { cwd: root, env: { ...process.env, DATABASE_URL: databaseUrl }, stdio: 'pipe' });
 
-test('sıfırdan kurulum: tüm migrasyonlar sırayla uygulanır ve kayıt tablosu eşleşir', { timeout: 120000 }, async () => {
+test('sıfırdan kurulum: tüm migrasyonlar sırayla uygulanır ve kayıt tablosu eşleşir', { timeout: 120000, skip: !process.env.TEST_DATABASE_URL }, async () => {
   await withDatabase('okulum_fresh_schema', async url => {
     runMigrate(url);
     const client = new pg.Client({ connectionString: url });
