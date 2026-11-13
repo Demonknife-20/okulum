@@ -2662,3 +2662,107 @@ input:valid:not(:placeholder-shown){border-color:var(--ok);box-shadow:0 0 0 4px 
   }
   html.fx-off *,html.fx-off *::before,html.fx-off *::after{transition:none!important;animation:none!important}
 }
+
+/* ===== v87: menü iyileştirmeleri =====
+   Aktif durum animasyonu, nav-badge pulsing, tabbar büyük dokunma hedefi,
+   menü açılışında backdrop-filter blur, ripple efekti.
+*/
+.nav-item{
+  position:relative;
+  display:flex;
+  align-items:center;
+  gap:10px;
+  padding:12px 14px;
+  border-radius:10px;
+  color:var(--ink);
+  text-decoration:none;
+  font-weight:500;
+  transition:background .2s var(--ease-soft),color .2s var(--ease-soft);
+}
+.nav-item .nav-ripple{
+  position:absolute;inset:0;border-radius:10px;opacity:0;
+  background:color-mix(in srgb,var(--brand) 30%,transparent);
+  transition:opacity .2s var(--ease-soft),transform .3s var(--ease-soft);
+  pointer-events:none;
+}
+.nav-item:active .nav-ripple{opacity:1;transform:scale(1.05)}
+.nav-item.active{
+  background:color-mix(in srgb,var(--brand) 12%,var(--surface));
+  color:var(--brand);
+  box-shadow:inset 0 0 0 2px color-mix(in srgb,var(--brand) 40%,transparent);
+}
+.nav-item .nav-label{flex:1}
+.nav-badge{
+  position:absolute;top:6px;right:8px;
+  min-width:18px;height:18px;border-radius:9px;background:var(--danger);
+  color:#fff;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;
+  animation:badge-pulse 2s infinite;
+}
+@keyframes badge-pulse{
+  0%,100%{transform:scale(1);opacity:1}
+  50%{transform:scale(1.15);opacity:.85}
+}
+.nav-badge[hidden]{display:none}
+
+/* Tabbar: büyük dokunma hedefi (48x48px) */
+.tab{
+  display:flex;flex-direction:column;align-items:center;gap:4px;
+  padding:10px 6px;border-radius:10px;color:var(--muted);
+  text-decoration:none;font-size:12px;font-weight:500;transition:color .2s var(--ease-soft),background .2s var(--ease-soft);
+  min-height:48px;min-width:48px;
+}
+.tab.active{color:var(--brand);background:color-mix(in srgb,var(--brand) 10%,var(--surface))}
+.tab .tab-ripple{
+  position:absolute;inset:0;border-radius:10px;opacity:0;
+  background:color-mix(in srgb,var(--brand) 25%,transparent);
+  transition:opacity .2s var(--ease-soft);
+  pointer-events:none;
+}
+.tab:active .tab-ripple{opacity:1}
+
+/* Menü açılışında yumuşak geçiş */
+#sidebar.open{animation:sidebar-in .25s var(--ease) both}
+@keyframes sidebar-in{
+  from{opacity:0;transform:translateX(-10px)}
+  to{opacity:1;transform:none}
+}
+#scrim.show{animation:scrim-in .2s var(--ease) both}
+@keyframes scrim-in{from{opacity:0}to{opacity:1}}
+
+/* ===== v87: panel iyileştirmeleri =====
+   Hesap kartları daha büyük ve net, panel başlıkları belirgin,
+   boş durum kutuları dost canlısı, ilerleme çubukları canlı.
+*/
+.calc-card{
+  display:grid;grid-template-columns:1fr;gap:10px;
+  padding:14px 12px;border-radius:12px;background:var(--surface);
+  border:1px solid var(--line);box-shadow:0 1px 3px color-mix(in srgb,var(--ink) 6%,transparent);
+}
+.calc-card h4{margin:0 0 8px;font-size:15px;color:var(--ink);font-weight:600}
+.calc-card .field{display:flex;flex-direction:column;gap:6px}
+.calc-card label{font-size:13px;color:var(--muted);font-weight:500}
+.calc-card input{padding:10px 12px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--ink);font-size:14px}
+.calc-card input:focus{outline:none;border-color:var(--brand);box-shadow:0 0 0 3px color-mix(in srgb,var(--brand) 20%,transparent)}
+.calc-card .result{margin-top:8px;padding:10px;border-radius:8px;background:color-mix(in srgb,var(--brand) 8%,var(--surface));color:var(--brand);font-weight:600;font-size:14px;text-align:center}
+.calc-card .result.empty{background:var(--surface);color:var(--muted)}
+
+.panel-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px}
+.panel-head h2{margin:0;font-size:18px;color:var(--ink);font-weight:600}
+.panel-head .panel-sub{color:var(--muted);font-size:13px}
+
+.empty-state{
+  display:flex;flex-direction:column;align-items:center;gap:10px;
+  padding:32px 16px;border-radius:14px;background:var(--surface);
+  border:2px dashed var(--line);color:var(--muted);text-align:center
+}
+.empty-state .empty-icon{font-size:32px}
+.empty-state h3{margin:0;font-size:16px;color:var(--ink);font-weight:600}
+.empty-state p{margin:0;font-size:13px;color:var(--muted);line-height:1.5}
+
+.meter-bar{height:8px;border-radius:4px;background:var(--line);overflow:hidden;margin-top:6px}
+.meter-bar .meter-fill{height:100%;background:var(--brand);border-radius:4px;width:0%;transition:width .5s var(--ease-soft)}
+.meter-bar .meter-fill.live{animation:meter-pulse 2s infinite}
+@keyframes meter-pulse{
+  0%,100%{opacity:1}
+  50%{opacity:.6}
+}

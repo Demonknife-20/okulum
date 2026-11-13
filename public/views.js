@@ -1,7 +1,7 @@
 import { renderMarkdown } from './markdown.js';
 import { enablePush, disablePush, isSubscribed } from './push.js';
 import { mountGraph } from './graph.js';
-import { projectile, trajectory, titrationPH, equivalenceVolume, titrationSeries, ohm, equivalentResistance, pendulum, thinLens, uniformlyAccelerated, kineticEnergy, potentialEnergy, waveSpeed } from './labs.js';
+import { projectile, trajectory, titrationPH, equivalenceVolume, titrationSeries, ohm, equivalentResistance, pendulum, thinLens, uniformlyAccelerated, kineticEnergy, potentialEnergy, waveSpeed, photosynthesis, cellCycle, punnettSquare, heartRate, enzymeActivity } from './labs.js';
 import { ELEMENTS, bestReaction, parseFormulaComp, atomComp, iconFor, molarMass, moles, molarity, dilutionVolume, strongAcidPH, strongBasePH } from './chem.js';
 import { parseBase, toBase, truthTable, bubbleSortSteps, textToBinary, binaryToText, hexToRgb, rgbToHex, binaryAdd } from './computing.js';
 import { runPython, highlightPython, pyHint } from './pyterm.js';
@@ -4821,6 +4821,85 @@ ACTIONS['ggb-del'] = async el => {
   refresh();
 };
 
+// ---------- Biyoloji laboratuvarı ----------
+function bioCalcCard(key, title, fieldsHtml, computeHtml, actionsHtml = '') {
+  return `
+    <div class="calc-card" data-bio="${key}">
+      <strong>${esc(title)}</strong>
+      ${fieldsHtml}
+      ${actionsHtml ? `<div class="py-actions">${actionsHtml}</div>` : ''}
+      <p class="calc-res" data-bio-res="${key}">${computeHtml}</p>
+      <p class="calc-error" data-bio-err="${key}" role="alert"></p>
+    </div>`;
+}
+
+function bioField(name, label, unit, type, value, min, max, step) {
+  const attrs = `data-bio-in="${name}" type="${type}" value="${esc(value)}" autocomplete="off"` +
+    (min !== undefined ? ` min="${esc(min)}"` : '') +
+    (max !== undefined ? ` max="${esc(max)}"` : '') +
+    (step !== undefined ? ` step="${esc(step)}"` : '');
+  return `<label class="field"><span>${esc(label)}${unit ? ` (${esc(unit)})` : ''}</span><input ${attrs}></label>`;
+}
+
+async function pageBiyoloji() {
+  let html = head('Biyoloji laboratuvarı', 'Fotosentez, hücre döngüsü, genetik kalıtım, kalp atışı ve enzim aktivitesi deneyleri.', '');
+  const photoFields = bioField('light', 'Işık yoğunluğu', 'umol/m2/s', 'number', 500, 0, 2000, 50) + bioField('co2', 'CO2 konsantrasyonu', 'ppm', 'number', 400, 0, 2000, 50) + bioField('temp', 'Sicaklik', 'C', 'number', 25, -10, 50, 1);
+  html += panel('Fotosentez oranı', 'Işık yoğunluğu, CO2 konsantrasyonu ve sıcaklığa göre fotosentez verimini hesaplayın.', bioCalcCard('photosynthesis', 'Fotosentez', photoFields, '<span class="muted">Hesaplamak için bir değer değiştirin.</span>', '<button class="btn primary sm" type="button" data-action="bio-calc" data-bio="photosynthesis">Hesapla</button>'));
+  const cycleFields = bioField('phase', 'Aşama', '', 'select', 'G1', undefined, undefined, undefined) + '<select data-bio-in="phase"><option>G1</option><option>S</option><option>G2</option><option>M</option></select>' + bioField('duration', 'Toplam süre', 'dk', 'number', 1440, 1, 10080, 60);
+  html += panel('Hücre döngüsü', 'G1, S, G2 ve M aşamalarına göre toplam sürenin dağılımını görün.', bioCalcCard('cellcycle', 'Hücre döngüsü', cycleFields, '<span class="muted">Aşama süresi hesaplanacak.</span>', '<button class="btn primary sm" type="button" data-action="bio-calc" data-bio="cellcycle">Hesapla</button>'));
+  const punnettFields = bioField('p1', 'Ebeveyn 1', '', 'text', 'Aa', undefined, undefined, undefined) + bioField('p2', 'Ebeveyn 2', '', 'text', 'Aa', undefined, undefined, undefined);
+  html += panel('Punnett kartosu', 'İki ebeveyn genotipti (örn. Aa x Aa) için genotip oranlarını görün.', bioCalcCard('punnett', 'Punnett kartosu', punnettFields, '<span class="muted">Genotip oranları gösterilecek.</span>', '<button class="btn primary sm" type="button" data-action="bio-calc" data-bio="punnett">Hesapla</button>'));
+  const heartFields = bioField('age', 'Yaş', 'yıl', 'number', 20, 1, 120, 1) + bioField('rest', 'Dinlenme hızı', 'dk-1', 'number', 70, 1, 220, 1);
+  html += panel('Hedef kalp atışı', 'Yaş ve dinlenme hıza göre hedef kalp atış aralığını (Karvonen) hesaplayın.', bioCalcCard('heartrate', 'Kalp atışı', heartFields, '<span class="muted">Hedef aralık gösterilecek.</span>', '<button class="btn primary sm" type="button" data-action="bio-calc" data-bio="heartrate">Hesapla</button>'));
+  const enzymeFields = bioField('temp', 'Sıcaklık', 'C', 'number', 37, -10, 100, 1) + bioField('ph', 'pH', '', 'number', 7.4, 0, 14, 0.1);
+  html += panel('Enzim aktivitesi', 'Sıcaklık ve pH\'ya göre enzim aktivitesini (% cinsinden) görün.', bioCalcCard('enzyme', 'Enzim aktivitesi', enzymeFields, '<span class="muted">Aktivite yüzdesi gösterilecek.</span>', '<button class="btn primary sm" type="button" data-action="bio-calc" data-bio="enzyme">Hesapla</button>'));
+  return {
+    html,
+    after: () => {
+      document.querySelectorAll('[data-action=bio-calc]').forEach(button => {
+        button.addEventListener('click', () => {
+          const card = button.closest('[data-bio]');
+          const key = card.dataset.bio;
+          const err = card.querySelector('[data-bio-err="' + key + '"]');
+          const res = card.querySelector('[data-bio-res="' + key + '"]');
+          err.textContent = '';
+          try {
+            let result;
+            if (key === 'photosynthesis') {
+              const light = Number(card.querySelector('[data-bio-in=light]').value);
+              const co2 = Number(card.querySelector('[data-bio-in=co2]').value);
+              const temp = Number(card.querySelector('[data-bio-in=temp]').value);
+              result = 'Fotosentez oranı: %' + photosynthesis(light, co2, temp);
+            } else if (key === 'cellcycle') {
+              const phase = card.querySelector('[data-bio-in=phase]').value;
+              const duration = Number(card.querySelector('[data-bio-in=duration]').value);
+              const minutes = cellCycle(phase, duration);
+              result = phase + ' aşaması: ' + minutes + ' dakika';
+            } else if (key === 'punnett') {
+              const p1 = card.querySelector('[data-bio-in=p1]').value;
+              const p2 = card.querySelector('[data-bio-in=p2]').value;
+              const results = punnettSquare(p1, p2);
+              result = results.map(r => r.genotype + ': %' + r.percent).join(' · ');
+            } else if (key === 'heartrate') {
+              const age = Number(card.querySelector('[data-bio-in=age]').value);
+              const rest = Number(card.querySelector('[data-bio-in=rest]').value);
+              const hr = heartRate(age, rest);
+              result = 'Hedef: ' + hr.min + '–' + hr.max + ' dk-1 (maks: ' + hr.maxHeartRate + ' dk-1)';
+            } else if (key === 'enzyme') {
+              const temp = Number(card.querySelector('[data-bio-in=temp]').value);
+              const ph = Number(card.querySelector('[data-bio-in=ph]').value);
+              result = 'Enzim aktivitesi: %' + enzymeActivity(temp, ph).activity;
+            }
+            res.textContent = result;
+          } catch (error) {
+            err.textContent = error.message;
+          }
+        });
+      });
+    },
+  };
+}
+
 // ---------- Yönlendirme tablosu ----------
 const PAGES = {
   overview: pageOverview, classes: pageClasses, assignments: pageAssignments, attendance: pageAttendance,
@@ -4828,7 +4907,7 @@ const PAGES = {
   yardim: async () => ({ html: helpHtml() }),
   panolar: pagePanolar, pano: pageBoard, asistan: pageAsistan,
   cocuklar: pageCocuklar, sinavlar: pageSinavlar, sinav: pageSinav, notlar: pageNotlar,
-  davranis: pageDavranis, puanlarim: pagePuanlarim, program: pageProgram, takvim: pageTakvim, karne: pageKarne, canli: pageCanli, analiz: pageAnaliz, izin: pageIzin, gece: pageGece, geogebra: pageGeogebra, deneyler: pageFizik, fizik: pageFizik, kimya: pageKimya, bilgisayar: pageBilgisayar, qbank: pageQbank,
+  davranis: pageDavranis, puanlarim: pagePuanlarim, program: pageProgram, takvim: pageTakvim, karne: pageKarne, canli: pageCanli, analiz: pageAnaliz, izin: pageIzin, gece: pageGece, geogebra: pageGeogebra, deneyler: pageFizik, fizik: pageFizik, kimya: pageKimya, bilgisayar: pageBilgisayar, biyoloji: pageBiyoloji, qbank: pageQbank,
 };
 export function renderView(page, params) {
   if (page === 'overview' && state.me.role === 'parent') return pageParentOverview();

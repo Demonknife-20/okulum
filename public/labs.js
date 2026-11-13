@@ -197,3 +197,100 @@ export function rcCircuit(r, c, t, v = 1) {
   const val = v * (1 - Math.exp(-t / (r * c)));
   return Number(val.toFixed(6));
 }
+
+// Fotosentez oranı: ışık, CO2 ve sıcaklık etkisi (basitleştirilmiş model, 0-100 arası)
+// Işık ve CO2 saturasyon eğrisi, sıcaklık için optimal 25°C civarı Gauss
+export function photosynthesis(light, co2, temp) {
+  if (light < 0) throw new Error('Işık yoğunluğu negatif olamaz.');
+  if (co2 <= 0) throw new Error('CO2 konsantrasyonu pozitif olmalı.');
+  if (!(temp >= -10 && temp <= 50)) throw new Error('Sıcaklık -10 ile 50 °C arasında olmalı.');
+  const lightFactor = light / (light + 200); // saturasyon
+  const co2Factor = co2 / (co2 + 400); // saturasyon
+  const tempFactor = Math.exp(-((temp - 25) ** 2) / 200); // optimal 25°C
+  return Number((100 * lightFactor * co2Factor * tempFactor).toFixed(2));
+}
+
+// Hücre döngüsü: verilen aşamada süre oranı (dakika)
+// Aşamalar: G1, S, G2, M (mitoz)
+export function cellCycle(phase, duration) {
+  if (!(duration > 0)) throw new Error('Toplam süre sıfırdan büyük olmalı.');
+  const phases = { G1: 0.45, S: 0.35, G2: 0.10, M: 0.10 };
+  const p = String(phase).toUpperCase().replace('MITOZ', 'M');
+  if (!(p in phases)) throw new Error('Aşama boş olamaz: G1, S, G2 veya M olmalı.');
+  const stageNames = { G1: 'G1 (hücre büyümesi)', S: 'S (DNA sentezi)', G2: 'G2 (hazırlık)', M: 'M (mitoz)' };
+  return {
+    phase: String(phase).toLowerCase(),
+    duration: duration,
+    stages: Object.entries(phases).map(([name, ratio]) => ({
+      name: stageNames[name],
+      minutes: Number((duration * ratio).toFixed(2)),
+      percent: Number((ratio * 100).toFixed(1)),
+    })),
+  };
+}
+
+// Punnett kartosu: iki ebeveyn genotipti (örn. Aa x Aa) → genotip oranları
+// Basit tek-lokuslu, tam egemen model
+export function punnettSquare(parent1, parent2) {
+  const parse = gt => {
+    const m = String(gt).trim().match(/^([A-Za-z])([A-Za-z])$/);
+    if (!m) throw new Error('genotip iki harfli olmalı (örn. Aa, aa, AA).');
+    return [m[1], m[2]];
+  };
+  const g1 = parse(parent1);
+  const g2 = parse(parent2);
+  const gametes1 = g1[0] === g1[1] ? [g1[0]] : g1;
+  const gametes2 = g2[0] === g2[1] ? [g2[0]] : g2;
+  const grid = [];
+  for (const a of gametes1) {
+    const row = [];
+    for (const b of gametes2) {
+      row.push([a, b].sort().join(''));
+    }
+    grid.push(row);
+  }
+  const counts = {};
+  for (const row of grid) for (const o of row) counts[o] = (counts[o] || 0) + 1;
+  const total = grid.flat().length;
+  const genotypeRatios = {};
+  for (const [genotype, count] of Object.entries(counts)) {
+    genotypeRatios[genotype] = Number(((count / total) * 100).toFixed(2)) / 100;
+  }
+  return { grid, genotypeRatios };
+}
+
+// Hedef kalp atış hızı: yaş ve dinamik hıza göre (Karvonen formülü)
+// rest: dinlenme kalp atışı (dk⁻¹), age: yaş
+export function heartRate(age, rest) {
+  if (!(age > 0 && age <= 120)) throw new Error('yaş sıfırdan büyük olmalı.');
+  if (!(rest > 0 && rest <= 220)) throw new Error('Dinlenme hızı sıfırdan büyük olmalı.');
+  const max = 220 - age;
+  const reserve = max - rest;
+  if (reserve <= 0) throw new Error('Dinlenme hızı maksimum hızdan büyük olamaz.');
+  return {
+    min: Number((rest + 0.5 * reserve).toFixed(0)),
+    max: Number((rest + 0.85 * reserve).toFixed(0)),
+    targetMin: Number((rest + 0.5 * reserve).toFixed(0)),
+    targetMax: Number((rest + 0.85 * reserve).toFixed(0)),
+    maxHeartRate: max,
+  };
+}
+
+// Enzim aktivitesi: sıcaklık ve pH etkisi (basitleştirilmiş, 0-1 arası)
+// Optimal sıcaklık 37°C, optimal pH 7.4; her iki eksen de Gauss daraltma
+export function enzymeActivity(temp, ph) {
+  if (!(temp > 0 && temp <= 100)) throw new Error('sıcaklık sıfırdan büyük ve 100\'den küçük olmalı.');
+  if (!(ph > 0 && ph <= 14)) throw new Error('pH sıfırdan büyük ve 14\'ten küçük olmalı.');
+  const t = Number(temp);
+  const p = Number(ph);
+  const tScore = Math.exp(-((t - 37) ** 2) / 200);
+  const pScore = Math.exp(-((p - 7.4) ** 2) / 8);
+  const activity = Number((tScore * pScore).toFixed(4));
+  const result = { activity };
+  Object.defineProperty(result, 'valueOf', {
+    value: () => activity,
+    writable: false,
+    configurable: true,
+  });
+  return result;
+}

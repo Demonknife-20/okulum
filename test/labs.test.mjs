@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { projectile, trajectory, titrationPH, equivalenceVolume, titrationSeries, ohm, equivalentResistance, pendulum, thinLens, uniformlyAccelerated, kineticEnergy, potentialEnergy, waveSpeed, density, pressure, buoyancy, work, power, momentum, springForce, capacitorCharge, rcCircuit } from '../public/labs.js';
+import { projectile, trajectory, titrationPH, equivalenceVolume, titrationSeries, ohm, equivalentResistance, pendulum, thinLens, uniformlyAccelerated, kineticEnergy, potentialEnergy, waveSpeed, density, pressure, buoyancy, work, power, momentum, springForce, capacitorCharge, rcCircuit, photosynthesis, cellCycle, punnettSquare, heartRate, enzymeActivity } from '../public/labs.js';
 
 test('eğik atış: menzil, yükseklik ve süre bilinen değerlerle uyuşur', () => {
   // 45°, 10 m/s, Dünya: menzil v²/g ≈ 10.19 m, en yüksek nokta ≈ 2.55 m
@@ -144,4 +144,52 @@ test('RC devresi: Vc = V·(1-e^(-t/RC)), r, c, t pozitif olmalı', () => {
   assert.throws(() => rcCircuit(0, 0.001, 1, 5), /pozitif/);
   assert.throws(() => rcCircuit(1000, 0, 1, 5), /pozitif/);
   assert.throws(() => rcCircuit(1000, 0.001, -1, 5), /pozitif/);
+});
+
+test('fotosentez: ışık, CO2 ve sıcaklık artarken oran artar', () => {
+  assert.ok(photosynthesis(800, 400, 25) > photosynthesis(200, 400, 25));
+  assert.ok(photosynthesis(800, 600, 25) > photosynthesis(800, 400, 25));
+  assert.throws(() => photosynthesis(-100, 400, 25), /negatif/);
+  assert.throws(() => photosynthesis(800, 0, 25), /pozitif/);
+});
+
+test('hücre döngüsü: aşama ve süreyle döngü bilgisi döner', () => {
+  const m = cellCycle('mitoz', 60);
+  assert.ok(m.phase === 'mitoz');
+  assert.ok(m.duration === 60);
+  assert.ok(Array.isArray(m.stages));
+  assert.ok(m.stages.length > 0);
+  assert.throws(() => cellCycle('', 60), /boş/);
+  assert.throws(() => cellCycle('mitoz', 0), /sıfır/);
+});
+
+test('Punnett kartosu: heterozigot x heterozigot → 1:2:1 fenotip', () => {
+  const p = punnettSquare('Aa', 'Aa');
+  assert.ok(Array.isArray(p.grid));
+  assert.ok(p.grid.length === 2);
+  assert.ok(p.genotypeRatios.AA === 0.25);
+  assert.ok(p.genotypeRatios.Aa === 0.5);
+  assert.ok(p.genotypeRatios.aa === 0.25);
+  assert.throws(() => punnettSquare('', 'Aa'), /genotip/);
+  assert.throws(() => punnettSquare('Aa', ''), /genotip/);
+});
+
+test('kalp atışı: yaş ve dinleniş hızıyla hedef aralık hesaplanır', () => {
+  const h = heartRate(20, 70);
+  assert.ok(h.min > 0);
+  assert.ok(h.max > h.min);
+  assert.ok(h.targetMin > 0);
+  assert.ok(h.targetMax > h.targetMin);
+  assert.throws(() => heartRate(0, 70), /yaş/);
+  assert.throws(() => heartRate(20, 0), /hız/);
+});
+
+test('enzim aktivitesi: optimum sıcaklık ve pH\'de en yüksek', () => {
+  const e = enzymeActivity(37, 7);
+  assert.ok(e.activity > 0);
+  assert.ok(e.activity <= 1);
+  assert.ok(enzymeActivity(37, 7) > enzymeActivity(10, 7));
+  assert.ok(enzymeActivity(37, 7) > enzymeActivity(37, 2));
+  assert.throws(() => enzymeActivity(-5, 7), /sıcaklık/);
+  assert.throws(() => enzymeActivity(37, -1), /pH/);
 });
