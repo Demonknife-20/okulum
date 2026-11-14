@@ -4,14 +4,14 @@
   <!-- Reklam betiği kaldırıldı: CSP script-src 'self' onu zaten engelliyor, yani hiç
        yüklenmiyordu; tek etkisi her ziyaretçinin adresini Google'a göndermekti. -->
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="color-scheme" content="light dark">
   <meta name="theme-color" content="#1b6b50">
   <meta name="application-name" content="Okulum">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Okulum">
   <title>Okulum · Okul yönetim sistemi: ödev, yoklama, sınav ve not takibi</title>
-  <meta name="description" content="Okulum okul yönetim sistemi: müdür, öğretmen, öğrenci ve veliler için ödev, yoklama, online sınav, not grafikleri, pano ve mesajlaşma.">
+  <meta name="description" content="Okulum: müdür, öğretmen, öğrenci ve veli için ödev, yoklama, online sınav, not grafikleri, pano ve mesajlaşma">
   <meta name="keywords" content="okulum, okul yönetim sistemi, e-okul alternatifi, ödev takibi, yoklama, online sınav, quiz, veli takibi, not takibi">
   <meta name="robots" content="index, follow">
   <link rel="canonical" href="/">
@@ -28,8 +28,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Source+Sans+3:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/styles.X5KVIDD5.css" integrity="sha384-Pb7p7QBhmeiZ1HKtc5bVoohhcgwG9W0luYZ29unsSXnFoTU7j2Mw7L0bIlILPuif" crossorigin="anonymous">
-  <script type="module" src="/app.F3OYF6EL.js" integrity="sha384-wIHQKYeKC6doZtARxdMe8yVl5sLJYrj0ZZ970QCeMeEvXkhyo9f3caMFNwJ60vtz" crossorigin="anonymous"></script>
+  <link rel="stylesheet" href="/styles.MUCOQH65.css" integrity="sha384-p0Nq83ruFGSJUmIcUz+4m7IPnfx8uNCDzifMfQ+hH/MgGYcYNDic0OgRHywIM9c7" crossorigin="anonymous">
+  <script type="module" src="/app.N37BPEQD.js" integrity="sha384-GHSlrJulrlsJUSr++ZCf4T2bQq0i5ofxsGJDm3w+VTPGfMQMg3sqcM0RjHMz5Qnn" crossorigin="anonymous"></script>
 </head>
 <body>
   <div class="splash" id="boot" role="status" aria-live="polite">
