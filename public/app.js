@@ -56,8 +56,40 @@ ACTIONS.theme = el => {
 const openMenu = () => { $('#sidebar').classList.add('open'); $('#scrim').classList.add('show'); };
 const closeMenu = () => { $('#sidebar').classList.remove('open'); $('#scrim').classList.remove('show'); };
 ACTIONS['open-menu'] = openMenu;
-ACTIONS['close-menu'] = closeMenu;
-ACTIONS['close-modal'] = () => closeModal();
+  ACTIONS['close-menu'] = closeMenu;
+  ACTIONS['close-modal'] = () => closeModal();
+  ACTIONS.navclick = el => {
+    const page = el.dataset.page;
+    const item = $$('.nav-item').find(l => l.dataset.page === page);
+    if (!item) return;
+    // Dropdown varsa kapat, yoksa sayfa git
+    if (item.classList.contains('has-dropdown')) {
+      const dropdown = item.querySelector('.nav-dropdown');
+      if (dropdown) {
+        dropdown.classList.toggle('open');
+        item.setAttribute('aria-expanded', dropdown.classList.contains('open'));
+      }
+    } else {
+      highlight(page);
+      closeMenu();
+      location.hash = `#/${page}`;
+    }
+  };
+
+  // Dropdown öğelerine tıklandığında
+  document.addEventListener('click', e => {
+    const dropdownItem = e.target.closest('.nav-dropdown-item');
+    if (!dropdownItem) return;
+    const action = dropdownItem.dataset.action;
+    if (!action) return;
+    if (action === 'logout') {
+      logout();
+    } else {
+      highlight(action);
+      closeMenu();
+      location.hash = `#/${action}`;
+    }
+  });
 
 // ---------- Kabuk: giriş yapmamış ve giriş yapmış görünümler ----------
 function showPublic() {
@@ -77,9 +109,25 @@ function renderChrome() {
   $('#meAvatar').className = `avatar ${tone(me.role)}`;
   $('#meName').textContent = me.name;
   $('#meRole').textContent = me.className ? `${ROLE[me.role]} · ${me.className}` : ROLE[me.role];
-  $('#nav').innerHTML = NAV[me.role].map(([page, label, ic]) =>
-    `<a class="nav-item" href="#/${page}" data-page="${page}"><span class="nav-ripple"></span>${icon(ic)}<span class="nav-label">${esc(label)}</span>${
-      BADGES.includes(page) ? `<span class="nav-badge" data-badge="${page}" hidden></span>` : ''}</a>`).join('');
+  $('#nav').innerHTML = NAV[me.role].map(([page, label, ic], i) => {
+    const isActive = location.hash === `#/${page}`;
+    const hasDropdown = page === 'school' || page === 'qbank';
+    const dropdownHtml = hasDropdown ? `
+      <div class="nav-dropdown" role="menu" aria-label="Ek seçenekler">
+        <div class="nav-dropdown-item" data-action="school-classes">Sınıflarım</div>
+        <div class="nav-dropdown-item" data-action="school-settings">Ayarlar</div>
+        <div class="nav-dropdown-item" data-action="logout">Çıkış</div>
+      </div>` : '';
+    const moreLabel = hasDropdown && i === NAV[me.role].length - 1 ? '<span class="nav-more">Daha fazla →</span>' : '';
+    return `<a class="nav-item ${isActive ? 'active' : ''} ${hasDropdown ? 'has-dropdown' : ''}" href="#/${page}" data-page="${page}" aria-current="${isActive ? 'page' : 'false'}"><span class="nav-ripple"></span>${icon(ic)}<span class="nav-label">${esc(label)}</span>${moreLabel}${
+      BADGES.includes(page) ? `<span class="nav-badge" data-badge="${page}" hidden></span>` : ''}${dropdownHtml}</a>`;
+  }).join('');
+
+  // Dropdown menü (sayfa başına tek olacak, ilk school öğesine ekleyelim)
+  const firstDropdown = document.querySelector('.nav-item.has-dropdown');
+  if (firstDropdown) {
+    firstDropdown.insertAdjacentHTML('afterend', dropdownHtml);
+  }
   renderTabbar(me);
 }
 

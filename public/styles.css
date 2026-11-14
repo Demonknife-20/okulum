@@ -2766,3 +2766,54 @@ input:valid:not(:placeholder-shown){border-color:var(--ok);box-shadow:0 0 0 4px 
   0%,100%{opacity:1}
   50%{opacity:.6}
 }
+@keyframes card-lift{
+from{box-shadow:var(--shadow-sm)}
+to{box-shadow:var(--shadow-md)}
+}
+.animate-card-lift:hover,.animate-card-lift:focus-visible{animation:card-lift .2s var(--ease) both}
+@keyframes border-pulse{
+0%,100%{border-color:var(--brand)}
+50%{border-color:var(--sh-accent)}
+}
+.animate-border-pulse{animation:border-pulse 2s infinite var(--ease-soft)}
+/* Table row hover - regular rule, not keyframe */
+.animate-table-row tr{transition:background .2s var(--ease-soft)}
+tr:hover{background:rgba(var(--sh-surface),.3)}
+/* Dropdown menü stilleri */
+.nav-dropdown{
+  position:absolute;top:100%;left:0;min-width:160px;margin-top:8px;padding:8px 12px;border-radius:10px;background:var(--surface);box-shadow:var(--shadow-md);border:1px solid var(--line);opacity:0;visibility:hidden;transition:opacity .2s var(--ease),visibility .2s var(--ease)
+}
+.nav-dropdown[aria-expanded="true"]{opacity:1;visibility:visible}
+.nav-dropdown-item{
+  display:block;padding:6px 12px;border-radius:8px;margin:4px 0;color:var(--ink);font-size:14px;cursor:pointer;transition:background .15s var(--ease)
+}
+.nav-dropdown-item:hover,.nav-dropdown-item:focus-visible{background:rgba(var(--sh-surface),.2)}
+.nav-dropdown-item[data-action="logout"]{color:var(--danger)}
+/* ---------- 4. Hesap kartları ve boş durumlar ---------- */
+.calc-card{
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+  padding:14px;margin:8px 0;transition:box-shadow .2s var(--ease)}
+.calc-card:hover{box-shadow:var(--shadow-md)}
+.calc-card strong{display:block;margin-bottom:8px;font-size:1rem}
+.calc-card .field{margin:4px 0}
+.calc-card .field input{width:100%;padding:6px 8px;border:1px solid var(--line);
+  border-radius:var(--radius);background:var(--background);color:var(--ink);font:inherit;
+  transition:border-color .2s var(--ease)}
+.calc-card .field input:focus{outline:none;border-color:var(--brand)}
+.calc-card .py-actions{margin-top:8px;display:flex;gap:8px;justify-content:flex-end}
+.calc-card .calc-res{margin-top:8px;font-weight:600;color:var(--brand)}
+.calc-card .calc-error{margin-top:4px;color:var(--danger);font-size:.88rem;min-height:14px}
+
+/* Boş durum kartı */
+.empty-state{border:2px dashed var(--line);border-radius:var(--radius);padding:40px 20px;
+  text-align:center;color:var(--muted);background:var(--surface);margin:16px 0}
+.empty-state svg{width:48px;height:48px;margin:0 auto 12px;stroke:var(--line)}
+.empty-state h3{margin:12px 0 4px;font-size:1rem}
+.empty-state p{font-size:.88rem}
+
+/* Kart hover efektleri (v88) */
+.calc-card.lift:hover{animation:card-lift .2s var(--ease) both}
+@keyframes card-lift{
+from{box-shadow:var(--shadow-sm)}
+to{box-shadow:var(--shadow-md)}
+}
