@@ -3659,6 +3659,32 @@ on('POST', '/api/geogebra/worksheets', async ({ body, user }) => {
   return created({ id: row.id, lines: lines.length });
 }, { roles: STAFF });
 
+// ---------- Web Push bildirim uç noktaları ----------
+on('GET', '/api/push/key', async ({ user }) => {
+  const key = push.publicKey();
+  if (!key) fail(503, 'Bildirim sunucusu henüz hazır değil.');
+  return ok({ publicKey: key });
+});
+
+on('POST', '/api/push/subscribe', async ({ user, body }) => {
+  const sub = body?.subscription;
+  if (!sub || !sub.endpoint || !sub.keys?.p256dh || !sub.keys?.auth) fail(400, 'Geçersiz abonelik.');
+  await q(`insert into push_subscriptions (user_id, endpoint, p256dh, auth)
+    values ($1, $2, $3, $4)
+    on conflict (endpoint) do update set user_id = excluded.user_id, p256dh = excluded.p256dh, auth = excluded.auth`,
+    [user.id, sub.endpoint, sub.keys.p256dh, sub.keys.auth]);
+  await audit(user, 'push_subscribed', sub.endpoint.slice(0, 80));
+  return ok({ subscribed: true });
+});
+
+on('POST', '/api/push/unsubscribe', async ({ user, body }) => {
+  const endpoint = body?.endpoint;
+  if (!endpoint) fail(400, 'Endpoint gerekli.');
+  await q('delete from push_subscriptions where endpoint = $1 and user_id = $2', [endpoint, user.id]);
+  await audit(user, 'push_unsubscribed', endpoint.slice(0, 80));
+  return ok({ unsubscribed: true });
+});
+
 // ---------- Hata eşleme ----------
 function toHttpError(error) {
   if (error instanceof HttpError) return error;
