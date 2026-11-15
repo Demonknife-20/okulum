@@ -13,6 +13,11 @@ const str = (value, max) => String(value ?? '').trim().slice(0, max);
 const secureFlag = process.env.NODE_ENV === 'production' ? '; Secure' : '';
 const sign = value => crypto.createHmac('sha256', process.env.SESSION_SECRET).update(value).digest('base64url');
 
+// Ensure status column exists on platform.schools (migration for existing deployments)
+async function ensureSchoolsStatusColumn() {
+  await pool.query(`alter table platform.schools add column if not exists status text not null default 'active'`);
+}
+
 function cookieValue(req) {
   for (const part of String(req.headers.cookie || '').split(';')) {
     const [key, ...rest] = part.trim().split('=');
@@ -103,7 +108,7 @@ async function handlePlatformApi({ req, res, url, body }) {
     return json(res, 200, { authenticated: true });
   }
   if (url.pathname === '/api/platform/schools' && req.method === 'GET') {
-    const { rows } = await pool.query('select slug, name, city, year, created_at as "createdAt" from platform.schools order by created_at desc');
+    const { rows } = await pool.query('select slug, name, city, year, status, created_at as "createdAt" from platform.schools order by created_at desc');
     const schools = rows.map(school => ({ ...school, url: schoolUrl(school.slug) }));
     return json(res, 200, { schools });
   }
@@ -148,8 +153,8 @@ async function handlePlatformApi({ req, res, url, body }) {
         [username, passwordHash, principalName],
       );
       await client.query(
-        `insert into platform.schools (slug, schema_name, name, city, year)
-          values ($1, $2, $3, $4, $5)`,
+        `insert into platform.schools (slug, schema_name, name, city, year, status)
+          values ($1, $2, $3, $4, $5, 'active')`,
         [slug, schema, name, city, year],
       );
       await client.query('commit');
@@ -160,7 +165,26 @@ async function handlePlatformApi({ req, res, url, body }) {
     } finally {
       client.release();
     }
-    return json(res, 201, { school: { slug, name, city, year, url: schoolUrl(slug) } });
+    return json(res, 201, { school: { slug, name, city, year, status: 'active', url: schoolUrl(slug) } });
+  }
+  if (url.pathname.match(/^\/api\/platform\/schools\/([^\/]+)$/) && req.method === 'DELETE') {
+    const slug = url.pathname.match(/^\/api\/platform\/schools\/([^\/]+)$/)[1];
+    if (!validSlug(slug)) return json(res, 400, { error: 'Geçersiz okul adresi.' });
+    const schema = schemaForSlug(slug);
+    const client = await pool.connect();
+    try {
+      await client.query('begin');
+      // Drop the tenant schema and all its data
+      await client.query(`drop schema if exists "${schema}" cascade`);
+      await client.query('delete from platform.schools where slug = $1', [slug]);
+      await client.query('commit');
+    } catch (error) {
+      await client.query('rollback').catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+    return json(res, 200, { deleted: true, slug });
   }
 
   return json(res, 404, { error: 'Platform uç noktası bulunamadı.' });

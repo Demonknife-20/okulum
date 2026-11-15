@@ -378,6 +378,7 @@ async function start() {
   await waitForDb();
   await tenancy.initializeTenancy();
   await platform.bootstrapPlatformAdmin();
+  await platform.ensureSchoolsStatusColumn();
   await storage.ensureBucket();
   await require('./src/push').init();
   require('./src/ai').startRetention();

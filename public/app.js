@@ -114,6 +114,7 @@ function renderChrome() {
     const hasDropdown = page === 'school' || page === 'qbank';
     const dropdownHtml = hasDropdown ? `
       <div class="nav-dropdown" role="menu" aria-label="Ek seçenekler">
+        <div class="nav-dropdown-item" data-action="school">Okul bölümü</div>
         <div class="nav-dropdown-item" data-action="yardim">Kullanım</div>
         <div class="nav-dropdown-item" data-action="program">Ders programı</div>
         <div class="nav-dropdown-item" data-action="logout">Çıkış</div>
@@ -347,6 +348,35 @@ document.addEventListener('keydown', event => {
 $('#modal').addEventListener('click', event => { if (event.target.id === 'modal') closeModal(); });
 window.addEventListener('hashchange', route);
 setInterval(() => { if (state.me) refreshBadges(); }, 20000);
+
+// ---------- Çevrimdışı/Çevrimiçi algılama ----------
+let offlineBannerShown = false;
+let offlineBanner = null;
+function getOfflineBanner() {
+  if (!offlineBanner) {
+    offlineBanner = document.createElement('div');
+    offlineBanner.id = 'offlineBanner';
+    offlineBanner.className = 'offline-banner';
+    offlineBanner.innerHTML = `<span class="offline-dot" aria-hidden="true">●</span><span>Çevrimdışısınız — işlemler bağlantı gelince senkronize edilecek</span><button class="icon-btn sm" type="button" data-action="retry-connection" aria-label="Bağlantıyı kontrol et">${icon('bolt')}</button>`;
+    document.body.insertBefore(offlineBanner, document.body.firstChild);
+  }
+  return offlineBanner;
+}
+function showOfflineBanner(offline) {
+  const banner = getOfflineBanner();
+  if (offline && !offlineBannerShown) {
+    banner.classList.add('show');
+    offlineBannerShown = true;
+    toast('İnternet bağlantısı kesildi.', 'error');
+  } else if (!offline && offlineBannerShown) {
+    banner.classList.remove('show');
+    offlineBannerShown = false;
+    toast('Bağlantı geri geldi.', 'ok');
+  }
+}
+window.addEventListener('online', () => showOfflineBanner(false));
+window.addEventListener('offline', () => showOfflineBanner(true));
+ACTIONS['retry-connection'] = () => { showOfflineBanner(!navigator.onLine); };
 
 // ---------- Başlatma ----------
 const saved = (() => { try { return localStorage.getItem('okulum-theme'); } catch { return null; } })();

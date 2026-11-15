@@ -15,6 +15,22 @@ async function request(path, { method = 'GET', body } = {}) {
   return data;
 }
 
+function confirmDelete(schoolName) {
+  return new Promise(resolve => {
+    if (window.confirm(`${schoolName} okulunu kalıcı olarak silmek istediğinizden emin misiniz? Bu işlem geri alınamaz.`)) {
+      resolve(true);
+    } else {
+      resolve(false);
+    }
+  });
+}
+
+function statusBadge(status) {
+  const label = status === 'active' ? 'Aktif' : 'Kapalı';
+  const cls = status === 'active' ? 'status-active' : 'status-closed';
+  return `<span class="status-badge ${cls}">${label}</span>`;
+}
+
 function showAdmin() {
   $('#loginPanel').hidden = true;
   $('#adminPanel').hidden = false;
@@ -33,8 +49,19 @@ function showLogin() {
 async function loadSchools() {
   const { schools } = await request('/schools');
   $('#schoolRows').innerHTML = schools.length
-    ? schools.map(school => `<tr><td>${esc(school.name)}</td><td>${esc(school.city)}</td><td><a href="${esc(school.url || `/${encodeURIComponent(school.slug)}/`)}" target="_blank" rel="noopener">${esc(location.host + (school.url || `/${encodeURIComponent(school.slug)}/`))}</a></td></tr>`).join('')
-    : '<tr><td colspan="3">Henüz okul yok.</td></tr>';
+    ? schools.map(school => `
+      <tr>
+        <td>${esc(school.name)}</td>
+        <td>${esc(school.city)}</td>
+        <td>${esc(school.year)}</td>
+        <td>${statusBadge(school.status)}</td>
+        <td><a href="${esc(school.url || `/${encodeURIComponent(school.slug)}/`)}" target="_blank" rel="noopener" class="btn sm">${esc(location.host + (school.url || `/${encodeURIComponent(school.slug)}/`))}</a></td>
+        <td>
+          <button class="icon-btn sm danger" type="button" data-action="delete-school" data-slug="${esc(school.slug)}" data-name="${esc(school.name)}" aria-label="${esc(school.name)} okulunu sil">${icon('trash')}</button>
+        </td>
+      </tr>
+    `).join('')
+    : '<tr><td colspan="6">Henüz okul yok.</td></tr>';
 }
 
 $('#loginForm').addEventListener('submit', async event => {
@@ -69,6 +96,8 @@ $('#schoolForm').addEventListener('submit', async event => {
     body.controllerAddress = String(body.controllerAddress || '').trim();
     body.controllerEmail = String(body.controllerEmail || '').trim().toLowerCase();
     body.controllerPhone = String(body.controllerPhone || '').trim();
+    body.principalName = String(body.principalName || '').trim();
+    body.username = String(body.username || '').trim().toLowerCase();
     const { school } = await request('/schools', { method: 'POST', body });
     form.reset();
     window.alert(`Okul oluşturuldu: ${location.origin}${school.url}`);
@@ -77,6 +106,20 @@ $('#schoolForm').addEventListener('submit', async event => {
     $('#schoolError').textContent = error.message;
   } finally {
     submit.disabled = false;
+  }
+});
+
+document.addEventListener('click', async event => {
+  const btn = event.target.closest('[data-action="delete-school"]');
+  if (!btn) return;
+  const slug = btn.dataset.slug;
+  const name = btn.dataset.name;
+  if (!(await confirmDelete(name))) return;
+  try {
+    await request(`/schools/${slug}`, { method: 'DELETE' });
+    await loadSchools();
+  } catch (error) {
+    window.alert(error.message);
   }
 });
 

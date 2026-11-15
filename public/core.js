@@ -94,7 +94,14 @@ export async function api(path, { method = 'GET', body } = {}) {
     window.dispatchEvent(new Event('okulum:logged-out'));
     throw new Error('Oturumun sona erdi. Tekrar giriş yap.');
   }
-  // Sunucu kaynaklı hatalarda kullanıcıya yeniden deneme yönlendirmesi gösterilir (v85)
+  // 503 (hizmet kullanılabilir değil) için en fazla 2 deneme, aralıkla
+  if (res.status === 503) {
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      await new Promise(r => setTimeout(r, 800 * attempt));
+      try { res = await fetch(apiUrl(path), init); } catch { throw new Error('Sunucuya ulaşılamadı. Bağlantını kontrol edip tekrar dene.'); }
+      if (res.ok) break;
+    }
+  }
   if (!res.ok) throw new Error(data.error || (res.status >= 500 ? 'Sunucu şu anda yanıt veremiyor. Birazdan tekrar dene.' : 'İşlem tamamlanamadı. Girdiğin bilgileri kontrol edip tekrar dene.'));
   return data;
 }
