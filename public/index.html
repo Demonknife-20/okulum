@@ -1,34 +1,12 @@
-<<<<<<< LOCAL (Your changes)
 <!doctype html>
 <html lang="tr">
 <head>
-  <!-- Reklam betiği kaldırıldı: CSP script-src 'self' onu zaten engelliyor, yani hiç
-       yüklenmiyordu; tek etkisi her ziyaretçinin adresini Google'a göndermekti. -->
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="color-scheme" content="light dark">
-  <meta name="theme-color" content="#1b6b50">
-  <meta name="application-name" content="Okulum">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-title" content="Okulum">
-  <title>Okulum · Okul yönetim sistemi: ödev, yoklama, sınav ve not takibi</title>
-  <meta name="description" content="Okulum okul yönetim sistemi: müdür, öğretmen, öğrenci ve veliler için ödev, yoklama, online sınav, not grafikleri, pano ve mesajlaşma.">
-  <meta name="keywords" content="okulum, okul yönetim sistemi, e-okul alternatifi, ödev takibi, yoklama, online sınav, quiz, veli takibi, not takibi">
-  <meta name="robots" content="index, follow">
-  <link rel="canonical" href="/">
-  <meta property="og:type" content="website">
-  <meta property="og:site_name" content="Okulum">
-  <meta property="og:title" content="Okulum · Okul yönetim sistemi">
-  <meta property="og:description" content="Ödev, yoklama, sınav, not ve veli takibi tek yerde.">
-  <meta property="og:url" content="/">
-  <meta name="twitter:card" content="summary">
-  <script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Okulum","applicationCategory":"EducationalApplication","operatingSystem":"Web","inLanguage":"tr","description":"Okul müdürü, öğretmen, öğrenci ve veliler için ödev, yoklama, sınav ve not yönetim sistemi.","offers":{"@type":"Offer","price":"0","priceCurrency":"TRY"}}</script>
-  <link rel="manifest" href="/manifest.webmanifest">
-  <link rel="icon" href="/icon-192.png" type="image/png">
-  <link rel="apple-touch-icon" href="/icon-192.png">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Source+Sans+3:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#0f172a">
+  <title>Okulum</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="stylesheet" href="/styles.css">
   <script type="importmap">
     {
       "imports": {
@@ -37,57 +15,51 @@
       }
     }
   </script>
-  <link rel="stylesheet" href="/styles.css">
   <script type="module" src="/app.js"></script>
 </head>
 <body>
-  <div class="splash" id="boot" role="status" aria-live="polite">
-    <div class="splash-inner">
-      <div class="splash-mark" aria-hidden="true"><img src="/brand-mark.png" alt="" width="78" height="78"></div>
-      <p class="splash-name">okulum</p>
-      <div class="splash-bar" aria-hidden="true"><b></b></div>
-      <p class="splash-note">Okulunuz hazırlanıyor…</p>
-    </div>
-  </div>
-  <div class="route-progress" id="routeProgress" aria-hidden="true"></div>
-
-  <div class="public" id="public" hidden>
-    <header class="public-top">
-      <a class="brand" href="#/"><span class="brand-mark"><img src="/brand-mark.png" alt="" width="40" height="40"></span><span class="brand-name">okulum</span></a>
-      <nav class="public-nav" aria-label="Genel menü">
-        <a href="#/yardim" data-public="yardim">Kullanım</a>
-        <a href="gizlilik">Gizlilik</a>
-        <a href="#/giris" class="btn ghost sm" data-public="giris">Öğretmen / Öğrenci</a>
-        <a href="#/mudur-girisi" class="btn primary sm" data-public="mudur-girisi">Müdür girişi</a>
-      </nav>
-    </header>
-    <main class="public-view" id="publicView"></main>
-    <footer class="public-foot">Okulum · Okul yönetim sistemi · <a href="gizlilik">Gizlilik ve KVKK</a></footer>
-  </div>
-
-  <div class="app" id="app" hidden>
-    <aside class="sidebar" id="sidebar" aria-label="Ana menü">
-      <a class="brand" href="#/overview"><span class="brand-mark"><img src="/brand-mark.png" alt="" width="40" height="40"></span><span class="brand-name">okulum</span></a>
-      <div class="school-chip" id="schoolChip"></div>
-      <nav class="nav" id="nav" aria-label="Sayfalar"></nav>
-      <div class="sidebar-foot">
-        <div class="me"><span class="avatar" id="meAvatar"></span><div class="me-copy"><strong id="meName"></strong><small id="meRole"></small></div></div>
-        <div class="me-actions">
-          <button class="btn ghost sm" type="button" data-action="account">Hesabım</button>
-          <button class="btn ghost sm" type="button" data-action="logout">Çıkış</button>
-        </div>
-      </div>
-    </aside>
-    <nav class="tabbar" id="tabbar" aria-label="Hızlı gezinme"></nav>
-    <div class="scrim" id="scrim" data-action="close-menu"></div>
-    <main class="main">
-      <header class="topbar">
-        <button class="icon-btn menu-btn" type="button" data-action="open-menu" aria-label="Menüyü aç" aria-controls="sidebar">☰</button>
-        <p class="crumb" id="crumb"></p>
+  <div class="app">
+    <div class="topbar">
+      <div class="topbar-inner">
+        <button class="icon-btn menu-btn" type="button" data-action="open-menu" aria-label="Menüsü aç" aria-controls="sidebar">☰</button>
+        <a class="brand" href="#/" aria-label="Okulum ana sayfa">
+          <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
+          <span class="brand-text">Okulum</span>
+        </a>
         <div class="top-actions">
           <button class="icon-btn" id="themeBtn" type="button" data-action="theme" aria-label="Temayı değiştir"></button>
+          <button class="icon-btn" id="userBtn" type="button" data-action="user" aria-label="Kullanıcı"></button>
+        </div>
+      </div>
+    </div>
+
+    <div class="sidebar" id="sidebar" aria-label="Ana menü">
+      <div class="sidebar-head">
+        <div class="brand"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg><span>Okulum</span></div>
+        <button class="icon-btn sm" type="button" data-action="close-menu" aria-label="Menü kapat">✕</button>
+      </div>
+      <nav class="nav" id="nav"></nav>
+      <div class="sidebar-foot">
+        <button class="btn ghost sm" id="logoutBtn" type="button" data-action="logout">Çıkış yap</button>
+      </div>
+    </div>
+
+    <div class="scrim" id="scrim" data-action="close-menu"></div>
+
+    <main class="main">
+      <header class="topbar mobile-only">
+        <div class="topbar-inner">
+          <button class="icon-btn menu-btn" type="button" data-action="open-menu" aria-label="Menüsü aç" aria-controls="sidebar">☰</button>
+          <a class="brand" href="#/" aria-label="Okulum ana sayfa">
+            <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
+            <span class="brand-text">Okulum</span>
+          </a>
+          <div class="top-actions">
+            <button class="icon-btn" id="themeBtn" type="button" data-action="theme" aria-label="Temayı değiştir"></button>
+          </div>
         </div>
       </header>
+      <div class="crumb" id="crumb"></div>
       <section class="content" id="view"></section>
     </main>
   </div>
@@ -101,109 +73,3 @@
   <div class="toast" id="toast" role="status" aria-live="polite"></div>
 </body>
 </html>
-
-=======
-<!doctype html>
-<html lang="tr">
-<head>
-  <!-- Reklam betiği kaldırıldı: CSP script-src 'self' onu zaten engelliyor, yani hiç
-       yüklenmiyordu; tek etkisi her ziyaretçinin adresini Google'a göndermekti. -->
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <meta name="color-scheme" content="light dark">
-  <meta name="theme-color" content="#1b6b50">
-  <meta name="application-name" content="Okulum">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-title" content="Okulum">
-  <title>Okulum · Okul yönetim sistemi: ödev, yoklama, sınav ve not takibi</title>
-  <meta name="description" content="Okulum: müdür, öğretmen, öğrenci ve veli için ödev, yoklama, online sınav, not grafikleri, pano ve mesajlaşma">
-  <meta name="keywords" content="okulum, okul yönetim sistemi, e-okul alternatifi, ödev takibi, yoklama, online sınav, quiz, veli takibi, not takibi">
-  <meta name="robots" content="index, follow">
-  <link rel="canonical" href="/">
-  <meta property="og:type" content="website">
-  <meta property="og:site_name" content="Okulum">
-  <meta property="og:title" content="Okulum · Okul yönetim sistemi">
-  <meta property="og:description" content="Ödev, yoklama, sınav, not ve veli takibi tek yerde.">
-  <meta property="og:url" content="/">
-  <meta name="twitter:card" content="summary">
-  <script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Okulum","applicationCategory":"EducationalApplication","operatingSystem":"Web","inLanguage":"tr","description":"Okul müdürü, öğretmen, öğrenci ve veliler için ödev, yoklama, sınav ve not yönetim sistemi.","offers":{"@type":"Offer","price":"0","priceCurrency":"TRY"}}</script>
-  <link rel="manifest" href="/manifest.webmanifest">
-  <link rel="icon" href="/icon-192.png" type="image/png">
-  <link rel="apple-touch-icon" href="/icon-192.png">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Source+Sans+3:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <script type="importmap">
-    {
-      "imports": {
-        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
-      }
-    }
-  </script>
-  <link rel="stylesheet" href="/styles.css">
-  <script type="module" src="/app.js"></script>
-</head>
-<body>
-  <div class="splash" id="boot" role="status" aria-live="polite">
-    <div class="splash-inner">
-      <div class="splash-mark" aria-hidden="true"><img src="/brand-mark.png" alt="" width="78" height="78"></div>
-      <p class="splash-name">okulum</p>
-      <div class="splash-bar" aria-hidden="true"><b></b></div>
-      <p class="splash-note">Okulunuz hazırlanıyor…</p>
-    </div>
-  </div>
-  <div class="route-progress" id="routeProgress" aria-hidden="true"></div>
-
-  <div class="public" id="public" hidden>
-    <header class="public-top">
-      <a class="brand" href="#/"><span class="brand-mark"><img src="/brand-mark.png" alt="" width="40" height="40"></span><span class="brand-name">okulum</span></a>
-      <nav class="public-nav" aria-label="Genel menü">
-        <a href="#/yardim" data-public="yardim">Kullanım</a>
-        <a href="gizlilik">Gizlilik</a>
-        <a href="#/giris" class="btn ghost sm" data-public="giris">Öğretmen / Öğrenci</a>
-        <a href="#/mudur-girisi" class="btn primary sm" data-public="mudur-girisi">Müdür girişi</a>
-      </nav>
-    </header>
-    <main class="public-view" id="publicView"></main>
-    <footer class="public-foot">Okulum · Okul yönetim sistemi · <a href="gizlilik">Gizlilik ve KVKK</a></footer>
-  </div>
-
-  <div class="app" id="app" hidden>
-    <aside class="sidebar" id="sidebar" aria-label="Ana menü">
-      <a class="brand" href="#/overview"><span class="brand-mark"><img src="/brand-mark.png" alt="" width="40" height="40"></span><span class="brand-name">okulum</span></a>
-      <div class="school-chip" id="schoolChip"></div>
-      <nav class="nav" id="nav" aria-label="Sayfalar"></nav>
-      <div class="sidebar-foot">
-        <div class="me"><span class="avatar" id="meAvatar"></span><div class="me-copy"><strong id="meName"></strong><small id="meRole"></small></div></div>
-        <div class="me-actions">
-          <button class="btn ghost sm" type="button" data-action="account">Hesabım</button>
-          <button class="btn ghost sm" type="button" data-action="logout">Çıkış</button>
-        </div>
-      </div>
-    </aside>
-    <nav class="tabbar" id="tabbar" aria-label="Hızlı gezinme"></nav>
-    <div class="scrim" id="scrim" data-action="close-menu"></div>
-    <main class="main">
-      <header class="topbar">
-        <button class="icon-btn menu-btn" type="button" data-action="open-menu" aria-label="Menüyü aç" aria-controls="sidebar">☰</button>
-        <p class="crumb" id="crumb"></p>
-        <div class="top-actions">
-          <button class="icon-btn" id="themeBtn" type="button" data-action="theme" aria-label="Temayı değiştir"></button>
-        </div>
-      </header>
-      <section class="content" id="view"></section>
-    </main>
-  </div>
-
-  <div class="modal-backdrop" id="modal" hidden>
-    <div class="modal" id="modalBox" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
-      <div class="modal-head"><h2 id="modalTitle"></h2><button class="icon-btn" type="button" data-action="close-modal" aria-label="Kapat">×</button></div>
-      <div id="modalBody"></div>
-    </div>
-  </div>
-  <div class="toast" id="toast" role="status" aria-live="polite"></div>
-</body>
-</html>
-
->>>>>>> REMOTE (Changes from GitHub)
