@@ -1,13 +1,13 @@
 import { renderMarkdown } from './markdown.js';
 import { enablePush, disablePush, isSubscribed } from './push.js';
 import { mountGraph } from './graph.js';
-import { projectile, trajectory, titrationPH, equivalenceVolume, titrationSeries, ohm, equivalentResistance, pendulum, thinLens, uniformlyAccelerated, kineticEnergy, potentialEnergy, waveSpeed, photosynthesis, cellCycle, punnettSquare, heartRate, enzymeActivity } from './labs.js';
+import { projectile, trajectory, titrationPH, equivalenceVolume, titrationSeries, ohm, equivalentResistance, pendulum, thinLens, uniformlyAccelerated, kineticEnergy, potentialEnergy, waveSpeed } from './labs.js';
 import { ELEMENTS, bestReaction, parseFormulaComp, atomComp, iconFor, molarMass, moles, molarity, dilutionVolume, strongAcidPH, strongBasePH } from './chem.js';
 import { parseBase, toBase, truthTable, bubbleSortSteps, textToBinary, binaryToText, hexToRgb, rgbToHex, binaryAdd } from './computing.js';
 import { runPython, highlightPython, pyHint } from './pyterm.js';
-import { fxEnabled, setFx, setFontSize, getFontSize, setThemePref, getThemePref } from './fx.js';
-import { initOtp, resetStepHtml, startResendTimer } from './otp.js';
+import { fxEnabled, setFx } from './fx.js';
 import { helpHtml } from './help.js';
+import { initChem3d, destroyChem3d } from './chem3d.js';
 import { state, api, apiUrl, $, $$, esc, ROLE, icon, fmtDate, todayIso, pct, initials, tone, readFile, toast, openModal, closeModal, confirmDialog, refreshMe, refresh, val, setBusy, setQuery, parseHash, paintWidths, refreshBadges } from './core.js';
 
 export const ACTIONS = {}, FORMS = {}, CHANGES = {}, INPUTS = {};
@@ -3155,29 +3155,24 @@ ACTIONS['forgot-open'] = () => openModal('Şifremi unuttum', `<form class="stack
 FORMS.forgot = async form => {
   const email = val(form, 'email').trim();
   await api('/password/forgot', { method: 'POST', body: { email } });
+  closeModal();
   openResetModal(email);
   toast('Kayıtlıysa e-postanıza kod gönderildi');
 };
 
 function openResetModal(email) {
-  const body = `<form class="stack" data-form="reset" data-email="${esc(email)}">
-    ${resetStepHtml(email)}
+  openModal('Yeni şifre belirle', `<form class="stack" data-form="reset">
+    <label class="field"><span>E-posta</span><input name="email" type="email" required maxlength="120" value="${esc(email)}"></label>
+    <label class="field"><span>Doğrulama kodu</span><input name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required autocomplete="one-time-code"></label>
+    <label class="field"><span>Yeni şifre</span><input name="password" type="password" required minlength="8" maxlength="128" autocomplete="new-password"></label>
+    <p class="muted small">En az 8 karakter, harf ve rakam içermeli.</p>
     <p class="form-error" data-error role="alert"></p>
-    <div class="form-actions"><button class="btn ghost" type="button" data-action="close-modal">Vazgeç</button><button class="btn primary" type="submit" disabled>Şifreyi değiştir</button></div>
-  </form>`;
-  openModal('Yeni şifre belirle', body);
-  const form = $('#modalBody form');
-  const otp = initOtp(form, { onReady: full => { form.querySelector('button[type=submit]').disabled = !full; } });
-  const timer = startResendTimer(form, {
-    onResend: () => { otp.clear(); form.querySelector('button[type=submit]').disabled = true; toast('Kod yeniden gönderildi'); },
-  });
-  form._otp = otp;
-  form._otpTimer = timer;
+    <div class="form-actions"><button class="btn ghost" type="button" data-action="close-modal">Vazgeç</button><button class="btn primary" type="submit">Şifreyi değiştir</button></div>
+  </form>`);
 }
 
 FORMS.reset = async form => {
-  await api('/password/reset', { method: 'POST', body: { email: val(form, 'email') || form.dataset.email, code: form._otp?.code() || '', password: val(form, 'password') } });
-  form._otpTimer?.stop();
+  await api('/password/reset', { method: 'POST', body: { email: val(form, 'email').trim(), code: val(form, 'code').trim(), password: val(form, 'password') } });
   closeModal();
   toast('Şifreniz değiştirildi. Yeni şifrenizle giriş yapabilirsiniz.');
 };
@@ -3826,76 +3821,6 @@ async function pageKimya() {
   };
 }
 
-// ---------- Kimya 3D laboratuvarı ----------
-async function pageKimya3d() {
-  return {
-    html: `${head('Kimya 3D Laboratuvarı', 'Sanal deney malzemelerini tüplere koyun, ısıtın ve kimyasal reaksiyonları gözlemleyin.', '')}
-      <div class="lab-view">
-        <aside class="lab-sidebar">
-          <h3>Deney Malzemesi</h3>
-          <div class="material-grid" id="chem3d-materials"></div>
-          <div class="lab-actions">
-            <button class="btn danger sm" type="button" data-action="chem3d-reset">Sıfırla</button>
-            <button class="btn primary sm" type="button" data-action="chem3d-heat">Isıt / Kaynat</button>
-          </div>
-          <div class="lab-status">
-            <strong>Sıcaklık:</strong> <span id="chem3d-temp">20°C</span>
-          </div>
-        </aside>
-        <div class="lab-canvas" id="chem3d-container"></div>
-        <div class="lab-hint" id="chem3d-hint">Bir malzeme seçin, sonra bir tüpün üzerine tıklayarak koyun.</div>
-      </div>
-      <div id="chem3d-toast" class="chem3d-toast"></div>`,
-    after: async () => {
-      const { initChem3d } = await import('./chem3d.js');
-      const instance = initChem3d('chem3d-container');
-
-      const materialGrid = document.getElementById('chem3d-materials');
-      let selectedKey = null;
-
-      const renderMaterials = () => {
-        materialGrid.innerHTML = '';
-        Object.entries(instance.MATERIALS).forEach(([key, mat]) => {
-          const btn = document.createElement('button');
-          btn.type = 'button';
-          btn.className = `material-btn ${selectedKey === key ? 'selected' : ''}`;
-          btn.style.setProperty('--mat-color', `#${mat.color.toString(16).padStart(6, '0')}`);
-          btn.innerHTML = `<span class="material-dot" style="background:#${mat.color.toString(16).padStart(6, '0')}"></span><span>${mat.name}</span><small>${mat.desc}</small>`;
-          btn.onclick = () => {
-            selectedKey = key;
-            renderMaterials();
-          };
-          materialGrid.appendChild(btn);
-        });
-      };
-
-      renderMaterials();
-
-      document.getElementById('chem3d-reset').onclick = () => {
-        instance.resetLab();
-        selectedKey = null;
-        renderMaterials();
-      };
-
-      document.getElementById('chem3d-heat').onclick = () => {
-        if (instance.getTemperature() >= 100) {
-          instance.stopHeating();
-          document.getElementById('chem3d-heat').textContent = 'Isıt';
-        } else {
-          instance.startHeating();
-          document.getElementById('chem3d-heat').textContent = 'Durdur';
-        }
-      };
-
-      // Cleanup on view change
-      const originalAfter = null;
-      return () => {
-        destroyChem3d(instance);
-      };
-    },
-  };
-}
-
 // ---------- Bilgisayar laboratuvarı: sayı sistemleri, mantık kapıları, sıralama ----------
 // ---------- Bilişim deneyleri: ASCII↔ikili, HEX↔RGB, ikili toplama ----------
 function labEncodingHtml() {
@@ -4023,6 +3948,78 @@ function setupEncoding() {
     [a, b].forEach(el => { el.addEventListener('input', update); el.addEventListener('change', update); });
     update();
   }
+}
+
+async function pageKimya3d() {
+  return {
+    html: `${head('Kimya 3D Laboratuvarı', 'Three.js tabanlı, oyun tarzı 3D kimya deney simülasyonu. Malzemeyi seçin, ısıtın ve tepkimeyi izleyin.', '')}
+      <div class="lab-view">
+        <aside class="lab-sidebar">
+          <div class="lab-panel">
+            <h3>Malzeme</h3>
+            <div class="material-grid" id="chem3d-materials"></div>
+          </div>
+          <div class="lab-panel">
+            <h3>Kontrol</h3>
+            <button class="btn primary" id="chem3d-heat" type="button">🔥 Isıtmayı Başlat</button>
+            <button class="btn" id="chem3d-reset" type="button">↺ Sıfırla</button>
+          </div>
+          <div class="lab-panel">
+            <h3>Durum</h3>
+            <div class="lab-stats">
+              <div class="lab-stat"><span>Sıcaklık</span><strong id="chem3d-temp">20°C</strong></div>
+              <div class="lab-stat"><span>Malzeme</span><strong id="chem3d-mat">—</strong></div>
+              <div class="lab-stat"><span>Durum</span><strong id="chem3d-state">Beklemede</strong></div>
+            </div>
+          </div>
+        </aside>
+        <div class="lab-canvas" id="chem3d-canvas"></div>
+      </div>`,
+    onMount() {
+      const canvas = document.getElementById('chem3d-canvas');
+      const matGrid = document.getElementById('chem3d-materials');
+      const heatBtn = document.getElementById('chem3d-heat');
+      const resetBtn = document.getElementById('chem3d-reset');
+      const tempEl = document.getElementById('chem3d-temp');
+      const matEl = document.getElementById('chem3d-mat');
+      const stateEl = document.getElementById('chem3d-state');
+      if (!canvas || !window.THREE) {
+        if (stateEl) stateEl.textContent = '3D yüklenemedi';
+        return;
+      }
+      let instance = null;
+      try {
+        instance = initChem3d('chem3d-canvas');
+      } catch (e) {
+        if (stateEl) stateEl.textContent = 'Başlatılamadı: ' + e.message;
+        return;
+      }
+      const mats = instance.MATERIALS || [];
+      matGrid.innerHTML = mats.map(m => `<button class="material-btn" data-mat="${m.id}" type="button">${m.icon} ${m.name}</button>`).join('');
+      matGrid.addEventListener('click', (ev) => {
+        const btn = ev.target.closest('[data-mat]');
+        if (!btn) return;
+        const m = mats.find(x => x.id === btn.dataset.mat);
+        if (m) { instance.placeMaterial(m.id); if (matEl) matEl.textContent = m.name; }
+      });
+      heatBtn.addEventListener('click', () => {
+        instance.toggleHeating();
+        heatBtn.textContent = instance.isHeating ? '⏸ Isıtmayı Durdur' : '🔥 Isıtmayı Başlat';
+      });
+      resetBtn.addEventListener('click', () => {
+        instance.resetLab();
+        if (tempEl) tempEl.textContent = '20°C';
+        if (stateEl) stateEl.textContent = 'Beklemede';
+      });
+      const tick = setInterval(() => {
+        if (tempEl) tempEl.textContent = Math.round(instance.getTemperature()) + '°C';
+      }, 250);
+      this._chem3dCleanup = () => { clearInterval(tick); destroyChem3d(instance); };
+    },
+    onUnmount() {
+      if (this._chem3dCleanup) this._chem3dCleanup();
+    },
+  };
 }
 
 async function pageBilgisayar() {
@@ -4896,139 +4893,6 @@ ACTIONS['ggb-del'] = async el => {
   toast('Materyal silindi');
   refresh();
 };
- 
-// ---------- Ayarlar sayfası ----------
-async function pageAyarlar() {
-  const themePref = getThemePref();
-  const fontSize = getFontSize() || 'md';
-  const fxEnabledState = fxEnabled();
-  const savedFont = localStorage.getItem('okulum-fontsize');
-  const currentFont = savedFont || fontSize;
-  const fxToggle = fxEnabledState ? 'Açık' : 'Kapalı';
-  const themeOptions = [
-    { value: 'auto', label: 'Otomatik', selected: themePref === 'auto' },
-    { value: 'light', label: 'Açık', selected: themePref === 'light' },
-    { value: 'dark', label: 'Karanlık', selected: themePref === 'dark' },
-  ];
-  const fontOptions = [
-    { value: 'sm', label: 'Küçük (13px)', selected: currentFont === 'sm' },
-    { value: 'md', label: 'Normal (14px)', selected: currentFont === 'md' },
-    { value: 'lg', label: 'Büyük (15px)', selected: currentFont === 'lg' },
-    { value: 'xl', label: 'Extra (16px)', selected: currentFont === 'xl' },
-  ];
-  const applyTheme = async pref => {
-    await setThemePref(pref);
-    applyThemePref();
-    toast('Tema ' + (pref === 'dark' ? 'karanlık' : pref === 'light' ? 'açık' : 'otomatik') + ' olarak ayarlandı.');
-  };
-  const applyFont = async size => {
-    await setFontSize(size);
-    toast('Font boyutu ' + size + ' olarak ayarlandı.');
-  };
-  const toggleFx = async () => {
-    await setFx(!fxEnabledState);
-    paintFx();
-    toast('Uygulama etkileri ' + (fxEnabledState ? 'kapatıldı' : 'açıldı'));
-  };
-  return { html: `
-    <div class="settings-page">
-      <h2>Ayarlar</h2>
-      <div class="setting-row">
-        <label>Tema</label>
-        <select id="themeSelect" onchange="applyTheme(this.value)">
-          ${themeOptions.map(o => `<option value="${o.value}" ${o.selected ? 'selected' : ''}>${o.label}</option>`).join('')}
-        </select>
-      </div>
-      <div class="setting-row">
-        <label>Font boyutu</label>
-        <select id="fontSelect" onchange="applyFont(this.value)">
-          ${fontOptions.map(o => `<option value="${o.value}" ${o.selected ? 'selected' : ''}>${o.label}</option>`).join('')}
-        </select>
-      </div>
-      <div class="setting-row">
-        <label>Uygulama etkileri</label>
-        <button class="btn" onclick="toggleFx()">${fxToggle}</button>
-      </div>
-      <button class="btn ghost" onclick="window.closeModal()">Kapat</button>
-    </div>` };
-}
-function bioCalcCard(key, title, fieldsHtml, computeHtml, actionsHtml = '') {
-  return `
-    <div class="calc-card" data-bio="${key}">
-      <strong>${esc(title)}</strong>
-      ${fieldsHtml}
-      ${actionsHtml ? `<div class="py-actions">${actionsHtml}</div>` : ''}
-      <p class="calc-res" data-bio-res="${key}">${computeHtml}</p>
-      <p class="calc-error" data-bio-err="${key}" role="alert"></p>
-    </div>`;
-}
-
-function bioField(name, label, unit, type, value, min, max, step) {
-  const attrs = `data-bio-in="${name}" type="${type}" value="${esc(value)}" autocomplete="off"` +
-    (min !== undefined ? ` min="${esc(min)}"` : '') +
-    (max !== undefined ? ` max="${esc(max)}"` : '') +
-    (step !== undefined ? ` step="${esc(step)}"` : '');
-  return `<label class="field"><span>${esc(label)}${unit ? ` (${esc(unit)})` : ''}</span><input ${attrs}></label>`;
-}
-
-async function pageBiyoloji() {
-  let html = head('Biyoloji laboratuvarı', 'Fotosentez, hücre döngüsü, genetik kalıtım, kalp atışı ve enzim aktivitesi deneyleri.', '');
-  const photoFields = bioField('light', 'Işık yoğunluğu', 'umol/m2/s', 'number', 500, 0, 2000, 50) + bioField('co2', 'CO2 konsantrasyonu', 'ppm', 'number', 400, 0, 2000, 50) + bioField('temp', 'Sicaklik', 'C', 'number', 25, -10, 50, 1);
-  html += panel('Fotosentez oranı', 'Işık yoğunluğu, CO2 konsantrasyonu ve sıcaklığa göre fotosentez verimini hesaplayın.', bioCalcCard('photosynthesis', 'Fotosentez', photoFields, '<span class="muted">Hesaplamak için bir değer değiştirin.</span>', '<button class="btn primary sm" type="button" data-action="bio-calc" data-bio="photosynthesis">Hesapla</button>'));
-  const cycleFields = bioField('phase', 'Aşama', '', 'select', 'G1', undefined, undefined, undefined) + '<select data-bio-in="phase"><option>G1</option><option>S</option><option>G2</option><option>M</option></select>' + bioField('duration', 'Toplam süre', 'dk', 'number', 1440, 1, 10080, 60);
-  html += panel('Hücre döngüsü', 'G1, S, G2 ve M aşamalarına göre toplam sürenin dağılımını görün.', bioCalcCard('cellcycle', 'Hücre döngüsü', cycleFields, '<span class="muted">Aşama süresi hesaplanacak.</span>', '<button class="btn primary sm" type="button" data-action="bio-calc" data-bio="cellcycle">Hesapla</button>'));
-  const punnettFields = bioField('p1', 'Ebeveyn 1', '', 'text', 'Aa', undefined, undefined, undefined) + bioField('p2', 'Ebeveyn 2', '', 'text', 'Aa', undefined, undefined, undefined);
-  html += panel('Punnett kartosu', 'İki ebeveyn genotipti (örn. Aa x Aa) için genotip oranlarını görün.', bioCalcCard('punnett', 'Punnett kartosu', punnettFields, '<span class="muted">Genotip oranları gösterilecek.</span>', '<button class="btn primary sm" type="button" data-action="bio-calc" data-bio="punnett">Hesapla</button>'));
-  const heartFields = bioField('age', 'Yaş', 'yıl', 'number', 20, 1, 120, 1) + bioField('rest', 'Dinlenme hızı', 'dk-1', 'number', 70, 1, 220, 1);
-  html += panel('Hedef kalp atışı', 'Yaş ve dinlenme hıza göre hedef kalp atış aralığını (Karvonen) hesaplayın.', bioCalcCard('heartrate', 'Kalp atışı', heartFields, '<span class="muted">Hedef aralık gösterilecek.</span>', '<button class="btn primary sm" type="button" data-action="bio-calc" data-bio="heartrate">Hesapla</button>'));
-  const enzymeFields = bioField('temp', 'Sıcaklık', 'C', 'number', 37, -10, 100, 1) + bioField('ph', 'pH', '', 'number', 7.4, 0, 14, 0.1);
-  html += panel('Enzim aktivitesi', 'Sıcaklık ve pH\'ya göre enzim aktivitesini (% cinsinden) görün.', bioCalcCard('enzyme', 'Enzim aktivitesi', enzymeFields, '<span class="muted">Aktivite yüzdesi gösterilecek.</span>', '<button class="btn primary sm" type="button" data-action="bio-calc" data-bio="enzyme">Hesapla</button>'));
-  return {
-    html,
-    after: () => {
-      document.querySelectorAll('[data-action=bio-calc]').forEach(button => {
-        button.addEventListener('click', () => {
-          const card = button.closest('[data-bio]');
-          const key = card.dataset.bio;
-          const err = card.querySelector('[data-bio-err="' + key + '"]');
-          const res = card.querySelector('[data-bio-res="' + key + '"]');
-          err.textContent = '';
-          try {
-            let result;
-            if (key === 'photosynthesis') {
-              const light = Number(card.querySelector('[data-bio-in=light]').value);
-              const co2 = Number(card.querySelector('[data-bio-in=co2]').value);
-              const temp = Number(card.querySelector('[data-bio-in=temp]').value);
-              result = 'Fotosentez oranı: %' + photosynthesis(light, co2, temp);
-            } else if (key === 'cellcycle') {
-              const phase = card.querySelector('[data-bio-in=phase]').value;
-              const duration = Number(card.querySelector('[data-bio-in=duration]').value);
-              const minutes = cellCycle(phase, duration);
-              result = phase + ' aşaması: ' + minutes + ' dakika';
-            } else if (key === 'punnett') {
-              const p1 = card.querySelector('[data-bio-in=p1]').value;
-              const p2 = card.querySelector('[data-bio-in=p2]').value;
-              const results = punnettSquare(p1, p2);
-              result = results.map(r => r.genotype + ': %' + r.percent).join(' · ');
-            } else if (key === 'heartrate') {
-              const age = Number(card.querySelector('[data-bio-in=age]').value);
-              const rest = Number(card.querySelector('[data-bio-in=rest]').value);
-              const hr = heartRate(age, rest);
-              result = 'Hedef: ' + hr.min + '–' + hr.max + ' dk-1 (maks: ' + hr.maxHeartRate + ' dk-1)';
-            } else if (key === 'enzyme') {
-              const temp = Number(card.querySelector('[data-bio-in=temp]').value);
-              const ph = Number(card.querySelector('[data-bio-in=ph]').value);
-              result = 'Enzim aktivitesi: %' + enzymeActivity(temp, ph).activity;
-            }
-            res.textContent = result;
-          } catch (error) {
-            err.textContent = error.message;
-          }
-        });
-      });
-    },
-  };
-}
 
 // ---------- Yönlendirme tablosu ----------
 const PAGES = {
@@ -5037,11 +4901,9 @@ const PAGES = {
   yardim: async () => ({ html: helpHtml() }),
   panolar: pagePanolar, pano: pageBoard, asistan: pageAsistan,
   cocuklar: pageCocuklar, sinavlar: pageSinavlar, sinav: pageSinav, notlar: pageNotlar,
-  davranis: pageDavranis, puanlarim: pagePuanlarim, program: pageProgram, takvim: pageTakvim, karne: pageKarne, canli: pageCanli, analiz: pageAnaliz, izin: pageIzin, gece: pageGece, geogebra: pageGeogebra, deneyler: pageFizik, fizik: pageFizik, kimya: pageKimya, kimya3d: pageKimya3d, bilgisayar: pageBilgisayar, biyoloji: pageBiyoloji, qbank: pageQbank,
-  ayarlari: pageAyarlar,
+  davranis: pageDavranis, puanlarim: pagePuanlarim, program: pageProgram, takvim: pageTakvim, karne: pageKarne, canli: pageCanli, analiz: pageAnaliz, izin: pageIzin, gece: pageGece, geogebra: pageGeogebra, deneyler: pageFizik, fizik: pageFizik, kimya: pageKimya, kimya3d: pageKimya3d, bilgisayar: pageBilgisayar, qbank: pageQbank,
 };
 export function renderView(page, params) {
   if (page === 'overview' && state.me.role === 'parent') return pageParentOverview();
   return PAGES[page](params);
 }
-
