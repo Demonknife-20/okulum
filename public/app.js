@@ -262,7 +262,7 @@ async function enterApp() {
     app.classList.add('login-arrival');
     window.setTimeout(() => app.classList.remove('login-arrival'), 850);
   }
-  if (!location.hash.startsWith('#/') || location.hash === '#/' || ['#/mudur-girisi', '#/giris', '#/kurulum'].includes(location.hash)) {
+  if (!location.hash.startsWith('#/') || location.hash === '#/' || (state.me && ['#/mudur-girisi', '#/giris', '#/kurulum'].includes(location.hash))) {
     history.replaceState(null, '', '#/overview');
   }
   await routeApp();
