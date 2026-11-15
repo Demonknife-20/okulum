@@ -149,7 +149,7 @@ export function initChem3d(containerId) {
         clearInterval(heatInterval);
         heatInterval = null;
         toast3d('Su kaynadı! Buhar oluştu.', 'ok');
-        spawnSteam(0, 0.3, 0);
+        spawnParticle(0, 0.3, 0);
       }
     }, 300);
   };
@@ -287,12 +287,16 @@ export function initChem3d(containerId) {
     dragTube = null;
   };
 
+  const onTouchStart = (e) => onMouseDown(e.touches[0]);
+  const onTouchMove = (e) => onMouseMove(e.touches[0]);
+  const onTouchEnd = onMouseUp;
+
   renderer.domElement.addEventListener('mousedown', onMouseDown);
   renderer.domElement.addEventListener('mousemove', onMouseMove);
   renderer.domElement.addEventListener('mouseup', onMouseUp);
-  renderer.domElement.addEventListener('touchstart', (e) => onMouseDown(e.touches[0]), { passive: false });
-  renderer.domElement.addEventListener('touchmove', (e) => onMouseMove(e.touches[0]), { passive: false });
-  renderer.domElement.addEventListener('touchend', onMouseUp);
+  renderer.domElement.addEventListener('touchstart', onTouchStart, { passive: false });
+  renderer.domElement.addEventListener('touchmove', onTouchMove, { passive: false });
+  renderer.domElement.addEventListener('touchend', onTouchEnd);
 
   // ---------- Animasyon döngüsü ----------
   let frameId;
@@ -324,9 +328,9 @@ export function initChem3d(containerId) {
     renderer.domElement.removeEventListener('mousedown', onMouseDown);
     renderer.domElement.removeEventListener('mousemove', onMouseMove);
     renderer.domElement.removeEventListener('mouseup', onMouseUp);
-    renderer.domElement.removeEventListener('touchstart', onMouseDown);
-    renderer.domElement.removeEventListener('touchmove', onMouseMove);
-    renderer.domElement.removeEventListener('touchend', onMouseUp);
+    renderer.domElement.removeEventListener('touchstart', onTouchStart);
+    renderer.domElement.removeEventListener('touchmove', onTouchMove);
+    renderer.domElement.removeEventListener('touchend', onTouchEnd);
     window.removeEventListener('resize', onResize);
     renderer.dispose();
     scene.traverse((obj) => {
