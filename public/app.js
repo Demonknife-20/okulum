@@ -122,12 +122,6 @@ function renderChrome() {
     return `<a class="nav-item ${isActive ? 'active' : ''} ${hasDropdown ? 'has-dropdown' : ''}" href="#/${page}" data-page="${page}" aria-current="${isActive ? 'page' : 'false'}"><span class="nav-ripple"></span>${icon(ic)}<span class="nav-label">${esc(label)}</span>${moreLabel}${
       BADGES.includes(page) ? `<span class="nav-badge" data-badge="${page}" hidden></span>` : ''}${dropdownHtml}</a>`;
   }).join('');
-
-  // Dropdown menü (sayfa başına tek olacak, ilk school öğesine ekleyelim)
-  const firstDropdown = document.querySelector('.nav-item.has-dropdown');
-  if (firstDropdown) {
-    firstDropdown.insertAdjacentHTML('afterend', dropdownHtml);
-  }
   renderTabbar(me);
 }
 
