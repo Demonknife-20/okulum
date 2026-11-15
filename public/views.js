@@ -3826,6 +3826,76 @@ async function pageKimya() {
   };
 }
 
+// ---------- Kimya 3D laboratuvarı ----------
+async function pageKimya3d() {
+  return {
+    html: `${head('Kimya 3D Laboratuvarı', 'Sanal deney malzemelerini tüplere koyun, ısıtın ve kimyasal reaksiyonları gözlemleyin.', '')}
+      <div class="lab-view">
+        <aside class="lab-sidebar">
+          <h3>Deney Malzemesi</h3>
+          <div class="material-grid" id="chem3d-materials"></div>
+          <div class="lab-actions">
+            <button class="btn danger sm" type="button" data-action="chem3d-reset">Sıfırla</button>
+            <button class="btn primary sm" type="button" data-action="chem3d-heat">Isıt / Kaynat</button>
+          </div>
+          <div class="lab-status">
+            <strong>Sıcaklık:</strong> <span id="chem3d-temp">20°C</span>
+          </div>
+        </aside>
+        <div class="lab-canvas" id="chem3d-container"></div>
+        <div class="lab-hint" id="chem3d-hint">Bir malzeme seçin, sonra bir tüpün üzerine tıklayarak koyun.</div>
+      </div>
+      <div id="chem3d-toast" class="chem3d-toast"></div>`,
+    after: async () => {
+      const { initChem3d } = await import('./chem3d.js');
+      const instance = initChem3d('chem3d-container');
+
+      const materialGrid = document.getElementById('chem3d-materials');
+      let selectedKey = null;
+
+      const renderMaterials = () => {
+        materialGrid.innerHTML = '';
+        Object.entries(instance.MATERIALS).forEach(([key, mat]) => {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = `material-btn ${selectedKey === key ? 'selected' : ''}`;
+          btn.style.setProperty('--mat-color', `#${mat.color.toString(16).padStart(6, '0')}`);
+          btn.innerHTML = `<span class="material-dot" style="background:#${mat.color.toString(16).padStart(6, '0')}"></span><span>${mat.name}</span><small>${mat.desc}</small>`;
+          btn.onclick = () => {
+            selectedKey = key;
+            renderMaterials();
+          };
+          materialGrid.appendChild(btn);
+        });
+      };
+
+      renderMaterials();
+
+      document.getElementById('chem3d-reset').onclick = () => {
+        instance.resetLab();
+        selectedKey = null;
+        renderMaterials();
+      };
+
+      document.getElementById('chem3d-heat').onclick = () => {
+        if (instance.getTemperature() >= 100) {
+          instance.stopHeating();
+          document.getElementById('chem3d-heat').textContent = 'Isıt';
+        } else {
+          instance.startHeating();
+          document.getElementById('chem3d-heat').textContent = 'Durdur';
+        }
+      };
+
+      // Cleanup on view change
+      const originalAfter = null;
+      return () => {
+        destroyChem3d(instance);
+      };
+    },
+  };
+}
+
 // ---------- Bilgisayar laboratuvarı: sayı sistemleri, mantık kapıları, sıralama ----------
 // ---------- Bilişim deneyleri: ASCII↔ikili, HEX↔RGB, ikili toplama ----------
 function labEncodingHtml() {
@@ -4967,7 +5037,7 @@ const PAGES = {
   yardim: async () => ({ html: helpHtml() }),
   panolar: pagePanolar, pano: pageBoard, asistan: pageAsistan,
   cocuklar: pageCocuklar, sinavlar: pageSinavlar, sinav: pageSinav, notlar: pageNotlar,
-  davranis: pageDavranis, puanlarim: pagePuanlarim, program: pageProgram, takvim: pageTakvim, karne: pageKarne, canli: pageCanli, analiz: pageAnaliz, izin: pageIzin, gece: pageGece, geogebra: pageGeogebra, deneyler: pageFizik, fizik: pageFizik, kimya: pageKimya, bilgisayar: pageBilgisayar, biyoloji: pageBiyoloji, qbank: pageQbank,
+  davranis: pageDavranis, puanlarim: pagePuanlarim, program: pageProgram, takvim: pageTakvim, karne: pageKarne, canli: pageCanli, analiz: pageAnaliz, izin: pageIzin, gece: pageGece, geogebra: pageGeogebra, deneyler: pageFizik, fizik: pageFizik, kimya: pageKimya, kimya3d: pageKimya3d, bilgisayar: pageBilgisayar, biyoloji: pageBiyoloji, qbank: pageQbank,
   ayarlari: pageAyarlar,
 };
 export function renderView(page, params) {
