@@ -1104,3 +1104,80 @@ export function exportSvg({ model, view, width, height, showAxes = true }) {
   }
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}"><rect width="100%" height="100%" fill="#ffffff"/>${parts.join('')}</svg>`;
 }
+
+// ---------- v91: İstatistik grafik motoru (pasta, çubuk, radar) ----------
+// Veri: { label, value }[]; tümü SVG string döndürür, canvas'a bağımlı değildir.
+const CHART_COLORS = ['#1b6b50', '#e07a3c', '#3b7cc4', '#9b59b6', '#c0392b', '#16a085', '#f39c12', '#7f8c8d'];
+
+export function pieChart(data, size = 200, donut = false) {
+  if (!Array.isArray(data) || !data.length) throw new Error('grafik için veri gerekli.');
+  const total = data.reduce((s, d) => s + Number(d.value), 0);
+  if (!(total > 0)) throw new Error('değerler toplamı sıfırdan büyük olmalı.');
+  const cx = size / 2, cy = size / 2, r = size / 2 - 4;
+  const parts = [];
+  let angle = -Math.PI / 2;
+  data.forEach((d, i) => {
+    const frac = Number(d.value) / total;
+    const a2 = angle + frac * Math.PI * 2;
+    const large = frac > 0.5 ? 1 : 0;
+    const x1 = cx + r * Math.cos(angle), y1 = cy + r * Math.sin(angle);
+    const x2 = cx + r * Math.cos(a2), y2 = cy + r * Math.sin(a2);
+    const path = frac >= 0.9999
+      ? `M ${cx} ${cy - r} A ${r} ${r} 0 1 1 ${cx - 0.01} ${cy - r} Z`
+      : `M ${cx} ${cy} L ${x1.toFixed(2)} ${y1.toFixed(2)} A ${r} ${r} 0 ${large} 1 ${x2.toFixed(2)} ${y2.toFixed(2)} Z`;
+    parts.push(`<path d="${path}" fill="${CHART_COLORS[i % CHART_COLORS.length]}" stroke="#ffffff" stroke-width="1.5"/>`);
+    const mid = (angle + a2) / 2;
+    const lx = cx + (r * 0.62) * Math.cos(mid), ly = cy + (r * 0.62) * Math.sin(mid);
+    parts.push(`<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" fill="#fff" font-size="11" font-family="sans-serif" text-anchor="middle" font-weight="600">${Math.round(frac * 100)}%</text>`);
+    angle = a2;
+  });
+  if (donut) parts.push(`<circle cx="${cx}" cy="${cy}" r="${(r * 0.5).toFixed(1)}" fill="#ffffff"/>`);
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">${parts.join('')}</svg>`;
+}
+
+export function barChart(data, width = 320, height = 200) {
+  if (!Array.isArray(data) || !data.length) throw new Error('grafik için veri gerekli.');
+  const max = Math.max(...data.map(d => Number(d.value)));
+  if (!(max > 0)) throw new Error('değerler sıfırdan büyük olmalı.');
+  const pad = 24, chartW = width - pad * 2, chartH = height - pad * 2 - 18;
+  const slot = chartW / data.length, barW = slot * 0.62;
+  const parts = [`<line x1="${pad}" y1="${height - 24}" x2="${width - pad}" y2="${height - 24}" stroke="#7c8f86" stroke-width="1"/>`];
+  data.forEach((d, i) => {
+    const h = (Number(d.value) / max) * chartH;
+    const x = pad + i * slot + (slot - barW) / 2;
+    const y = height - 24 - h;
+    parts.push(`<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${h.toFixed(1)}" rx="4" fill="${CHART_COLORS[i % CHART_COLORS.length]}"/>`);
+    parts.push(`<text x="${(x + barW / 2).toFixed(1)}" y="${(y - 5).toFixed(1)}" fill="#11231d" font-size="11" font-family="sans-serif" text-anchor="middle" font-weight="600">${Math.round(d.value)}</text>`);
+    parts.push(`<text x="${(x + barW / 2).toFixed(1)}" y="${height - 8}" fill="#5b6b64" font-size="10" font-family="sans-serif" text-anchor="middle">${String(d.label).slice(0, 10)}</text>`);
+  });
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">${parts.join('')}</svg>`;
+}
+
+export function radarChart(data, size = 220, levels = 4) {
+  if (!Array.isArray(data) || data.length < 3) throw new Error('radar grafik için en az 3 veri gerekli.');
+  const cx = size / 2, cy = size / 2, r = size / 2 - 22;
+  const n = data.length;
+  const max = Math.max(...data.map(d => Number(d.value)));
+  if (!(max > 0)) throw new Error('değerler sıfırdan büyük olmalı.');
+  const parts = [];
+  for (let lv = 1; lv <= levels; lv++) {
+    const ring = data.map((_, i) => {
+      const a = -Math.PI / 2 + (i * 2 * Math.PI) / n;
+      const rr = (r * lv) / levels;
+      return `${(cx + rr * Math.cos(a)).toFixed(1)},${(cy + rr * Math.sin(a)).toFixed(1)}`;
+    }).join(' ');
+    parts.push(`<polygon points="${ring}" fill="none" stroke="#cfd8d3" stroke-width="1"/>`);
+  }
+  data.forEach((_, i) => {
+    const a = -Math.PI / 2 + (i * 2 * Math.PI) / n;
+    parts.push(`<line x1="${cx}" y1="${cy}" x2="${(cx + r * Math.cos(a)).toFixed(1)}" y2="${(cy + r * Math.sin(a)).toFixed(1)}" stroke="#cfd8d3" stroke-width="1"/>`);
+    parts.push(`<text x="${(cx + (r + 12) * Math.cos(a)).toFixed(1)}" y="${(cy + (r + 12) * Math.sin(a)).toFixed(1)}" fill="#5b6b64" font-size="10" font-family="sans-serif" text-anchor="middle">${String(data[i].label).slice(0, 8)}</text>`);
+  });
+  const poly = data.map((d, i) => {
+    const a = -Math.PI / 2 + (i * 2 * Math.PI) / n;
+    const rr = (Number(d.value) / max) * r;
+    return `${(cx + rr * Math.cos(a)).toFixed(1)},${(cy + rr * Math.sin(a)).toFixed(1)}`;
+  }).join(' ');
+  parts.push(`<polygon points="${poly}" fill="rgba(27,107,80,.25)" stroke="#1b6b50" stroke-width="2"/>`);
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">${parts.join('')}</svg>`;
+}

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { projectile, trajectory, titrationPH, equivalenceVolume, titrationSeries, ohm, equivalentResistance, pendulum, thinLens, uniformlyAccelerated, kineticEnergy, potentialEnergy, waveSpeed, density, pressure, buoyancy, work, power, momentum, springForce, capacitorCharge, rcCircuit, photosynthesis, cellCycle, punnettSquare, heartRate, enzymeActivity } from '../public/labs.js';
+import { projectile, trajectory, titrationPH, equivalenceVolume, titrationSeries, ohm, equivalentResistance, pendulum, thinLens, uniformlyAccelerated, kineticEnergy, potentialEnergy, waveSpeed, density, pressure, buoyancy, work, power, momentum, springForce, capacitorCharge, rcCircuit, photosynthesis, cellCycle, punnettSquare, heartRate, enzymeActivity, seriesResistance, parallelResistance, ohmLaw, analyzeCircuit, dnaReplication, visualizeBasePairs, enzymeKinetics } from '../public/labs.js';
 
 test('eğik atış: menzil, yükseklik ve süre bilinen değerlerle uyuşur', () => {
   // 45°, 10 m/s, Dünya: menzil v²/g ≈ 10.19 m, en yüksek nokta ≈ 2.55 m
@@ -192,4 +192,48 @@ test('enzim aktivitesi: optimum sıcaklık ve pH\'de en yüksek', () => {
   assert.ok(enzymeActivity(37, 7) > enzymeActivity(37, 2));
   assert.throws(() => enzymeActivity(-5, 7), /sıcaklık/);
   assert.throws(() => enzymeActivity(37, -1), /pH/);
+});
+
+test('devre analizi: seri ve paralel direnç, Ohm kanunu', () => {
+  assert.equal(seriesResistance([2, 3, 5]), 10);
+  assert.ok(Math.abs(parallelResistance([2, 2]) - 1) < 1e-9);
+  const ohm1 = ohmLaw({ voltage: 12, resistance: 4 });
+  assert.equal(ohm1.current, 3);
+  const ohm2 = ohmLaw({ current: 2, resistance: 6 });
+  assert.equal(ohm2.voltage, 12);
+  const circuit = analyzeCircuit(12, [3, 6], 'series');
+  assert.equal(circuit.equivalentResistance, 9);
+  assert.ok(Math.abs(circuit.totalCurrent - 12 / 9) < 1e-9);
+  assert.throws(() => ohmLaw({ voltage: 12 }), /iki değer/);
+});
+
+test('DNA replikasyonu: complement ve GC içeriği', () => {
+  const dna = dnaReplication('ATGCAT');
+  assert.equal(dna.original, 'ATGCAT');
+  assert.equal(dna.complement, 'TACGTA');
+  assert.equal(dna.length, 6);
+  assert.ok(Math.abs(dna.gcContent - 33.33) < 0.1);
+  assert.throws(() => dnaReplication('ATGX'), /Geçersiz/);
+});
+
+test('DNA base pairing: geçerli ve geçersiz çiftler', () => {
+  const bp = visualizeBasePairs('ATGC', 'TACG');
+  assert.equal(bp.length, 4);
+  assert.equal(bp.validPairs, 4);
+  assert.equal(bp.invalidPairs, 0);
+  const bad = visualizeBasePairs('ATGC', 'AAAT');
+  assert.ok(bad.invalidPairs > 0);
+  assert.throws(() => visualizeBasePairs('ATGC', 'AT'), /eşit uzunlukta/);
+});
+
+test('enzim kinetiği: Michaelis-Menten + sıcaklık/pH faktörleri', () => {
+  const k = enzymeKinetics(37, 7.4, 10, 100, 5);
+  assert.ok(k.activity > 0);
+  assert.ok(k.activity <= 100);
+  assert.equal(k.optimalTemp, 37);
+  assert.equal(k.optimalPh, 7.4);
+  assert.ok(k.tempFactor <= 1);
+  assert.ok(k.phFactor <= 1);
+  // optimum koşullar daha yüksek aktivite
+  assert.ok(enzymeKinetics(37, 7.4, 10, 100, 5).activity > enzymeKinetics(10, 7.4, 10, 100, 5).activity);
 });

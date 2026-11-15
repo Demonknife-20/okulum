@@ -299,7 +299,16 @@ window.addEventListener('okulum:refresh', () => { if (state.me) { renderChrome()
 // ---------- Genel olay yönlendirmesi ----------
 document.addEventListener('click', event => {
   const el = event.target.closest('[data-action]');
-  if (!el) return;
+  if (!el) {
+    // Nav-item'lerde data-page kullanılıyor, ACTIONS.navclick ile yönlendir
+    const navEl = event.target.closest('.nav-item');
+    if (navEl) {
+      ACTIONS.navclick(navEl);
+      event.preventDefault();
+      return;
+    }
+    return;
+  }
   const handler = ACTIONS[el.dataset.action];
   if (!handler) return;
   event.preventDefault();

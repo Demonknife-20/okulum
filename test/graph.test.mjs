@@ -1,7 +1,7 @@
 import { parseCommand } from '../public/graph.js';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { compileExpression, parseLine, niceStep, buildModel } from '../public/graph.js';
+import { compileExpression, parseLine, niceStep, buildModel, pieChart, barChart, radarChart } from '../public/graph.js';
 
 test('ifade değerlendirme: öncelik, üs, eksi, örtük çarpma, fonksiyonlar', () => {
   assert.equal(compileExpression('2x^2+1')(3), 19);
@@ -191,4 +191,33 @@ test('çember ile doğru kesişimi: iki nokta, sıra numarasıyla seçilir; kesi
   assert.match(miss.errors[6], /kesmiyor/);
   const bad = buildModel(['C=(0,0)', 'D=(2,0)', 'c=Çember(C,D)', 'E=(-5,1)', 'F=(5,1)', 'h=Doğru(E,F)', 'K=Kesişim(c,h,5)']);
   assert.match(bad.errors[6], /1 ya da 2/);
+});
+
+test('pasta grafik: dilimler, yüzde etiketleri ve halka modu', () => {
+  const svg = pieChart([{ label: 'A', value: 3 }, { label: 'B', value: 1 }]);
+  assert.match(svg, /^<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg"/);
+  assert.match(svg, /<path d="M/);
+  assert.match(svg, /75%/, 'yüzde etiketi');
+  assert.match(svg, /25%/);
+  const donut = pieChart([{ label: 'A', value: 1 }, { label: 'B', value: 1 }], 200, true);
+  assert.match(donut, /<circle[^>]*fill="#ffffff"\/>/, 'halka deliği');
+  assert.throws(() => pieChart([]), /veri gerekli/);
+  assert.throws(() => pieChart([{ label: 'A', value: 0 }]), /sıfırdan büyük/);
+});
+
+test('çubuk grafik: yükseklik oranı ve etiketler', () => {
+  const svg = barChart([{ label: 'Mat', value: 10 }, { label: 'Fiz', value: 5 }]);
+  assert.match(svg, /^<svg/);
+  assert.match(svg, /<rect[^>]*rx="4"/, 'yuvarlak köşeli çubuk');
+  assert.match(svg, /Mat/);
+  assert.match(svg, /10/);
+  assert.throws(() => barChart([]), /veri gerekli/);
+});
+
+test('radar grafik: en az 3 köşe, halka ve veri poligonu', () => {
+  const svg = radarChart([{ label: 'S', value: 5 }, { label: 'H', value: 3 }, { label: 'D', value: 4 }]);
+  assert.match(svg, /^<svg/);
+  assert.match(svg, /<polygon points="[^"]*" fill="none"/, 'halka');
+  assert.match(svg, /fill="rgba\(27,107,80/, 'veri alanı');
+  assert.throws(() => radarChart([{ label: 'A', value: 1 }, { label: 'B', value: 2 }]), /en az 3/);
 });

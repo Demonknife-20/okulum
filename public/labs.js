@@ -294,3 +294,104 @@ export function enzymeActivity(temp, ph) {
   });
   return result;
 }
+
+// Elektrik devresi simülasyonu (Ohm kanunu)
+// Seri direnç: R_eq = R1 + R2 + ... + Rn
+export function seriesResistance(values) {
+  if (!Array.isArray(values) || values.length === 0) throw new Error('Direnç değerleri boş olamaz.');
+  return values.reduce((sum, r) => sum + r, 0);
+}
+
+// Paralel direnç: 1/R_eq = 1/R1 + 1/R2 + ... + 1/Rn
+export function parallelResistance(values) {
+  if (!Array.isArray(values) || values.length === 0) throw new Error('Direnç değerleri boş olamaz.');
+  const sum = values.reduce((acc, r) => acc + 1 / r, 0);
+  return 1 / sum;
+}
+
+// Ohm kanunu hesaplama: V = I * R, I = V / R, R = V / I
+export function ohmLaw({ voltage, current, resistance }) {
+  const known = [voltage, current, resistance].filter(v => v !== undefined && v !== null).length;
+  if (known !== 2) throw new Error('Ohm kanunu için tam olarak iki değer girilmeli.');
+  if (voltage !== undefined && current !== undefined) {
+    return { voltage, current, resistance: voltage / current };
+  }
+  if (voltage !== undefined && resistance !== undefined) {
+    return { voltage, current: voltage / resistance, resistance };
+  }
+  if (current !== undefined && resistance !== undefined) {
+    return { voltage: current * resistance, current, resistance };
+  }
+  throw new Error('Geçersiz kombinasyon.');
+}
+
+// Basit DC devre analizi: voltage source + resistors (series/parallel)
+export function analyzeCircuit(voltage, resistors, mode = 'series') {
+  const eqResistance = mode === 'series' ? seriesResistance(resistors) : parallelResistance(resistors);
+  const totalCurrent = voltage / eqResistance;
+  const power = voltage * totalCurrent;
+  return {
+    equivalentResistance: eqResistance,
+    totalCurrent,
+    voltage,
+    power,
+    mode,
+  };
+}
+
+// DNA replikasyonu görselleştirme helper
+export function dnaReplication(template) {
+  const complement = { A: 'T', T: 'A', G: 'C', C: 'G' };
+  const templateUpper = template.toUpperCase();
+  if (!/^[ATGC]+$/.test(templateUpper)) throw new Error('Geçersiz DNA dizisi. Sadece A, T, G, C kullanılabilir.');
+  const newStrand = templateUpper.split('').map(base => complement[base]).join('');
+  return {
+    original: templateUpper,
+    complement: newStrand,
+    length: templateUpper.length,
+    gcContent: ((templateUpper.match(/[GC]/g) || []).length / templateUpper.length * 100).toFixed(2),
+  };
+}
+
+// DNA base pairing visualizer
+export function visualizeBasePairs(sequence1, sequence2) {
+  const pairs = { 'A-T': true, 'T-A': true, 'G-C': true, 'C-G': true };
+  const s1 = sequence1.toUpperCase();
+  const s2 = sequence2.toUpperCase();
+  if (s1.length !== s2.length) throw new Error('Diziler eşit uzunlukta olmalı.');
+  const results = [];
+  for (let i = 0; i < s1.length; i++) {
+    const pair = `${s1[i]}-${s2[i]}`;
+    results.push({
+      position: i + 1,
+      base1: s1[i],
+      base2: s2[i],
+      valid: pairs[pair] || false,
+      pair,
+    });
+  }
+  return {
+    sequence1: s1,
+    sequence2: s2,
+    length: s1.length,
+    pairs: results,
+    validPairs: results.filter(r => r.valid).length,
+    invalidPairs: results.filter(r => !r.valid).length,
+  };
+}
+
+// Enzyme activity with temperature and pH optimization
+export function enzymeKinetics(temp, ph, substrateConcentration, vmax = 100, km = 5) {
+  const tempFactor = Math.exp(-Math.pow((temp - 37) / 10, 2));
+  const phFactor = Math.exp(-Math.pow((ph - 7.4) / 1.5, 2));
+  const michaelisMenten = (vmax * substrateConcentration) / (km + substrateConcentration);
+  const activity = michaelisMenten * tempFactor * phFactor;
+  return {
+    activity: Number(activity.toFixed(4)),
+    tempFactor: Number(tempFactor.toFixed(4)),
+    phFactor: Number(phFactor.toFixed(4)),
+    michaelisMenten: Number(michaelisMenten.toFixed(4)),
+    optimalTemp: 37,
+    optimalPh: 7.4,
+  };
+}
