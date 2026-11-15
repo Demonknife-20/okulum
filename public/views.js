@@ -5,7 +5,8 @@ import { projectile, trajectory, titrationPH, equivalenceVolume, titrationSeries
 import { ELEMENTS, bestReaction, parseFormulaComp, atomComp, iconFor, molarMass, moles, molarity, dilutionVolume, strongAcidPH, strongBasePH } from './chem.js';
 import { parseBase, toBase, truthTable, bubbleSortSteps, textToBinary, binaryToText, hexToRgb, rgbToHex, binaryAdd } from './computing.js';
 import { runPython, highlightPython, pyHint } from './pyterm.js';
-import { fxEnabled, setFx } from './fx.js';
+import { fxEnabled, setFx, setFontSize, getFontSize, setThemePref, getThemePref } from './fx.js';
+import { initOtp, resetStepHtml, startResendTimer } from './otp.js';
 import { helpHtml } from './help.js';
 import { state, api, apiUrl, $, $$, esc, ROLE, icon, fmtDate, todayIso, pct, initials, tone, readFile, toast, openModal, closeModal, confirmDialog, refreshMe, refresh, val, setBusy, setQuery, parseHash, paintWidths, refreshBadges } from './core.js';
 
@@ -3154,24 +3155,29 @@ ACTIONS['forgot-open'] = () => openModal('Şifremi unuttum', `<form class="stack
 FORMS.forgot = async form => {
   const email = val(form, 'email').trim();
   await api('/password/forgot', { method: 'POST', body: { email } });
-  closeModal();
   openResetModal(email);
   toast('Kayıtlıysa e-postanıza kod gönderildi');
 };
 
 function openResetModal(email) {
-  openModal('Yeni şifre belirle', `<form class="stack" data-form="reset">
-    <label class="field"><span>E-posta</span><input name="email" type="email" required maxlength="120" value="${esc(email)}"></label>
-    <label class="field"><span>Doğrulama kodu</span><input name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required autocomplete="one-time-code"></label>
-    <label class="field"><span>Yeni şifre</span><input name="password" type="password" required minlength="8" maxlength="128" autocomplete="new-password"></label>
-    <p class="muted small">En az 8 karakter, harf ve rakam içermeli.</p>
+  const body = `<form class="stack" data-form="reset" data-email="${esc(email)}">
+    ${resetStepHtml(email)}
     <p class="form-error" data-error role="alert"></p>
-    <div class="form-actions"><button class="btn ghost" type="button" data-action="close-modal">Vazgeç</button><button class="btn primary" type="submit">Şifreyi değiştir</button></div>
-  </form>`);
+    <div class="form-actions"><button class="btn ghost" type="button" data-action="close-modal">Vazgeç</button><button class="btn primary" type="submit" disabled>Şifreyi değiştir</button></div>
+  </form>`;
+  openModal('Yeni şifre belirle', body);
+  const form = $('#modalBody form');
+  const otp = initOtp(form, { onReady: full => { form.querySelector('button[type=submit]').disabled = !full; } });
+  const timer = startResendTimer(form, {
+    onResend: () => { otp.clear(); form.querySelector('button[type=submit]').disabled = true; toast('Kod yeniden gönderildi'); },
+  });
+  form._otp = otp;
+  form._otpTimer = timer;
 }
 
 FORMS.reset = async form => {
-  await api('/password/reset', { method: 'POST', body: { email: val(form, 'email').trim(), code: val(form, 'code').trim(), password: val(form, 'password') } });
+  await api('/password/reset', { method: 'POST', body: { email: val(form, 'email') || form.dataset.email, code: form._otp?.code() || '', password: val(form, 'password') } });
+  form._otpTimer?.stop();
   closeModal();
   toast('Şifreniz değiştirildi. Yeni şifrenizle giriş yapabilirsiniz.');
 };
@@ -4820,8 +4826,62 @@ ACTIONS['ggb-del'] = async el => {
   toast('Materyal silindi');
   refresh();
 };
-
-// ---------- Biyoloji laboratuvarı ----------
+ 
+// ---------- Ayarlar sayfası ----------
+async function pageAyarlar() {
+  const themePref = getThemePref();
+  const fontSize = getFontSize() || 'md';
+  const fxEnabledState = fxEnabled();
+  const savedFont = localStorage.getItem('okulum-fontsize');
+  const currentFont = savedFont || fontSize;
+  const fxToggle = fxEnabledState ? 'Açık' : 'Kapalı';
+  const themeOptions = [
+    { value: 'auto', label: 'Otomatik', selected: themePref === 'auto' },
+    { value: 'light', label: 'Açık', selected: themePref === 'light' },
+    { value: 'dark', label: 'Karanlık', selected: themePref === 'dark' },
+  ];
+  const fontOptions = [
+    { value: 'sm', label: 'Küçük (13px)', selected: currentFont === 'sm' },
+    { value: 'md', label: 'Normal (14px)', selected: currentFont === 'md' },
+    { value: 'lg', label: 'Büyük (15px)', selected: currentFont === 'lg' },
+    { value: 'xl', label: 'Extra (16px)', selected: currentFont === 'xl' },
+  ];
+  const applyTheme = async pref => {
+    await setThemePref(pref);
+    applyThemePref();
+    toast('Tema ' + (pref === 'dark' ? 'karanlık' : pref === 'light' ? 'açık' : 'otomatik') + ' olarak ayarlandı.');
+  };
+  const applyFont = async size => {
+    await setFontSize(size);
+    toast('Font boyutu ' + size + ' olarak ayarlandı.');
+  };
+  const toggleFx = async () => {
+    await setFx(!fxEnabledState);
+    paintFx();
+    toast('Uygulama etkileri ' + (fxEnabledState ? 'kapatıldı' : 'açıldı'));
+  };
+  return { html: `
+    <div class="settings-page">
+      <h2>Ayarlar</h2>
+      <div class="setting-row">
+        <label>Tema</label>
+        <select id="themeSelect" onchange="applyTheme(this.value)">
+          ${themeOptions.map(o => `<option value="${o.value}" ${o.selected ? 'selected' : ''}>${o.label}</option>`).join('')}
+        </select>
+      </div>
+      <div class="setting-row">
+        <label>Font boyutu</label>
+        <select id="fontSelect" onchange="applyFont(this.value)">
+          ${fontOptions.map(o => `<option value="${o.value}" ${o.selected ? 'selected' : ''}>${o.label}</option>`).join('')}
+        </select>
+      </div>
+      <div class="setting-row">
+        <label>Uygulama etkileri</label>
+        <button class="btn" onclick="toggleFx()">${fxToggle}</button>
+      </div>
+      <button class="btn ghost" onclick="window.closeModal()">Kapat</button>
+    </div>` };
+}
 function bioCalcCard(key, title, fieldsHtml, computeHtml, actionsHtml = '') {
   return `
     <div class="calc-card" data-bio="${key}">
@@ -4908,6 +4968,7 @@ const PAGES = {
   panolar: pagePanolar, pano: pageBoard, asistan: pageAsistan,
   cocuklar: pageCocuklar, sinavlar: pageSinavlar, sinav: pageSinav, notlar: pageNotlar,
   davranis: pageDavranis, puanlarim: pagePuanlarim, program: pageProgram, takvim: pageTakvim, karne: pageKarne, canli: pageCanli, analiz: pageAnaliz, izin: pageIzin, gece: pageGece, geogebra: pageGeogebra, deneyler: pageFizik, fizik: pageFizik, kimya: pageKimya, bilgisayar: pageBilgisayar, biyoloji: pageBiyoloji, qbank: pageQbank,
+  ayarlari: pageAyarlar,
 };
 export function renderView(page, params) {
   if (page === 'overview' && state.me.role === 'parent') return pageParentOverview();

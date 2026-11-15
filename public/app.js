@@ -114,8 +114,8 @@ function renderChrome() {
     const hasDropdown = page === 'school' || page === 'qbank';
     const dropdownHtml = hasDropdown ? `
       <div class="nav-dropdown" role="menu" aria-label="Ek seçenekler">
-        <div class="nav-dropdown-item" data-action="school-classes">Sınıflarım</div>
-        <div class="nav-dropdown-item" data-action="school-settings">Ayarlar</div>
+        <div class="nav-dropdown-item" data-action="yardim">Kullanım</div>
+        <div class="nav-dropdown-item" data-action="program">Ders programı</div>
         <div class="nav-dropdown-item" data-action="logout">Çıkış</div>
       </div>` : '';
     const moreLabel = hasDropdown && i === NAV[me.role].length - 1 ? '<span class="nav-more">Daha fazla →</span>' : '';

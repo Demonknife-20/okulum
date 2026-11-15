@@ -1,145 +1,89 @@
-// 6 haneli kod doğrulama ekranı (Gmail tarzı)
-import { $, $$, api, icon, esc, toast } from './core.js';
+// 6 haneli doğrulama kodu bileşeni (Gmail tarzı) — şifre sıfırlama akışının
+// "kod gir" adımını modal içinde kullanır. Backend: /api/password/forgot + /api/password/reset.
+import { $, api, icon, esc } from './core.js';
 
-export function showOtpScreen(email, onVerified) {
-  const container = document.getElementById('otp-screen') || document.createElement('div');
-  container.id = 'otp-screen';
-  container.hidden = false;
-  container.innerHTML = `
-    <div class="otp-container">
-      <div class="otp-icon">${icon('mail')}</div>
-      <h2 class="otp-title">Doğrulama Kodu</h2>
-      <p class="otp-desc">Kodu <strong>${esc(email)}</strong> adresine gönderdik. 6 haneli kodu girin:</p>
-      <div class="otp-inputs" data-otp-length="6"></div>
-      <div class="otp-actions">
-        <button class="btn btn-secondary otp-resend" type="button" disabled>Yeniden gönder (<span class="otp-timer">60</span>s)</button>
-        <button class="btn btn-primary otp-verify" type="button" disabled>Doğrula</button>
-      </div>
-      <a href="#/login" class="otp-back">← Geri</a>
-    </div>
-  `;
-  document.body.appendChild(container);
+// Modal gövdesine yerleştirilecek kutucukların HTML'i.
+export function otpFieldsHtml() {
+  return `
+    <div class="otp-inputs" data-otp role="group" aria-label="6 haneli doğrulama kodu">
+      ${[0, 1, 2, 3, 4, 5].map(i => `<input type="text" inputmode="numeric" maxlength="1" autocomplete="off" aria-label="${i + 1}. hane">`).join('')}
+    </div>`;
+}
 
-  const inputsDiv = container.querySelector('.otp-inputs');
-  const inputs = [];
-  for (let i = 0; i < 6; i++) {
-    const input = document.createElement('input');
-    input.type = 'text';
-    input.inputMode = 'numeric';
-    input.maxLength = 1;
-    input.pattern = '[0-9]';
-    input.setAttribute('aria-label', `${i + 1}. hane`);
-    input.dataset.index = i;
-    inputsDiv.appendChild(input);
-    inputs.push(input);
-  }
+// Kutucukları canlı hale getirir; tümü dolduğunda onReady() çağrılır.
+export function initOtp(root, { onReady } = {}) {
+  const inputs = [...root.querySelectorAll('[data-otp] input')];
+  if (!inputs.length) return { code: () => '', clear: () => {} };
 
-  const verifyBtn = container.querySelector('.otp-verify');
-  const resendBtn = container.querySelector('.otp-resend');
-  const timerSpan = container.querySelector('.otp-timer');
-  let timer = 60;
-  let timerInterval = null;
+  const code = () => inputs.map(i => i.value).join('');
+  const refresh = () => onReady?.(code().length === 6);
 
-  // Timer
-  const startTimer = () => {
-    timer = 60;
-    resendBtn.disabled = true;
-    timerSpan.textContent = timer;
-    if (timerInterval) clearInterval(timerInterval);
-    timerInterval = setInterval(() => {
-      timer--;
-      timerSpan.textContent = timer;
-      if (timer <= 0) {
-        clearInterval(timerInterval);
-        resendBtn.disabled = false;
-      }
-    }, 1000);
-  };
-  startTimer();
-
-  // Input events
   inputs.forEach((input, idx) => {
-    input.addEventListener('input', (e) => {
-      const val = e.target.value;
-      // Only allow digits
-      e.target.value = val.replace(/[^0-9]/g, '');
-      if (e.target.value && idx < 5) {
-        inputs[idx + 1].focus();
-      }
-      checkComplete();
+    input.addEventListener('input', () => {
+      input.value = input.value.replace(/[^0-9]/g, '').slice(-1);
+      if (input.value && idx < inputs.length - 1) inputs[idx + 1].focus();
+      refresh();
     });
-
-    input.addEventListener('keydown', (e) => {
-      if (e.key === 'Backspace' && !e.target.value && idx > 0) {
-        inputs[idx - 1].focus();
-      }
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Backspace' && !input.value && idx > 0) inputs[idx - 1].focus();
     });
-
-    // Paste support
-    input.addEventListener('paste', (e) => {
+    input.addEventListener('paste', e => {
       e.preventDefault();
-      const paste = (e.clipboardData || window.clipboardData).getData('text').replace(/[^0-9]/g, '');
-      for (let i = 0; i < Math.min(paste.length, 6); i++) {
-        inputs[i].value = paste[i];
-      }
-      if (paste.length >= 6) inputs[5].focus();
-      checkComplete();
+      const digits = (e.clipboardData?.getData('text') || '').replace(/[^0-9]/g, '');
+      inputs.forEach((box, i) => { box.value = digits[i] || ''; });
+      inputs[Math.min(digits.length, inputs.length - 1)].focus();
+      refresh();
     });
-
-    // Focus first input on select
-    input.addEventListener('focus', () => {
-      input.select();
-    });
+    input.addEventListener('focus', () => input.select());
   });
 
-  // Check if all inputs are filled
-  const checkComplete = () => {
-    const code = inputs.map(i => i.value).join('');
-    verifyBtn.disabled = code.length !== 6;
+  return {
+    code,
+    clear: () => { inputs.forEach(i => { i.value = ''; }); inputs[0].focus(); refresh(); },
+    focus: () => inputs[0].focus(),
   };
+}
 
-  // Verify
-  verifyBtn.addEventListener('click', async () => {
-    const code = inputs.map(i => i.value).join('');
-    if (code.length !== 6) return;
-    verifyBtn.disabled = true;
-    verifyBtn.textContent = 'Doğrulanıyor...';
-    try {
-      const ok = await api('post', '/api/otp/verify', { email, code });
-      if (ok) {
-        toast('Kod doğrulandı!');
-        container.remove();
-        onVerified();
-      } else {
-        toast('Kod hatalı. Tekrar deneyin.');
-        inputs.forEach(i => i.value = '');
-        inputs[0].focus();
-        verifyBtn.disabled = true;
-      }
-    } catch {
-      toast('Doğrulama başarısız. Tekrar deneyin.');
-      verifyBtn.disabled = true;
+// Sıfırlama modalının kod adımını döndürür: kutucuklar + yeniden gönder + yeni şifre alanı.
+export function resetStepHtml(email) {
+  return `
+    <p class="muted small">Kodu <strong>${esc(email)}</strong> adresine gönderdik. Kutulara girin:</p>
+    ${otpFieldsHtml()}
+    <label class="field"><span>Yeni şifre</span><input name="password" type="password" required minlength="8" maxlength="128" autocomplete="new-password"></label>
+    <p class="muted small">En az 8 karakter; harf ve rakam içermeli.</p>
+    <div class="otp-actions">
+      <button class="btn ghost sm" type="button" data-otp-resend disabled>Yeniden gönder (<span data-otp-timer>60</span>s)</button>
+    </div>`;
+}
+
+// Yeniden gönderme sayacını başlatır; 60 saniye sonra butonu açar.
+export function startResendTimer(root, { onResend } = {}) {
+  const btn = root.querySelector('[data-otp-resend]');
+  const timer = root.querySelector('[data-otp-timer]');
+  if (!btn || !timer) return { stop() {} };
+  let left = 60;
+  btn.disabled = true;
+  let interval = null;
+  const tick = () => {
+    timer.textContent = String(left);
+    if (left <= 0) {
+      clearInterval(interval);
+      btn.disabled = false;
     }
-    verifyBtn.textContent = 'Doğrula';
-  });
-
-  // Resend
-  resendBtn.addEventListener('click', async () => {
-    if (resendBtn.disabled) return;
+  };
+  interval = setInterval(() => { left -= 1; tick(); }, 1000);
+  tick();
+  btn.addEventListener('click', async () => {
+    btn.disabled = true;
     try {
-      await api('post', '/api/otp/send', { email });
-      toast('Kod yeniden gönderildi!');
-      inputs.forEach(i => i.value = '');
-      inputs[0].focus();
-      verifyBtn.disabled = true;
-      startTimer();
-    } catch {
-      toast('Kod gönderilemedi. Tekrar deneyin.');
+      await api('/password/forgot', { method: 'POST', body: { email: root.dataset.email || '' } });
+      left = 60;
+      tick();
+      onResend?.();
+    } catch (error) {
+      btn.disabled = false;
+      throw error;
     }
   });
-
-  // Focus first input
-  inputs[0].focus();
-
-  return container;
+  return { stop: () => clearInterval(interval) };
 }
