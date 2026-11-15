@@ -347,7 +347,9 @@ export function initChem3d(containerId) {
   window.addEventListener('resize', onResize);
 
   // ---------- Public API ----------
+  let heating = false;
   return {
+    toggleHeating: () => { heating = !heating; heating ? startHeating() : stopHeating(); },
     startHeating,
     stopHeating,
     resetLab,

@@ -1,3 +1,36 @@
+<<<<<<< LOCAL (Your changes)
+{
+  "name": "okulum",
+  "version": "96.0.0",
+  "private": true,
+  "description": "Okulum okul yönetim sistemi · Render + Supabase",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --env-file-if-exists=.env server.js",
+    "build": "node scripts/build.mjs",
+    "test": "node --test --test-concurrency=1 test/security.test.js test/api.test.js && node --test test/graph.test.mjs test/labs.test.mjs test/chem.test.mjs test/computing.test.mjs test/pyterm.test.mjs test/quizdraft.test.mjs test/schema.test.mjs test/tenancy.test.js test/privacy.test.js test/build.test.mjs",
+    "test:graph": "node --test test/graph.test.mjs",
+    "lint": "eslint public src server.js scripts test"
+  },
+  "dependencies": {
+    "dejavu-fonts-ttf": "^2.37.3",
+    "esbuild": "^0.25.12",
+    "nodemailer": "^10.1.0",
+    "pdfkit": "^0.15.2",
+    "pg": "^8.13.0",
+    "web-push": "^3.6.7"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "axe-core": "^4.14.0",
+    "eslint": "^9.39.5",
+    "globals": "^17.13.0"
+  }
+}
+=======
 {
   "name": "okulum",
   "version": "96.0.0",
@@ -29,3 +62,4 @@
     "globals": "^17.13.0"
   }
 }
+>>>>>>> REMOTE (Changes from GitHub)
