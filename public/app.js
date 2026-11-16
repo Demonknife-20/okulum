@@ -315,3 +315,5 @@ applyTheme(saved || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark'
     setTimeout(() => { splash.hidden = true; }, 700);
   }
 })();
+
+boot();
