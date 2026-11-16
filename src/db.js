@@ -134,4 +134,4 @@ async function migrateTenantSchema(schema) {
   }
 }
 
-module.exports = { q, tx, migrate, migrateTenantSchema, withTenant, currentTenantSchema, pool };
+module.exports = { q, tx, migrate, migrateTenantSchema, withTenant, currentTenantSchema, pool, hasDatabase: !!url };
