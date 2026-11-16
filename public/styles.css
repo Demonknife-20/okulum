@@ -2692,3 +2692,43 @@ input:valid:not(:placeholder-shown){border-color:var(--ok);box-shadow:0 0 0 4px 
   .lab-sidebar{width:100%}
   .lab-canvas-wrap .lab-canvas{min-height:320px}
 }
+
+/* ---------- Sol menüde laboratuvar klasörü ---------- */
+.nav-folder-btn{width:100%;background:transparent;border:0;text-align:left;cursor:pointer;font:inherit}
+.nav-folder-btn .nav-chevron{margin-left:auto;display:inline-block;transition:transform .2s ease;font-size:12px;opacity:.7}
+.nav-folder.open .nav-folder-btn .nav-chevron{transform:rotate(90deg)}
+.nav-sub{display:grid;gap:2px;margin:2px 0 6px 22px;padding-left:10px;border-left:2px solid var(--line)}
+.nav-sub[hidden]{display:none}
+.nav-sub-item{font-size:13.5px;padding:7px 10px}
+
+/* ---------- Kimya 3D ---------- */
+.chem3d-layout{display:flex;gap:16px;align-items:stretch;flex-wrap:wrap;padding:16px}
+.chem3d-layout .lab-sidebar{width:290px;max-width:100%}
+.chem3d-stage{flex:1 1 360px;min-width:0;height:540px;border-radius:16px;overflow:hidden;background:#f0f4f8;border:1px solid var(--line);position:relative}
+.chem3d-stage canvas{width:100%!important;height:100%!important;display:block}
+.chem3d-msg{margin:10px 0 0;font-size:13px;min-height:2.6em;color:var(--muted)}
+.chem3d-msg.ok{color:#2e7d32}
+.chem3d-msg.warn{color:#e65100}
+.material-btn.active{outline:2px solid var(--brand);outline-offset:2px}
+@media (max-width:760px){.chem3d-stage{height:420px;flex-basis:100%}}
+
+/* ---------- Biyoloji ---------- */
+.bio-organelles{display:flex;flex-wrap:wrap;gap:8px}
+.bio-detail{margin:12px 0 0;min-height:2.6em;font-size:14px;color:var(--ink)}
+.bio-table{border-collapse:collapse;margin:8px auto 0;font-size:15px}
+.bio-table th,.bio-table td{border:1px solid var(--line);padding:8px 16px;text-align:center}
+.bio-table th{background:var(--surface-2)}
+.bio-bar{display:block;height:8px;border-radius:99px;background:var(--surface-2);overflow:hidden}
+.bio-bar b{display:block;height:100%;background:var(--brand);border-radius:99px}
+
+/* ---------- Kimya 3D birinci şahıs arayüzü ---------- */
+.chem3d-hud{position:absolute;inset:0;pointer-events:none;font-family:system-ui,sans-serif}
+.chem3d-cross{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);color:#fff;font:300 26px/1 system-ui,sans-serif;text-shadow:0 0 4px rgba(0,0,0,.7)}
+.chem3d-held{position:absolute;left:12px;top:10px;background:rgba(0,0,0,.5);color:#fff;padding:5px 10px;border-radius:10px;font-size:13px}
+.chem3d-held:empty{display:none}
+.chem3d-msg-hud{position:absolute;left:50%;top:14%;transform:translateX(-50%);max-width:88%;background:rgba(0,0,0,.6);color:#fff;padding:7px 14px;border-radius:12px;font-size:14px;text-align:center}
+.chem3d-msg-hud:empty{display:none}
+.chem3d-msg-hud[data-tone=ok]{background:rgba(46,125,50,.85)}
+.chem3d-msg-hud[data-tone=warn]{background:rgba(230,81,0,.85)}
+.chem3d-hint{position:absolute;left:50%;bottom:12px;transform:translateX(-50%);background:rgba(0,0,0,.55);color:#fff;padding:6px 12px;border-radius:999px;font-size:13px;white-space:nowrap}
+.chem3d-hint:empty{display:none}

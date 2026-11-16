@@ -25,6 +25,9 @@ const css = await build({
 });
 
 const jsFile = path.basename(Object.keys(js.metafile.outputs).find(file => file.endsWith('.js')));
+// Boş ya da bozuk bir paketi yayınlamayalım: açılışta sayfa sonsuza kadar takılır.
+const jsBytes = fs.statSync(path.join(out, jsFile)).size;
+if (jsBytes < 50_000) throw new Error(`Uygulama paketi çok küçük (${jsBytes} bayt): kaynak dosyaları kontrol edin.`);
 const cssFile = path.basename(Object.keys(css.metafile.outputs).find(file => file.endsWith('.css')));
 
 // Alt kaynak bütünlüğü (SRI): tarayıcı, indirilen betiğin ya da stilin özeti buradakiyle

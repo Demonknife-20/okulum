@@ -83,10 +83,15 @@ export async function api(path, { method = 'GET', body } = {}) {
     init.body = JSON.stringify(body ?? {});
   }
   let res;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20_000);
+  init.signal = controller.signal;
   try {
     res = await fetch(apiUrl(path), init);
   } catch {
     throw new Error('Sunucuya ulaşılamadı. Bağlantını kontrol edip tekrar dene.');
+  } finally {
+    clearTimeout(timer);
   }
   const data = await res.json().catch(() => ({}));
   if (res.status === 401 && state.me) {

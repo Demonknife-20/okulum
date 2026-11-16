@@ -62,7 +62,7 @@ const SECURITY = {
   'Cross-Origin-Opener-Policy': 'same-origin',
   'Cross-Origin-Resource-Policy': 'same-origin',
   'Content-Security-Policy': [
-    "default-src 'self'", "script-src 'self' 'unsafe-inline'", "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "default-src 'self'", "script-src 'self'", "style-src 'self' https://fonts.googleapis.com",
     "font-src 'self' https://fonts.gstatic.com", "img-src 'self' data:", "connect-src 'self'",
     "object-src 'none'", "base-uri 'none'", "form-action 'self'", "frame-ancestors 'none'",
   ].join('; '),
@@ -141,6 +141,10 @@ const server = http.createServer(async (req, res) => {
         sha256_cert_fingerprints: [fingerprint],
       },
     }]);
+  }
+  if (!dbReady && url.pathname.startsWith('/api/')) {
+    res.setHeader('Retry-After', '5');
+    return send(res, 503, { error: 'Veritabanına bağlanılıyor. Birkaç saniye sonra tekrar deneyin.' });
   }
   if (url.pathname === '/healthz') {
     try {
@@ -328,7 +332,7 @@ const server = http.createServer(async (req, res) => {
       if (result.file.frameable) {
         // Pano PDF önizlemesi: yalnızca aynı site çerçevesinde gösterilebilir
         res.setHeader('X-Frame-Options', 'SAMEORIGIN');
-        res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'self'");
+        res.setHeader('Content-Security-Policy', "default-src 'self'; frame-ancestors 'self'");
       }
       res.writeHead(200, {
         'Content-Type': mime,
@@ -364,6 +368,8 @@ async function waitForDb({ maxDelayMs = 30_000, deadlineMs = 60_000 } = {}) {
   }
 }
 
+let dbReady = false;
+
 async function start() {
   if (process.env.NODE_ENV === 'production' && !storage.useSupabase) {
     throw new Error('Üretimde SUPABASE_URL ve SUPABASE_SERVICE_ROLE_KEY zorunlu (dosyalar Supabase Storage\'da tutulur).');
@@ -373,19 +379,27 @@ async function start() {
     await server.listen(PORT, HOST);
     console.log(`Okulum hazır: http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT} · depolama: yerel (geliştirme)`);
     console.log('Veritabanı yapılandırılmadı — lütfen .env dosyasını oluşturun.');
+    dbReady = true;
     return;
   }
-  await waitForDb();
-  await tenancy.initializeTenancy();
-  await platform.bootstrapPlatformAdmin();
-  await storage.ensureBucket();
-  await require('./src/push').init();
-  require('./src/ai').startRetention();
-  require('./src/api').startDigestSchedule();
-  require('./src/api').startReminderSchedule();
-  server.listen(PORT, HOST, () => {
-    console.log(`Okulum hazır: http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT} · depolama: ${storage.useSupabase ? 'Supabase' : 'yerel (geliştirme)'}`);
-  });
+  // Önce dinlemeye başla: veritabanı geç kalsa bile sayfa açılır ve API 503 ile yanıt verir.
+  await new Promise(resolve => server.listen(PORT, HOST, resolve));
+  console.log(`Okulum port ${PORT} üzerinde dinliyor; veritabanı bekleniyor…`);
+  try {
+    await waitForDb();
+    await tenancy.initializeTenancy();
+    await platform.bootstrapPlatformAdmin();
+    await storage.ensureBucket();
+    await require('./src/push').init();
+    require('./src/ai').startRetention();
+    require('./src/api').startDigestSchedule();
+    require('./src/api').startReminderSchedule();
+  } catch (error) {
+    console.error('Başlatma hatası (veritabanı):', error.message);
+    throw error;
+  }
+  dbReady = true;
+  console.log(`Okulum hazır: depolama: ${storage.useSupabase ? 'Supabase' : 'yerel (geliştirme)'}`);
 }
 
 function shutdown() {

@@ -23,6 +23,8 @@ if (!url) {
     connectionString: url,
     max: Number(process.env.PG_POOL_SIZE || 10),
     idleTimeoutMillis: 30_000,
+  connectionTimeoutMillis: 10_000,
+  statement_timeout: 15_000,
     ssl: local || process.env.DATABASE_SSL === 'false' ? false : { rejectUnauthorized: false },
   });
   pool.on('error', error => console.error('Veritabanı boşta bağlantı hatası:', error.message));

@@ -396,32 +396,41 @@ export function enzymeKinetics(temp, ph, substrateConcentration, vmax = 100, km 
   };
 }
 
-// Nüfus büyümesi modeli: P(t) = P0 · e^(rt)
-export function populationGrowth(P0, r, t) {
-  if (P0 < 0 || r < 0 || t < 0) throw new Error('Parametreler pozitif olmalı.');
-  const p = P0 * Math.exp(r * t);
-  return { population: Number(p.toFixed(2)), growthRate: Number((r * 100).toFixed(2)) };
+// ---------- Fizik: yay-kütle sistemi (basit harmonik hareket) ----------
+// Açısal frekans ω = √(k/m), periyot T = 2π/ω, konum x(t) = A·cos(ωt)
+export function springOscillator(mass, k, amplitude) {
+  if (!(mass > 0)) throw new Error('Kütle sıfırdan büyük olmalı.');
+  if (!(k > 0)) throw new Error('Yay sabiti sıfırdan büyük olmalı.');
+  if (!(amplitude >= 0)) throw new Error('Genlik negatif olamaz.');
+  const omega = Math.sqrt(k / mass);
+  return {
+    omega: Number(omega.toFixed(4)),
+    period: Number((2 * Math.PI / omega).toFixed(4)),
+    frequency: Number((omega / (2 * Math.PI)).toFixed(4)),
+    maxSpeed: Number((amplitude * omega).toFixed(4)),
+    maxEnergy: Number((0.5 * k * amplitude * amplitude).toFixed(4)),
+  };
 }
 
-// Punnett karesi: temel genetik çaprazlama hesapları
-export function punnettSquare(parent1, parent2) {
-  const alleles1 = parent1.split('/').map(a => a.toUpperCase());
-  const alleles2 = parent2.split('/').map(a => a.toUpperCase());
-  const grid = [];
-  for (const a1 of alleles1) {
-    const row = [];
-    for (const a2 of alleles2) {
-      row.push(a1 + a2);
-    }
-    grid.push(row);
+// Konum-zaman verisi: iki periyot boyunca (steps+1 nokta)
+export function springSeries(mass, k, amplitude, steps = 200) {
+  const { omega, period } = springOscillator(mass, k, amplitude);
+  const duration = 2 * period;
+  const points = [];
+  for (let i = 0; i <= steps; i += 1) {
+    const t = (duration * i) / steps;
+    points.push({ t: Number(t.toFixed(4)), x: Number((amplitude * Math.cos(omega * t)).toFixed(4)) });
   }
-  return { grid, parent1, parent2 };
+  return points;
 }
 
-// Mikroskop gözlem simülasyonu: basit hücelevi özellikler
-export function microscopeView(sampleType, magnification) {
-  const validTypes = ['kan_kroesi', 'hucel_division', 'bakteri', 'yeast'];
-  if (!validTypes.includes(sampleType)) throw new Error('Geçersiz örnek tipi.');
-  const mag = Math.max(1, Math.min(1000, magnification));
-  return { sampleType, magnification: mag, fieldOfView: Number((500 / mag).toFixed(2)) };
+// ---------- Sıralama algoritmaları: adım formatı ortak hale getirilir ----------
+// Kabarcık, birleştirme ve hızlı sıralama farklı alanlar kullanır; arayüz tek biçimde okur.
+export function normalizeSortStep(step) {
+  return {
+    array: step.array,
+    compare: step.compare ?? null,
+    swapped: Boolean(step.swapped || step.action === 'swap' || step.action === 'place'),
+    done: Boolean(step.done || step.action === 'done'),
+  };
 }

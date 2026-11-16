@@ -1,13 +1,14 @@
 import { renderMarkdown } from './markdown.js';
 import { enablePush, disablePush, isSubscribed } from './push.js';
 import { mountGraph } from './graph.js';
-import { projectile, trajectory, titrationPH, equivalenceVolume, titrationSeries, ohm, equivalentResistance, pendulum, thinLens, uniformlyAccelerated, kineticEnergy, potentialEnergy, waveSpeed } from './labs.js';
+import { projectile, trajectory, titrationPH, equivalenceVolume, titrationSeries, ohm, equivalentResistance, pendulum, thinLens, uniformlyAccelerated, kineticEnergy, potentialEnergy, waveSpeed, punnettSquare, dnaReplication, enzymeKinetics, photosynthesis, cellCycle, heartRate, springOscillator, springSeries, normalizeSortStep } from './labs.js';
 import { ELEMENTS, bestReaction, parseFormulaComp, atomComp, iconFor, molarMass, moles, molarity, dilutionVolume, strongAcidPH, strongBasePH } from './chem.js';
-import { parseBase, toBase, truthTable, bubbleSortSteps, textToBinary, binaryToText, hexToRgb, rgbToHex, binaryAdd } from './computing.js';
+import { parseBase, toBase, truthTable, bubbleSortSteps, mergeSortSteps, quickSortSteps, textToBinary, binaryToText, hexToRgb, rgbToHex, binaryAdd } from './computing.js';
 import { runPython, highlightPython, pyHint } from './pyterm.js';
 import { fxEnabled, setFx } from './fx.js';
+import { quadraticRoots, solveLinearSystem, triangleFromSides, describeNumbers, percentChange, compoundGrowth, primeFactors, gcdLcm, combinatorics } from './math-tools.js';
 import { helpHtml } from './help.js';
-import { initChem3d, destroyChem3d } from './chem3d.js';
+import { initChem3d, CHEM3D_MATERIALS } from './chem3d.js';
 import { state, api, apiUrl, $, $$, esc, ROLE, icon, fmtDate, todayIso, pct, initials, tone, readFile, toast, openModal, closeModal, confirmDialog, refreshMe, refresh, val, setBusy, setQuery, parseHash, paintWidths, refreshBadges } from './core.js';
 
 export const ACTIONS = {}, FORMS = {}, CHANGES = {}, INPUTS = {};
@@ -474,49 +475,6 @@ ACTIONS['delete-assignment'] = async el => {
   await api(`/assignments/${el.dataset.id}`, { method: 'DELETE' });
   toast('Ödev silindi');
   refresh();
-};
-
-ACTIONS['bio-analyze'] = el => {
-  const sequence = document.querySelector('[data-bio="sequence"]')?.value || '';
-  try {
-    const result = dnaReplication(sequence);
-    const complementEl = document.querySelector('[data-bio="complement"]');
-    const gcEl = document.querySelector('[data-bio="gc"]');
-    if (complementEl) complementEl.textContent = result.complement;
-    if (gcEl) gcEl.textContent = result.gcContent;
-    toast(`Complement: ${result.complement}, GC: ${result.gcContent}%`);
-  } catch (error) {
-    toast(error.message, 'error');
-  }
-};
-
-ACTIONS['bio-divide'] = el => {
-  const time = Number(document.querySelector('[data-bio="time"]')?.value || '0');
-  try {
-    const result = populationGrowth(100, 0.02, time);
-    const popEl = document.querySelector('[data-bio="pop"]');
-    const rateEl = document.querySelector('[data-bio="rate"]');
-    if (popEl) popEl.textContent = result.population;
-    if (rateEl) rateEl.textContent = result.growthRate;
-    toast(`Nüfus: ${result.population}, Büyüme: ${result.growthRate}%`);
-  } catch (error) {
-    toast(error.message, 'error');
-  }
-};
-
-ACTIONS['bio-microscope'] = el => {
-  const sample = document.querySelector('[data-bio="sample"]')?.value || '';
-  const magnification = Number(document.querySelector('[data-bio="magnification"]')?.value || '0');
-  try {
-    const result = microscopeView(sample, magnification);
-    const fovEl = document.querySelector('[data-bio="fov"]');
-    const magEl = document.querySelector('[data-bio="mag"]');
-    if (fovEl) fovEl.textContent = result.fieldOfView;
-    if (magEl) magEl.textContent = result.magnification;
-    toast(`Örnek: ${result.sampleType}, Büyüty: ${result.magnification}×, FOV: ${result.fieldOfView} mm`);
-  } catch (error) {
-    toast(error.message, 'error');
-  }
 };
 
 
@@ -3659,6 +3617,7 @@ function labPhysicsHtml() {
       <label class="field"><span>Ortam</span><select data-in="g">
         <option value="9.81">Dünya (9,81 m/s²)</option><option value="1.62">Ay (1,62 m/s²)</option><option value="3.71">Mars (3,71 m/s²)</option>
       </select></label>
+      <button class="btn ghost" type="button" data-play>▶ Hareketi göster</button>
       <ul class="lab-results">
         <li>Menzil: <b data-res="range">–</b> m</li>
         <li>En yüksek nokta: <b data-res="height">–</b> m</li>
@@ -3666,6 +3625,24 @@ function labPhysicsHtml() {
       </ul>
     </div>
     <canvas class="lab-canvas" data-canvas="fizik" aria-label="Eğik atış yörüngesi"></canvas>
+  </div>`;
+}
+
+function labSpringHtml() {
+  return `<div class="lab-grid">
+    <div class="lab-controls" data-lab="yay">
+      <label class="field"><span>Kütle: <b data-out="m">1</b> kg</span><input type="range" min="0.1" max="5" step="0.1" value="1" data-in="m"></label>
+      <label class="field"><span>Yay sabiti: <b data-out="k">4</b> N/m</span><input type="range" min="1" max="100" step="1" value="4" data-in="k"></label>
+      <label class="field"><span>Genlik: <b data-out="a">0.2</b> m</span><input type="range" min="0.05" max="0.5" step="0.01" value="0.2" data-in="a"></label>
+      <button class="btn ghost" type="button" data-play>▶ Salınımı göster</button>
+      <ul class="lab-results">
+        <li>Periyot: <b data-res="period">–</b> s</li>
+        <li>Frekans: <b data-res="freq">–</b> Hz</li>
+        <li>En yüksek hız: <b data-res="vmax">–</b> m/s</li>
+        <li>Toplam enerji: <b data-res="energy">–</b> J</li>
+      </ul>
+    </div>
+    <canvas class="lab-canvas" data-canvas="yay" aria-label="Yay-kütle konum-zaman grafiği"></canvas>
   </div>`;
 }
 
@@ -3842,6 +3819,7 @@ async function pageFizik() {
   return {
     html: `${head('Fizik laboratuvarı', 'Başlangıç hızı, açı ve ortama göre eğik atışın menzilini, yüksekliğini ve süresini hesaplayın.', '')}
       ${panel('Eğik atış', 'Değerleri değiştirin; yörünge grafiği anında güncellenir.', labPhysicsHtml())}
+      ${panel('Yay–kütle sistemi', 'Kütle, yay sabiti ve genliğin salınım periyodunu ve enerjisini nasıl değiştirdiğini görün.', labSpringHtml())}
       ${panel('Hesap panosu', 'Ohm kanunu, eşdeğer direnç, sarkaç, mercek, hareket, enerji ve dalga hesaplarını adım adım yapın.', labCalcGrid(PHYSICS_CALCS, 'fizik'))}`,
     after: () => {
       setupLabs();
@@ -3993,138 +3971,269 @@ function setupEncoding() {
   }
 }
 
+// ---------- Kimya 3D laboratuvarı ----------
+function chem3dHtml() {
+  const materials = CHEM3D_MATERIALS.map(m => `<button class="material-btn" data-mat="${esc(m.key)}" type="button"><span class="m-icon">${m.icon}</span><span class="m-name">${esc(m.name)}</span></button>`).join('');
+  return `<div class="chem3d-layout">
+    <aside class="lab-sidebar">
+      <div class="lab-panel">
+        <h3>Raftaki malzemeler</h3>
+        <div class="material-grid" id="chem3d-materials">${materials}</div>
+        <p class="muted" style="font-size:12px;margin:8px 0 0">Malzemeye tıklayın; elinize alınır. Sonra bir tüpe tıklayarak dökün. En fazla üç malzeme karıştırılabilir.</p>
+      </div>
+      <div class="lab-panel">
+        <h3>Ocak ve kontroller</h3>
+        <div class="lab-actions">
+          <button class="btn primary" id="chem3d-heat" type="button">🔥 Ocağı aç</button>
+          <button class="btn" id="chem3d-reset" type="button">↺ Sıfırla</button>
+        </div>
+        <p class="muted" style="font-size:12px;margin:8px 0 0">Kibritle ocağı yakın (kibriti alıp ocağa tıklayın), sonra tüpü ocağın yanına koyun.</p>
+        <p class="muted" style="font-size:12px;margin:8px 0 0"><b>Gezinme:</b> W A S D veya ok tuşları. <b>Bakış:</b> sürükleyin. <b>Etkileşim:</b> tıklayın (imleç hedefine göre).</p>
+      </div>
+      <div class="lab-panel">
+        <h3>Durum</h3>
+        <div class="lab-stats">
+          <div class="lab-stat"><span>En yüksek sıcaklık</span><strong id="chem3d-temp">20°C</strong></div>
+          <div class="lab-stat"><span>Elinizde</span><strong id="chem3d-mat">—</strong></div>
+        </div>
+        <p class="chem3d-msg" id="chem3d-msg" role="status" aria-live="polite">Bir malzeme seçin ve tüplerden birine tıklayın.</p>
+      </div>
+    </aside>
+    <div class="chem3d-stage" id="chem3d-canvas" role="img" aria-label="3D kimya laboratuvarı sahnesi"></div>
+  </div>`;
+}
+
+let chem3dView = null;
+
+function setChem3dStatus(s) {
+  const text = (id, value) => { const el = document.getElementById(id); if (el && value !== undefined) el.textContent = value; };
+  text('chem3d-temp', `${s.hottest}°C`);
+  text('chem3d-mat', s.carrying ? 'Tüp' : s.selected ? CHEM3D_MATERIALS.find(m => m.key === s.selected)?.name : '—');
+  const msg = document.getElementById('chem3d-msg');
+  if (msg && s.message) {
+    msg.textContent = s.message;
+    msg.className = `chem3d-msg ${s.tone || ''}`;
+  }
+  document.querySelectorAll('[data-mat]').forEach(b => b.classList.toggle('active', b.dataset.mat === s.selected));
+  const heat = document.getElementById('chem3d-heat');
+  if (heat) heat.textContent = s.burnerOn ? '⏸ Ocağı söndür' : '🔥 Ocağı aç';
+}
+
+function mountChem3d() {
+  if (chem3dView?.isAlive()) return;
+  chem3dView?.dispose();
+  chem3dView = null;
+  try {
+    chem3dView = initChem3d('chem3d-canvas', { onStatus: setChem3dStatus });
+  } catch (error) {
+    const msg = document.getElementById('chem3d-msg');
+    if (msg) { msg.textContent = `3D sahne açılamadı: ${error.message}. Tarayıcınız WebGL desteklemiyor olabilir.`; msg.className = 'chem3d-msg warn'; }
+  }
+}
+
 async function pageKimya3d() {
   return {
-    html: `${head('Kimya 3D Laboratuvarı', 'Three.js tabanlı, oyun tarzı 3D kimya deney simülasyonu. Malzemeyi seçin, ısıtın ve tepkimeyi izleyin.', '')}
-      <div class="lab-view">
-        <aside class="lab-sidebar">
-          <div class="lab-panel">
-            <h3>Malzeme</h3>
-            <div class="material-grid" id="chem3d-materials"></div>
-          </div>
-          <div class="lab-panel">
-            <h3>Kontrol</h3>
-            <button class="btn primary" id="chem3d-heat" type="button">🔥 Isıtmayı Başlat</button>
-            <button class="btn" id="chem3d-reset" type="button">↺ Sıfırla</button>
-          </div>
-          <div class="lab-panel">
-            <h3>Durum</h3>
-            <div class="lab-stats">
-              <div class="lab-stat"><span>Sıcaklık</span><strong id="chem3d-temp">20°C</strong></div>
-              <div class="lab-stat"><span>Malzeme</span><strong id="chem3d-mat">—</strong></div>
-              <div class="lab-stat"><span>Durum</span><strong id="chem3d-state">Beklemede</strong></div>
-            </div>
-          </div>
-        </aside>
-        <div class="lab-canvas" id="chem3d-canvas"></div>
-      </div>`,
-    onMount() {
-      const canvas = document.getElementById('chem3d-canvas');
-      const matGrid = document.getElementById('chem3d-materials');
-      const heatBtn = document.getElementById('chem3d-heat');
-      const resetBtn = document.getElementById('chem3d-reset');
-      const tempEl = document.getElementById('chem3d-temp');
-      const matEl = document.getElementById('chem3d-mat');
-      const stateEl = document.getElementById('chem3d-state');
-      if (!canvas || !window.THREE) {
-        if (stateEl) stateEl.textContent = '3D yüklenemedi';
-        return;
-      }
-      let instance = null;
-      try {
-        instance = initChem3d('chem3d-canvas');
-      } catch (e) {
-        if (stateEl) stateEl.textContent = 'Başlatılamadı: ' + e.message;
-        return;
-      }
-      const mats = instance.MATERIALS || [];
-      matGrid.innerHTML = mats.map(m => `<button class="material-btn" data-mat="${m.id}" type="button">${m.icon} ${m.name}</button>`).join('');
-      matGrid.addEventListener('click', (ev) => {
-        const btn = ev.target.closest('[data-mat]');
-        if (!btn) return;
-        const m = mats.find(x => x.id === btn.dataset.mat);
-        if (m) { instance.placeMaterial(m.id); if (matEl) matEl.textContent = m.name; }
+    html: `${head('Kimya 3D Laboratuvarı', 'Malzeme seçin, tüpe tıklayın, brülörle ısıtın ve tepkimeyi üç boyutlu izleyin.', '')}
+      ${panel('3D kimya deneyi', 'Tüpleri ve brülörü sürükleyin; tepkimeler sıcaklığa göre gerçekleşir.', chem3dHtml())}`,
+    after: () => {
+      mountChem3d();
+      document.getElementById('chem3d-materials')?.addEventListener('click', e => {
+        const btn = e.target.closest('[data-mat]');
+        if (btn) chem3dView?.select(btn.dataset.mat);
       });
-      heatBtn.addEventListener('click', () => {
-        instance.toggleHeating();
-        heatBtn.textContent = instance.isHeating ? '⏸ Isıtmayı Durdur' : '🔥 Isıtmayı Başlat';
-      });
-      resetBtn.addEventListener('click', () => {
-        instance.resetLab();
-        if (tempEl) tempEl.textContent = '20°C';
-        if (stateEl) stateEl.textContent = 'Beklemede';
-      });
-      const tick = setInterval(() => {
-        if (tempEl) tempEl.textContent = Math.round(instance.getTemperature()) + '°C';
-      }, 250);
-      this._chem3dCleanup = () => { clearInterval(tick); destroyChem3d(instance); };
+      document.getElementById('chem3d-heat')?.addEventListener('click', () => chem3dView?.toggleBurner());
+      document.getElementById('chem3d-reset')?.addEventListener('click', () => chem3dView?.reset());
     },
-    onUnmount() {
-      if (this._chem3dCleanup) this._chem3dCleanup();
-},
   };
 }
 
-async function pageLabCenter() {
+// ---------- Biyoloji laboratuvarı ----------
+const BIO_ORGANELLES = [
+  ['Çekirdek', 'Kalıtsal bilgiyi (DNA) taşır ve hücrenin faaliyetlerini yönetir.'],
+  ['Mitokondri', 'Hücresel solunumla besinlerden ATP enerjisi üretir.'],
+  ['Hücre zarı', 'Hücreyi çevresinden ayırır; maddelerin giriş çıkışını seçici olarak düzenler.'],
+  ['Ribozom', 'Protein sentezinin gerçekleştiği yapılardır.'],
+  ['Endoplazmik retikulum', 'Protein ve lipid taşınımında görev alır. Pürüzlü olanda ribozom bulunur.'],
+  ['Golgi cisimciği', 'Proteinleri işler, paketler ve hücre içinde ya da dışında hedeflerine gönderir.'],
+  ['Lizozom', 'Sindirim enzimleri içerir; hücre içi atıkları parçalar.'],
+  ['Hücre duvarı (bitki)', 'Bitki hücresine şekil ve destek verir; selülozdan oluşur. Hayvan hücresinde bulunmaz.'],
+  ['Kloroplast (bitki)', 'Fotosentezle ışık enerjisini kimyasal enerjiye çevirir.'],
+  ['Koful (bitki)', 'Büyük merkezi bir boşluktur; su ve besin depolar, turgor basıncını sağlar.'],
+];
+
+const bioBox = (key, body) => `<div class="pad lab-computing" data-bio="${key}">${body}</div>`;
+const bioField = (name, label, attrs) => `<label class="field"><span>${label}</span><input data-in="${name}" autocomplete="off" ${attrs}></label>`;
+const bioSlider = (name, label, min, max, step, value, unit) =>
+  `<label class="field"><span>${label}: <b data-out="${name}">${value}</b> ${unit}</span><input type="range" data-in="${name}" min="${min}" max="${max}" step="${step}" value="${value}"></label>`;
+
+function setupBiology() {
+  const detail = document.querySelector('[data-bio-detail]');
+  document.querySelectorAll('[data-bio-organelle]').forEach(btn => btn.addEventListener('click', () => {
+    const [name, desc] = BIO_ORGANELLES[Number(btn.dataset.bioOrganelle)];
+    detail.innerHTML = `<strong>${esc(name)}:</strong> ${esc(desc)}`;
+  }));
+}
+
+const bioNum = (box, name) => Number(box.querySelector(`[data-in=${name}]`).value);
+
+function updateBioPunnett(box) {
+  const err = box.querySelector('[data-err]');
+  const out = box.querySelector('[data-out]');
+  try {
+    const p1 = box.querySelector('[data-in=p1]').value;
+    const p2 = box.querySelector('[data-in=p2]').value;
+    const { grid, genotypeRatios } = punnettSquare(p1, p2);
+    const rowLabels = [...new Set(p1.trim().split(''))];
+    const colLabels = [...new Set(p2.trim().split(''))];
+    const head = `<tr><th></th>${colLabels.map(c => `<th>${esc(c)}</th>`).join('')}</tr>`;
+    const rows = grid.map((row, i) => `<tr><th>${esc(rowLabels[i])}</th>${row.map(g => `<td>${esc(g)}</td>`).join('')}</tr>`).join('');
+    let dominant = 0;
+    const genotypes = Object.entries(genotypeRatios).map(([g, r]) => {
+      if (/[A-Z]/.test(g)) dominant += r;
+      return `<li>${esc(g)}: %${Math.round(r * 100)}</li>`;
+    }).join('');
+    err.textContent = '';
+    out.innerHTML = `<li>Baskın fenotip: <b>%${Math.round(dominant * 100)}</b></li><li>Çekinik fenotip: <b>%${Math.round((1 - dominant) * 100)}</b></li>${genotypes}`;
+    box.querySelector('[data-grid]').innerHTML = `<table class="bio-table"><thead>${head}</thead><tbody>${rows}</tbody></table>`;
+  } catch (error) {
+    err.textContent = error.message;
+    out.innerHTML = '';
+    box.querySelector('[data-grid]').innerHTML = '';
+  }
+}
+
+function updateBioDna(box) {
+  const err = box.querySelector('[data-err]');
+  const out = box.querySelector('[data-out]');
+  try {
+    const r = dnaReplication(box.querySelector('[data-in=dna]').value.trim());
+    err.textContent = '';
+    out.innerHTML = `<li>Şablon zincir (5′→3′): <b>${esc(r.original)}</b></li>
+      <li>Tamamlayıcı zincir (3′→5′): <b>${esc(r.complement.split('').reverse().join(''))}</b></li>
+      <li>Baz sayısı: <b>${r.length}</b></li><li>GC içeriği: <b>%${r.gcContent}</b></li>`;
+  } catch (error) {
+    err.textContent = error.message;
+    out.innerHTML = '';
+  }
+}
+
+function updateBioEnzyme(box) {
+  const temp = bioNum(box, 'temp');
+  const ph = bioNum(box, 'ph');
+  const substrate = bioNum(box, 'substrate');
+  box.querySelector('[data-out=temp]').textContent = temp;
+  box.querySelector('[data-out=ph]').textContent = ph.toFixed(1);
+  box.querySelector('[data-out=substrate]').textContent = substrate;
+  const r = enzymeKinetics(temp, ph, substrate);
+  const pct = Math.round(r.activity);
+  box.querySelector('[data-out]').innerHTML = `<li>Enzim etkinliği: <b>${r.activity.toFixed(2)}</b> birim</li>
+    <li>Sıcaklık etkisi: <b>%${Math.round(r.tempFactor * 100)}</b> · pH etkisi: <b>%${Math.round(r.phFactor * 100)}</b></li>
+    <li>Optimum: ${r.optimalTemp} °C, pH ${r.optimalPh}</li>
+    <li><span class="bio-bar"><b style="width:${Math.min(100, Math.max(0, pct))}%"></b></span></li>`;
+}
+
+function updateBioPhoto(box) {
+  const light = bioNum(box, 'light');
+  const co2 = bioNum(box, 'co2');
+  const temp = bioNum(box, 'temp');
+  box.querySelector('[data-out=light]').textContent = light;
+  box.querySelector('[data-out=co2]').textContent = co2;
+  box.querySelector('[data-out=temp]').textContent = temp;
+  try {
+    const rate = photosynthesis(light, co2, temp);
+    box.querySelector('[data-err]').textContent = '';
+    box.querySelector('[data-out]').innerHTML = `<li>Göreli fotosentez hızı: <b>${rate.toFixed(1)}</b> / 100</li>
+      <li class="muted">Işık ve CO₂ arttıkça hız doygunluğa yaklaşır; 25 °C civarı en yüksek verim verir.</li>`;
+  } catch (error) {
+    box.querySelector('[data-err]').textContent = error.message;
+    box.querySelector('[data-out]').innerHTML = '';
+  }
+}
+
+function updateBioCycle(box) {
+  const phase = box.querySelector('[data-in=phase]').value;
+  const minutes = bioNum(box, 'minutes');
+  box.querySelector('[data-out=minutes]').textContent = minutes;
+  try {
+    const r = cellCycle(phase, minutes);
+    box.querySelector('[data-err]').textContent = '';
+    box.querySelector('[data-out]').innerHTML = r.stages.map(st => `<li>${esc(st.name)}: <b>${st.minutes} dk</b> (%${st.percent})</li>`).join('');
+  } catch (error) {
+    box.querySelector('[data-err]').textContent = error.message;
+    box.querySelector('[data-out]').innerHTML = '';
+  }
+}
+
+function updateBioHeart(box) {
+  const age = bioNum(box, 'age');
+  const rest = bioNum(box, 'rest');
+  try {
+    const r = heartRate(age, rest);
+    box.querySelector('[data-err]').textContent = '';
+    box.querySelector('[data-out]').innerHTML = `<li>Maksimum kalp atış hızı: <b>${r.maxHeartRate}</b> dk⁻¹</li>
+      <li>Hedef bölge (Karvonen): <b>${r.targetMin}–${r.targetMax}</b> dk⁻¹</li>`;
+  } catch (error) {
+    box.querySelector('[data-err]').textContent = error.message;
+    box.querySelector('[data-out]').innerHTML = '';
+  }
+}
+
+function setupBioBoxes() {
+  setupBiology();
+  const bind = (key, fn) => {
+    const box = document.querySelector(`[data-bio=${key}]`);
+    if (!box) return;
+    const run = () => fn(box);
+    box.addEventListener('input', run);
+    box.addEventListener('change', run);
+    run();
+  };
+  bind('punnett', updateBioPunnett);
+  bind('dna', updateBioDna);
+  bind('enzim', updateBioEnzyme);
+  bind('foto', updateBioPhoto);
+  bind('dongu', updateBioCycle);
+  bind('kalp', updateBioHeart);
+}
+
+async function pageBiyoloji() {
+  const organelleButtons = BIO_ORGANELLES.map(([name], i) =>
+    `<button class="btn ghost sm" type="button" data-bio-organelle="${i}">${esc(name)}</button>`).join(' ');
   return {
-    html: `${head('Laboratuvar Merkezi', 'Kimya, kimya 3D ve biyoloji deneylerini tek bir yerde deneyin.', '')}
-      ${panel('Kimya Laboratuvarı', 'Elementleri çalışma alanına alın, birleştirin ve bileşikleri keşfedin.', ``)}
-      ${panel('Kimya 3D Laboratuvarı', 'Three.js tabanlı 3D deney simülasyonu. Malzemeyi seçin, ısıtın ve tepkimeyi izleyin.', ``)}
-      ${panel('Biyoloji Laboratuvarı', 'DNA sekans analizi, hücelevi bölünme ve mikroskop gözlemleri.', ``)}
-      <div class="lab-combined">
-        <div class="lab-col lab-chem">
-          ${chemGameHtml()}
-        </div>
-        <div class="lab-col lab-chem3d">
-          ${pageKimya3d().html}
-        </div>
-        <div class="lab-col lab-bio">
-          <div class="bio-panel">
-            <h4>DNA Sekansı Analizi</h4>
-            <label class="field"><span>Sekans (ATCG)</span><input data-bio="sequence" value="ATGC" autocomplete="off"></label>
-            <button class="btn ghost sm" type="button" data-action="bio-analyze">Analizle</button>
-            <div class="bio-results"><strong>Complement:</strong> <span data-bio="complement">–</span><br><strong>GC Content:</strong> <span data-bio="gc">–</span>%</div>
-            <p class="muted small">DNA complement ve GC içeriği hesaplanır.</p>
-          </div>
-          <div class="bio-panel">
-            <h4>Hücelevi Bölünme</h4>
-            <label class="field"><span>Süre (saat)</span><input data-bio="time" value="24" min="1" autocomplete="off"></label>
-            <button class="btn ghost sm" type="button" data-action="bio-divide">Bölünmeyi Simüle</button>
-            <div class="bio-results"><strong>Nüfus:</strong> <span data-bio="pop">–</span><br><strong>Büyüme hızı:</strong> <span data-bio="rate">–</span>%</div>
-            <p class="muted small">Verilen sürede hücre bölünme sayısı hesaplanır.</p>
-          </div>
-          <div class="bio-panel">
-            <h4>Mikroskop Gözlem</h4>
-            <label class="field"><span>Örnek tipi</span>
-              <select data-bio="sample">
-                <option value="kan_kroesi">Kan Kroesi</option>
-                <option value="hucel_division">Hücre Bölünme</option>
-                <option value="bakteri">Bakteri</option>
-                <option value="yeast">Yeast</option>
-              </select></label>
-            <label class="field"><span>Büyütme</span><input data-bio="magnification" value="400" min="1" max="1000" type="number" autocomplete="off"></label>
-            <button class="btn ghost sm" type="button" data-action="bio-microscope">Gözlemle</button>
-            <div class="bio-results"><strong>Alan Görünümü:</strong> <span data-bio="fov">–</span> mm<br><strong>Büyütme:</strong> <span data-bio="mag">–</>×</div>
-            <p class="muted small">Mikroskop ayarları ile alan görünümü hesaplanır.</p>
-          </div>
-        </div>
-      </div>`,
-    after: () => {
-      // Kimya oyununu başlat
-      setupLabs();
-      setupChemGame();
-      // Kimya 3D'yi başlat (THREE zaten import-map üzerinden yüklenmiş)
-      const chem3dCanvas = document.getElementById('chem3d-canvas');
-      if (chem3dCanvas && window.THREE) {
-        try {
-          initChem3d('chem3d-canvas');
-        } catch (e) {
-          console.warn('Kimya 3D başlatılamadı:', e.message);
-        }
-      }
-      // Biyoloji placeholder'ı güncelle
-      document.getElementById('bio-lab-placeholder').innerHTML = '<p class="muted small">Biyoloji laboratuvarı yakında eklenecek.</p>';
-    },
+    html: `${head('Biyoloji laboratuvarı', 'Hücre yapılarını inceleyin; genetik çaprazlama, DNA, enzim ve fotosentez deneylerini çalıştırın.', '')}
+      ${panel('Hücre yapıları', 'Bir yapıya tıklayarak işlevini öğrenin.', `<div class="pad"><div class="bio-organelles">${organelleButtons}</div><p class="bio-detail" data-bio-detail>Bir yapıya tıklayın.</p></div>`)}
+      ${panel('Genetik çaprazlama (Punnett)', 'İki ebeveynin genotipini yazın. Örn. Aa, aa, AA.', bioBox('punnett', `
+        ${bioField('p1', '1. ebeveyn genotipi', 'maxlength="2" value="Aa"')}
+        ${bioField('p2', '2. ebeveyn genotipi', 'maxlength="2" value="Aa"')}
+        <p class="lab-error" data-err></p>
+        <ul class="lab-results" data-out></ul>
+        <div data-grid></div>`))}
+      ${panel('DNA replikasyonu', 'Şablon zincirin tamamlayıcısını bulun. Yalnızca A, T, G, C.', bioBox('dna', `
+        ${bioField('dna', 'Şablon DNA dizisi', 'maxlength="60" value="ATGCAT"')}
+        <p class="lab-error" data-err></p>
+        <ul class="lab-results" data-out></ul>`))}
+      ${panel('Enzim aktivitesi', 'Sıcaklık, pH ve substrat derişimi enzim etkinliğini nasıl etkiler?', bioBox('enzim', `
+        ${bioSlider('temp', 'Sıcaklık', 0, 80, 1, 37, '°C')}
+        ${bioSlider('ph', 'pH', 1, 13, 0.1, 7.4, '')}
+        ${bioSlider('substrate', 'Substrat', 0, 50, 1, 10, 'mM')}
+        <ul class="lab-results" data-out></ul>`))}
+      ${panel('Fotosentez hızı', 'Işık, CO₂ ve sıcaklığın fotosentezi etkisi.', bioBox('foto', `
+        ${bioSlider('light', 'Işık yoğunluğu', 0, 1000, 10, 400, 'µmol')}
+        ${bioSlider('co2', 'CO₂ derişimi', 50, 1000, 10, 400, 'ppm')}
+        ${bioSlider('temp', 'Sıcaklık', -10, 50, 1, 25, '°C')}
+        <p class="lab-error" data-err></p>
+        <ul class="lab-results" data-out></ul>`))}
+      ${panel('Hücre döngüsü', 'Toplam süreyi evrelere böler. Aşama seçimi süre dağılımını değiştirmez.', bioBox('dongu', `
+        <label class="field"><span>Aşama</span><select data-in="phase"><option value="G1">G1</option><option value="S">S</option><option value="G2">G2</option><option value="M">M (mitoz)</option></select></label>
+        ${bioSlider('minutes', 'Toplam süre', 10, 1440, 10, 120, 'dk')}
+        <p class="lab-error" data-err></p>
+        <ul class="lab-results" data-out></ul>`))}
+      ${panel('Kalp atış hızı', 'Yaşa ve dinlenme nabzına göre hedef egzersiz bölgesi.', bioBox('kalp', `
+        ${bioSlider('age', 'Yaş', 5, 100, 1, 16, 'yıl')}
+        ${bioSlider('rest', 'Dinlenme nabzı', 30, 120, 1, 75, 'dk⁻¹')}
+        <p class="lab-error" data-err></p>
+        <ul class="lab-results" data-out></ul>`))}`,
+    after: setupBioBoxes,
   };
 }
 
@@ -4171,8 +4280,10 @@ async function pageBilgisayar() {
         <div class="py-actions"><button class="btn primary sm" type="button" data-action="py-run">Çalıştır</button><button class="btn ghost sm" type="button" data-action="py-clear-code">Kodu temizle</button><button class="btn ghost sm" type="button" data-action="py-clear">Çıktıyı temizle</button></div>
         <pre class="py-output" data-py="cikti" role="log" aria-live="polite"></pre>
       </div>`)}
-      ${panel('Kabarcık sıralama', 'Sayıları virgülle yazın ve adımları izleyin.', `<div class="pad lab-computing" data-comp="siralama">
+      ${panel('Sıralama algoritmaları', 'Sayıları virgülle yazın, algoritma seçin ve adımları izleyin.', `<div class="pad lab-computing" data-comp="siralama">
         <label class="field"><span>Sayılar</span><input data-in="liste" value="5,1,4,2,8" autocomplete="off"></label>
+        <label class="field"><span>Algoritma</span><select data-in="algo"><option value="kabarcik">Kabarcık sıralama</option><option value="birlestirme">Birleştirme sıralaması</option><option value="hizli">Hızlı sıralama</option></select></label>
+        <p class="muted" data-res="bilgi" style="font-size:13px;margin:0"></p>
         <div class="sort-bars" data-res="cubuklar"></div>
         <div class="sort-controls"><button class="btn ghost sm" type="button" data-action="sort-prev">Geri</button><span data-res="adim">Adım 0</span><button class="btn ghost sm" type="button" data-action="sort-next">İleri</button></div>
         <p class="lab-error" data-res="hata" role="alert"></p>
@@ -4207,6 +4318,12 @@ function renderSortBars() {
   });
   adim.textContent = step.done ? 'Sıralama tamam' : `Adım ${SORT_STATE.index} / ${SORT_STATE.steps.length - 1}`;
 }
+
+const SORT_ALGOS = {
+  kabarcik: { complexity: 'Kabarcık: en kötü durumda O(n²). Her geçişte komşuları karşılaştırır.', run: bubbleSortSteps },
+  birlestirme: { complexity: 'Birleştirme: her durumda O(n log n). Diziyi ikiye bölüp birleştirir.', run: mergeSortSteps },
+  hizli: { complexity: 'Hızlı: ortalama O(n log n), en kötü O(n²). Bir pivot etrafında böler.', run: quickSortSteps },
+};
 
 function setupComputing() {
   const sayi = document.querySelector('[data-comp=sayi]');
@@ -4265,7 +4382,9 @@ function setupComputing() {
       return;
     }
     errorEl.textContent = '';
-    SORT_STATE.steps = bubbleSortSteps(numbers);
+    const algo = SORT_ALGOS[siralama.querySelector('[data-in=algo]')?.value] || SORT_ALGOS.kabarcik;
+    siralama.querySelector('[data-res=bilgi]').textContent = algo.complexity;
+    SORT_STATE.steps = algo.run(numbers).map(normalizeSortStep);
     SORT_STATE.index = 0;
     renderSort();
   };
@@ -4810,7 +4929,7 @@ function fitCanvas(canvas) {
   return { ctx, w, h };
 }
 
-function drawPhysics(canvas, path, result) {
+function drawPhysics(canvas, path, result, ball = null) {
   const { ctx, w, h } = fitCanvas(canvas);
   const pad = 36;
   const maxX = Math.max(result.range, 1) * 1.1;
@@ -4833,6 +4952,44 @@ function drawPhysics(canvas, path, result) {
     if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
   });
   ctx.stroke();
+  if (ball !== null && path[ball]) {
+    const b = path[ball];
+    ctx.fillStyle = '#e8762b';
+    ctx.beginPath();
+    ctx.arc(pad + b.x * sx, h - pad - b.y * sy, 6, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+// Zamana bağlı konum grafiği; isteğe bağlı olarak hareketli bir nokta çizer.
+function drawSeries(canvas, pts, dot = null) {
+  const { ctx, w, h } = fitCanvas(canvas);
+  const pad = 36;
+  const tMax = pts[pts.length - 1].t || 1;
+  const yMax = Math.max(...pts.map(p => Math.abs(p.x)), 0.01) * 1.2;
+  const X = t => pad + (t / tMax) * (w - pad * 1.5);
+  const Y = x => h / 2 - (x / yMax) * (h / 2 - pad);
+  ctx.strokeStyle = '#cfd9d3';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(pad, h / 2); ctx.lineTo(w - pad / 2, h / 2);
+  ctx.moveTo(pad, pad / 2); ctx.lineTo(pad, h - pad / 2);
+  ctx.stroke();
+  ctx.fillStyle = '#6b7f76';
+  ctx.font = '12px system-ui, sans-serif';
+  ctx.fillText('t (s)', w - 40, h / 2 + 16);
+  ctx.fillText('x (m)', 4, pad / 2 + 4);
+  ctx.strokeStyle = '#1b6b50';
+  ctx.lineWidth = 2.4;
+  ctx.beginPath();
+  pts.forEach((p, i) => (i === 0 ? ctx.moveTo(X(p.t), Y(p.x)) : ctx.lineTo(X(p.t), Y(p.x))));
+  ctx.stroke();
+  if (dot !== null && pts[dot]) {
+    ctx.fillStyle = '#e8762b';
+    ctx.beginPath();
+    ctx.arc(X(pts[dot].t), Y(pts[dot].x), 6, 0, Math.PI * 2);
+    ctx.fill();
+  }
 }
 
 function drawTitration(canvas, series, veq, current) {
@@ -4866,7 +5023,10 @@ function setupLabs() {
   const fizikBox = document.querySelector('[data-lab=fizik]');
   const kimyaBox = document.querySelector('[data-lab=kimya]');
 
+  let physRaf = 0;
+  let physShot = null;
   const updatePhysics = () => {
+    cancelAnimationFrame(physRaf);
     const v = Number(fizikBox.querySelector('[data-in=v]').value);
     const theta = Number(fizikBox.querySelector('[data-in=theta]').value);
     const g = Number(fizikBox.querySelector('[data-in=g]').value);
@@ -4876,7 +5036,22 @@ function setupLabs() {
     fizikBox.querySelector('[data-res=range]').textContent = result.range.toFixed(2);
     fizikBox.querySelector('[data-res=height]').textContent = result.height.toFixed(2);
     fizikBox.querySelector('[data-res=time]').textContent = result.time.toFixed(2);
-    drawPhysics(document.querySelector('[data-canvas=fizik]'), trajectory(v, theta, g, 120), result);
+    physShot = { path: trajectory(v, theta, g, 120), result };
+    drawPhysics(document.querySelector('[data-canvas=fizik]'), physShot.path, result);
+  };
+  const playPhysics = () => {
+    if (!physShot) return;
+    const canvas = document.querySelector('[data-canvas=fizik]');
+    const { path, result } = physShot;
+    const start = performance.now();
+    const frame = now => {
+      if (!canvas?.isConnected) return;
+      const t = Math.min(1, (now - start) / 2500);
+      drawPhysics(canvas, path, result, Math.round(t * (path.length - 1)));
+      if (t < 1) physRaf = requestAnimationFrame(frame);
+    };
+    cancelAnimationFrame(physRaf);
+    physRaf = requestAnimationFrame(frame);
   };
 
   const updateChem = () => {
@@ -4902,7 +5077,49 @@ function setupLabs() {
   if (fizikBox) {
     fizikBox.addEventListener('input', updatePhysics);
     fizikBox.addEventListener('change', updatePhysics);
+    fizikBox.querySelector('[data-play]')?.addEventListener('click', playPhysics);
     updatePhysics();
+  }
+  const springBox = document.querySelector('[data-lab=yay]');
+  if (springBox) {
+    let springRaf = 0;
+    const springCanvas = () => document.querySelector('[data-canvas=yay]');
+    const readSpring = () => ({
+      m: Number(springBox.querySelector('[data-in=m]').value),
+      k: Number(springBox.querySelector('[data-in=k]').value),
+      a: Number(springBox.querySelector('[data-in=a]').value),
+    });
+    const updateSpring = () => {
+      cancelAnimationFrame(springRaf);
+      const { m, k, a } = readSpring();
+      springBox.querySelector('[data-out=m]').textContent = m;
+      springBox.querySelector('[data-out=k]').textContent = k;
+      springBox.querySelector('[data-out=a]').textContent = a.toFixed(2);
+      const r = springOscillator(m, k, a);
+      springBox.querySelector('[data-res=period]').textContent = r.period.toFixed(2);
+      springBox.querySelector('[data-res=freq]').textContent = r.frequency.toFixed(2);
+      springBox.querySelector('[data-res=vmax]').textContent = r.maxSpeed.toFixed(2);
+      springBox.querySelector('[data-res=energy]').textContent = r.maxEnergy.toFixed(3);
+      drawSeries(springCanvas(), springSeries(m, k, a, 240));
+    };
+    const playSpring = () => {
+      const { m, k, a } = readSpring();
+      const pts = springSeries(m, k, a, 240);
+      const canvas = springCanvas();
+      const start = performance.now();
+      const frame = now => {
+        if (!canvas?.isConnected) return;
+        const t = Math.min(1, (now - start) / 3000);
+        drawSeries(canvas, pts, Math.round(t * (pts.length - 1)));
+        if (t < 1) springRaf = requestAnimationFrame(frame);
+      };
+      cancelAnimationFrame(springRaf);
+      springRaf = requestAnimationFrame(frame);
+    };
+    springBox.addEventListener('input', updateSpring);
+    springBox.addEventListener('change', updateSpring);
+    springBox.querySelector('[data-play]')?.addEventListener('click', playSpring);
+    updateSpring();
   }
   if (kimyaBox) {
     kimyaBox.addEventListener('input', updateChem);
@@ -4918,6 +5135,71 @@ function setupLabs() {
 // ---------- GeoGebra (v32): kendi grafik aracımız, sınıf çalışmaları ----------
 let ggbCurrent = null;
 
+// ---------- Matematik: hesap panosu ----------
+const MATH_CALCS = [
+  { key: 'ikinci', title: 'İkinci derece denklem · ax² + bx + c = 0', fields: [
+    { name: 'a', label: 'a', type: 'number', value: 1, min: -1e9 },
+    { name: 'b', label: 'b', type: 'number', value: -3, min: -1e9 },
+    { name: 'c', label: 'c', type: 'number', value: 2, min: -1e9 },
+  ], compute: v => {
+    const r = quadraticRoots(v.a, v.b, v.c);
+    if (r.realPart !== undefined) return [['Tür', r.type], ['Kökler', `${r.realPart} ± ${r.imagPart}i`], ['Diskriminant', r.discriminant]];
+    return [['Tür', r.type], ['x₁', r.x1], ['x₂', r.x2], ['Diskriminant', r.discriminant]];
+  } },
+  { key: 'sistem', title: 'İki bilinmeyenli denklem sistemi', fields: [
+    { name: 'a1', label: 'a₁', type: 'number', value: 1, min: -1e9 },
+    { name: 'b1', label: 'b₁', type: 'number', value: 1, min: -1e9 },
+    { name: 'c1', label: 'c₁', type: 'number', value: 3, min: -1e9 },
+    { name: 'a2', label: 'a₂', type: 'number', value: 1, min: -1e9 },
+    { name: 'b2', label: 'b₂', type: 'number', value: -1, min: -1e9 },
+    { name: 'c2', label: 'c₂', type: 'number', value: 1, min: -1e9 },
+  ], compute: v => {
+    const s = solveLinearSystem(v.a1, v.b1, v.c1, v.a2, v.b2, v.c2);
+    return [['x', s.x], ['y', s.y], ['Determinant', s.determinant]];
+  } },
+  { key: 'ucgen', title: 'Üçgen · üç kenardan', fields: [
+    { name: 'a', label: 'a kenarı', unit: 'cm', type: 'number', value: 3, min: 0 },
+    { name: 'b', label: 'b kenarı', unit: 'cm', type: 'number', value: 4, min: 0 },
+    { name: 'c', label: 'c kenarı', unit: 'cm', type: 'number', value: 5, min: 0 },
+  ], compute: v => {
+    const t = triangleFromSides(v.a, v.b, v.c);
+    return [['Tür', t.type], ['Çevre', `${t.perimeter} cm`], ['Alan', `${t.area} cm²`], ['Açılar', t.angles.map(a => `${a}°`).join(' · ')]];
+  } },
+  { key: 'istatistik', title: 'İstatistik · sayı listesi', fields: [
+    { name: 'liste', label: 'Sayılar (virgülle)', type: 'text', value: '2, 4, 4, 4, 5, 5, 7, 9' },
+  ], compute: v => {
+    const d = describeNumbers(v.liste.split(',').map(x => x.trim().replace(',', '.')).filter(Boolean));
+    return [['Adet', d.count], ['Ortalama', d.mean], ['Medyan', d.median], ['En küçük / büyük', `${d.min} / ${d.max}`], ['Açıklık', d.range], ['Standart sapma', d.stdDev]];
+  } },
+  { key: 'yuzde', title: 'Yüzde değişim', fields: [
+    { name: 'eski', label: 'Eski değer', type: 'number', value: 80, min: -1e9 },
+    { name: 'yeni', label: 'Yeni değer', type: 'number', value: 60, min: -1e9 },
+  ], compute: v => [['Değişim', `%${percentChange(v.eski, v.yeni)}`]] },
+  { key: 'faiz', title: 'Bileşik faiz · A = P(1 + r)ⁿ', fields: [
+    { name: 'p', label: 'Anapara', unit: 'TL', type: 'number', value: 1000, min: 0 },
+    { name: 'r', label: 'Yıllık oran', unit: '%', type: 'number', value: 10, min: -100 },
+    { name: 'n', label: 'Süre', unit: 'yıl', type: 'number', value: 2, min: 0, step: 1 },
+  ], compute: v => {
+    const g = compoundGrowth(v.p, v.r, v.n);
+    return [['Son tutar', `${g.amount} TL`], ['Kazanılan faiz', `${g.interest} TL`]];
+  } },
+  { key: 'sayi', title: 'Asal çarpan · EBOB · EKOK', fields: [
+    { name: 'a', label: 'a', type: 'number', value: 12, min: 1, step: 1 },
+    { name: 'b', label: 'b', type: 'number', value: 18, min: 1, step: 1 },
+  ], compute: v => {
+    const f = primeFactors(v.a);
+    const g = gcdLcm(v.a, v.b);
+    return [['a = asal çarpanlar', f.join(' × ')], ['EBOB(a, b)', g.gcd], ['EKOK(a, b)', g.lcm]];
+  } },
+  { key: 'kombin', title: 'Permütasyon ve kombinasyon', fields: [
+    { name: 'n', label: 'n (toplam)', type: 'number', value: 5, min: 0, step: 1 },
+    { name: 'r', label: 'r (seçilen)', type: 'number', value: 2, min: 0, step: 1 },
+  ], compute: v => {
+    const c = combinatorics(v.n, v.r);
+    return [['nPr (sıralı)', c.permutations], ['nCr (sırasız)', c.combinations]];
+  } },
+];
+
 async function pageGeogebra() {
   const { materials } = await api('/geogebra/materials');
   const staff = state.me.role === 'teacher' || state.me.role === 'principal';
@@ -4931,12 +5213,14 @@ async function pageGeogebra() {
   return {
     html: `${head('Matematik Laboratuvarı', 'Fonksiyon, nokta, doğru ve çember çizin; sınıf çalışmalarını kaydedin. Öğrenciler çalışmayı açıp kendi denemelerini yapabilir.', saveButton)}
       ${panel('Grafik', '', '<div class="pad"><div id="graphHost" class="gx-host"></div></div>')}
+      ${panel('Hesap panosu', 'Denklem, sistem, üçgen, istatistik, yüzde, faiz ve sayı kuramı hesaplarını adım adım yapın.', labCalcGrid(MATH_CALCS, 'matematik'))}
       ${panel('Sınıf çalışmaları', `${materials.length} kayıt`, materials.length
         ? `<ul class="list">${list}</ul>`
         : empty('Çalışma yok', 'Öğretmeniniz çalışma kaydettiğinde burada görünür.'))}`,
     after: () => {
       const host = document.querySelector('#graphHost');
       if (host) ggbCurrent = mountGraph(host, { lines: [] }, {});
+      mountCalcs(document.querySelector('[data-calcgrid=matematik]'), MATH_CALCS);
     },
   };
 }
@@ -5007,7 +5291,7 @@ const PAGES = {
   yardim: async () => ({ html: helpHtml() }),
   panolar: pagePanolar, pano: pageBoard, asistan: pageAsistan,
   cocuklar: pageCocuklar, sinavlar: pageSinavlar, sinav: pageSinav, notlar: pageNotlar,
-  davranis: pageDavranis, puanlarim: pagePuanlarim, program: pageProgram, takvim: pageTakvim, karne: pageKarne, canli: pageCanli, analiz: pageAnaliz, izin: pageIzin, gece: pageGece, geogebra: pageGeogebra, deneyler: pageFizik, fizik: pageFizik, kimya: pageKimya, kimya3d: pageKimya3d, lab-center: pageLabCenter, bilgisayar: pageBilgisayar, qbank: pageQbank,
+  davranis: pageDavranis, puanlarim: pagePuanlarim, program: pageProgram, takvim: pageTakvim, karne: pageKarne, canli: pageCanli, analiz: pageAnaliz, izin: pageIzin, gece: pageGece, geogebra: pageGeogebra, deneyler: pageFizik, fizik: pageFizik, kimya: pageKimya, kimya3d: pageKimya3d, biyoloji: pageBiyoloji, bilgisayar: pageBilgisayar, qbank: pageQbank,
 };
 export function renderView(page, params) {
   if (page === 'overview' && state.me.role === 'parent') return pageParentOverview();
