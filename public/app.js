@@ -89,26 +89,34 @@ function renderChrome() {
   $('#nav').innerHTML = NAV[me.role].map(([page, label, ic]) => (page === 'labs' ? labFolderHtml() :
     `<a class="nav-item" href="#/${page}" data-page="${page}">${icon(ic)}<span>${esc(label)}</span>${
       BADGES.includes(page) ? `<span class="nav-badge" data-badge="${page}" hidden></span>` : ''}</a>`)).join('');
-  $('#nav .nav-folder-btn')?.addEventListener('click', () => setLabFolder(!$('#labSub').hidden));
   renderTabbar(me);
 }
 
 function labFolderHtml() {
   const kids = LAB_CHILDREN.map(([page, label, ic]) =>
-    `<a class="nav-item nav-sub-item" href="#/${page}" data-page="${page}">${icon(ic)}<span>${esc(label)}</span></a>`).join('');
+    `<a class="nav-item nav-sub-item" href="#/${page}" data-page="${page}" tabindex="-1">${icon(ic)}<span>${esc(label)}</span></a>`).join('');
   return `<div class="nav-folder" id="labFolder">
     <button class="nav-item nav-folder-btn" type="button" aria-expanded="false" aria-controls="labSub">${icon('chart')}<span>Laboratuvarlar</span><span class="nav-chevron" aria-hidden="true">▸</span></button>
-    <div class="nav-sub" id="labSub" hidden>${kids}</div>
+    <div class="nav-sub" id="labSub" role="group" aria-label="Laboratuvarlar"><div class="nav-sub-inner">${kids}</div></div>
   </div>`;
 }
 
+// Klasörü aç/kapat: animasyon CSS'te (grid-template-rows) yapılır.
 function setLabFolder(open) {
-  const sub = $('#labSub');
-  if (!sub) return;
-  sub.hidden = !open;
-  $('#labFolder')?.classList.toggle('open', open);
-  $('#nav .nav-folder-btn')?.setAttribute('aria-expanded', String(open));
+  const folder = document.getElementById('labFolder');
+  if (!folder) return;
+  folder.classList.toggle('open', open);
+  folder.querySelector('.nav-folder-btn')?.setAttribute('aria-expanded', String(open));
+  folder.querySelectorAll('.nav-sub-item').forEach(a => { a.tabIndex = open ? 0 : -1; });
 }
+
+// Tıklama olayı #nav kapsayıcısına bağlanır; menü yeniden çizilse de çalışır.
+document.getElementById('nav')?.addEventListener('click', e => {
+  const btn = e.target.closest('.nav-folder-btn');
+  if (!btn) return;
+  e.preventDefault();
+  setLabFolder(!document.getElementById('labFolder')?.classList.contains('open'));
+});
 
 function highlight(page) {
   const inLab = LAB_CHILDREN.some(([key]) => key === page);

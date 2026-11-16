@@ -37,3 +37,7 @@ Render'da gerekli ortam değişkenleri: DATABASE_URL (ayarlı). Üretimde SUPABA
 ## Matematik hesap panosu ve birinci şahıs Kimya 3D
 - Matematik sayfasına "Hesap panosu" eklendi: ikinci derece denklem (karmaşık kökler dahil), iki bilinmeyenli denklem sistemi, üçgen (alan, çevre, açılar, tür), istatistik, yüzde değişim, bileşik faiz, asal çarpan/EBOB/EKOK, permütasyon ve kombinasyon. Hesaplar public/math-tools.js içinde, testleri test/math-tools.test.mjs'de.
 - Kimya 3D artık birinci şahıs: oda, raflarda malzemeler (su, asit, baz, fenolftalein, toz, tuz, efervesan, kağıt, kibrit), ispirto ocağı. Kibritle ocağı yakıp tüpü ocağın yanına koyarak ısıtın. Asit-baz nötrleşmesi, fenolftalein renk değişimi ve diğer tepkimeler.
+
+## Laboratuvarlar klasörü: tıklama ve animasyon
+- Klasör tıklaması #nav kapsayıcısına bağlandı (menü yeniden çizilse de çalışır).
+- Açılış/kapanış animasyonlu (yükseklik ve saydamlık geçişi).

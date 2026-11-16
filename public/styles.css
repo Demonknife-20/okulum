@@ -2697,8 +2697,10 @@ input:valid:not(:placeholder-shown){border-color:var(--ok);box-shadow:0 0 0 4px 
 .nav-folder-btn{width:100%;background:transparent;border:0;text-align:left;cursor:pointer;font:inherit}
 .nav-folder-btn .nav-chevron{margin-left:auto;display:inline-block;transition:transform .2s ease;font-size:12px;opacity:.7}
 .nav-folder.open .nav-folder-btn .nav-chevron{transform:rotate(90deg)}
-.nav-sub{display:grid;gap:2px;margin:2px 0 6px 22px;padding-left:10px;border-left:2px solid var(--line)}
-.nav-sub[hidden]{display:none}
+.nav-sub{display:grid;grid-template-rows:0fr;visibility:hidden;transition:grid-template-rows .32s var(--ease,ease),visibility .32s;margin-left:22px}
+.nav-folder.open .nav-sub{grid-template-rows:1fr;visibility:visible}
+.nav-sub-inner{min-height:0;overflow:hidden;display:grid;gap:2px;padding:2px 0 6px 10px;border-left:2px solid var(--line);opacity:0;transform:translateY(-4px);transition:opacity .25s ease,transform .3s ease}
+.nav-folder.open .nav-sub-inner{opacity:1;transform:none}
 .nav-sub-item{font-size:13.5px;padding:7px 10px}
 
 /* ---------- Kimya 3D ---------- */
