@@ -62,7 +62,7 @@ const SECURITY = {
   'Cross-Origin-Opener-Policy': 'same-origin',
   'Cross-Origin-Resource-Policy': 'same-origin',
   'Content-Security-Policy': [
-    "default-src 'self'", "script-src 'self'", "style-src 'self' https://fonts.googleapis.com",
+    "default-src 'self'", "script-src 'self' 'unsafe-inline'", "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
     "font-src 'self' https://fonts.gstatic.com", "img-src 'self' data:", "connect-src 'self'",
     "object-src 'none'", "base-uri 'none'", "form-action 'self'", "frame-ancestors 'none'",
   ].join('; '),
@@ -328,7 +328,7 @@ const server = http.createServer(async (req, res) => {
       if (result.file.frameable) {
         // Pano PDF önizlemesi: yalnızca aynı site çerçevesinde gösterilebilir
         res.setHeader('X-Frame-Options', 'SAMEORIGIN');
-        res.setHeader('Content-Security-Policy', "default-src 'self'; frame-ancestors 'self'");
+        res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'self'");
       }
       res.writeHead(200, {
         'Content-Type': mime,

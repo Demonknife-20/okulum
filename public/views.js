@@ -476,6 +476,49 @@ ACTIONS['delete-assignment'] = async el => {
   refresh();
 };
 
+ACTIONS['bio-analyze'] = el => {
+  const sequence = document.querySelector('[data-bio="sequence"]')?.value || '';
+  try {
+    const result = dnaReplication(sequence);
+    const complementEl = document.querySelector('[data-bio="complement"]');
+    const gcEl = document.querySelector('[data-bio="gc"]');
+    if (complementEl) complementEl.textContent = result.complement;
+    if (gcEl) gcEl.textContent = result.gcContent;
+    toast(`Complement: ${result.complement}, GC: ${result.gcContent}%`);
+  } catch (error) {
+    toast(error.message, 'error');
+  }
+};
+
+ACTIONS['bio-divide'] = el => {
+  const time = Number(document.querySelector('[data-bio="time"]')?.value || '0');
+  try {
+    const result = populationGrowth(100, 0.02, time);
+    const popEl = document.querySelector('[data-bio="pop"]');
+    const rateEl = document.querySelector('[data-bio="rate"]');
+    if (popEl) popEl.textContent = result.population;
+    if (rateEl) rateEl.textContent = result.growthRate;
+    toast(`Nüfus: ${result.population}, Büyüme: ${result.growthRate}%`);
+  } catch (error) {
+    toast(error.message, 'error');
+  }
+};
+
+ACTIONS['bio-microscope'] = el => {
+  const sample = document.querySelector('[data-bio="sample"]')?.value || '';
+  const magnification = Number(document.querySelector('[data-bio="magnification"]')?.value || '0');
+  try {
+    const result = microscopeView(sample, magnification);
+    const fovEl = document.querySelector('[data-bio="fov"]');
+    const magEl = document.querySelector('[data-bio="mag"]');
+    if (fovEl) fovEl.textContent = result.fieldOfView;
+    if (magEl) magEl.textContent = result.magnification;
+    toast(`Örnek: ${result.sampleType}, Büyüty: ${result.magnification}×, FOV: ${result.fieldOfView} mm`);
+  } catch (error) {
+    toast(error.message, 'error');
+  }
+};
+
 
 // ---------- Yoklama ----------
 let att = null;
@@ -4018,6 +4061,69 @@ async function pageKimya3d() {
     },
     onUnmount() {
       if (this._chem3dCleanup) this._chem3dCleanup();
+},
+  };
+}
+
+async function pageLabCenter() {
+  return {
+    html: `${head('Laboratuvar Merkezi', 'Kimya, kimya 3D ve biyoloji deneylerini tek bir yerde deneyin.', '')}
+      ${panel('Kimya Laboratuvarı', 'Elementleri çalışma alanına alın, birleştirin ve bileşikleri keşfedin.', ``)}
+      ${panel('Kimya 3D Laboratuvarı', 'Three.js tabanlı 3D deney simülasyonu. Malzemeyi seçin, ısıtın ve tepkimeyi izleyin.', ``)}
+      ${panel('Biyoloji Laboratuvarı', 'DNA sekans analizi, hücelevi bölünme ve mikroskop gözlemleri.', ``)}
+      <div class="lab-combined">
+        <div class="lab-col lab-chem">
+          ${chemGameHtml()}
+        </div>
+        <div class="lab-col lab-chem3d">
+          ${pageKimya3d().html}
+        </div>
+        <div class="lab-col lab-bio">
+          <div class="bio-panel">
+            <h4>DNA Sekansı Analizi</h4>
+            <label class="field"><span>Sekans (ATCG)</span><input data-bio="sequence" value="ATGC" autocomplete="off"></label>
+            <button class="btn ghost sm" type="button" data-action="bio-analyze">Analizle</button>
+            <div class="bio-results"><strong>Complement:</strong> <span data-bio="complement">–</span><br><strong>GC Content:</strong> <span data-bio="gc">–</span>%</div>
+            <p class="muted small">DNA complement ve GC içeriği hesaplanır.</p>
+          </div>
+          <div class="bio-panel">
+            <h4>Hücelevi Bölünme</h4>
+            <label class="field"><span>Süre (saat)</span><input data-bio="time" value="24" min="1" autocomplete="off"></label>
+            <button class="btn ghost sm" type="button" data-action="bio-divide">Bölünmeyi Simüle</button>
+            <div class="bio-results"><strong>Nüfus:</strong> <span data-bio="pop">–</span><br><strong>Büyüme hızı:</strong> <span data-bio="rate">–</span>%</div>
+            <p class="muted small">Verilen sürede hücre bölünme sayısı hesaplanır.</p>
+          </div>
+          <div class="bio-panel">
+            <h4>Mikroskop Gözlem</h4>
+            <label class="field"><span>Örnek tipi</span>
+              <select data-bio="sample">
+                <option value="kan_kroesi">Kan Kroesi</option>
+                <option value="hucel_division">Hücre Bölünme</option>
+                <option value="bakteri">Bakteri</option>
+                <option value="yeast">Yeast</option>
+              </select></label>
+            <label class="field"><span>Büyütme</span><input data-bio="magnification" value="400" min="1" max="1000" type="number" autocomplete="off"></label>
+            <button class="btn ghost sm" type="button" data-action="bio-microscope">Gözlemle</button>
+            <div class="bio-results"><strong>Alan Görünümü:</strong> <span data-bio="fov">–</span> mm<br><strong>Büyütme:</strong> <span data-bio="mag">–</>×</div>
+            <p class="muted small">Mikroskop ayarları ile alan görünümü hesaplanır.</p>
+          </div>
+        </div>
+      </div>`,
+    after: () => {
+      // Kimya oyununu başlat
+      setupLabs();
+      setupChemGame();
+      // Kimya 3D'yi başlat (THREE zaten import-map üzerinden yüklenmiş)
+      const chem3dCanvas = document.getElementById('chem3d-canvas');
+      if (chem3dCanvas && window.THREE) {
+        try {
+          initChem3d('chem3d-canvas');
+        } catch (e) {
+          console.warn('Kimya 3D başlatılamadı:', e.message);
+        }
+      }
+      // Biyoloji placeholder'ı güncelle
+      document.getElementById('bio-lab-placeholder').innerHTML = '<p class="muted small">Biyoloji laboratuvarı yakında eklenecek.</p>';
     },
   };
 }
@@ -4901,7 +5007,7 @@ const PAGES = {
   yardim: async () => ({ html: helpHtml() }),
   panolar: pagePanolar, pano: pageBoard, asistan: pageAsistan,
   cocuklar: pageCocuklar, sinavlar: pageSinavlar, sinav: pageSinav, notlar: pageNotlar,
-  davranis: pageDavranis, puanlarim: pagePuanlarim, program: pageProgram, takvim: pageTakvim, karne: pageKarne, canli: pageCanli, analiz: pageAnaliz, izin: pageIzin, gece: pageGece, geogebra: pageGeogebra, deneyler: pageFizik, fizik: pageFizik, kimya: pageKimya, kimya3d: pageKimya3d, bilgisayar: pageBilgisayar, qbank: pageQbank,
+  davranis: pageDavranis, puanlarim: pagePuanlarim, program: pageProgram, takvim: pageTakvim, karne: pageKarne, canli: pageCanli, analiz: pageAnaliz, izin: pageIzin, gece: pageGece, geogebra: pageGeogebra, deneyler: pageFizik, fizik: pageFizik, kimya: pageKimya, kimya3d: pageKimya3d, lab-center: pageLabCenter, bilgisayar: pageBilgisayar, qbank: pageQbank,
 };
 export function renderView(page, params) {
   if (page === 'overview' && state.me.role === 'parent') return pageParentOverview();
