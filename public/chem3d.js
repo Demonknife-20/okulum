@@ -18,6 +18,7 @@ export const CHEM3D_MATERIALS = [
   { key: 'efervesan', name: 'Efervesan tablet', icon: '💊', color: 0xffd966, fill: 0.18 },
   { key: 'kagit', name: 'Kağıt', icon: '📄', color: 0xfffdf5, fill: 0.16 },
   { key: 'kibrit', name: 'Kibrit', icon: '🔥', color: 0xd32f2f, fill: 0, tool: true },
+  { key: 'tripod', name: 'Üç ayaklı + amyant teli', icon: '🔺', color: 0x7a7a7a, fill: 0, tool: true },
 ];
 
 // Tepkimeler sırayla denetlenir; son kural önceki kuralların sonucunu değiştirebilir.
@@ -170,6 +171,7 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
       emitAcc: {},
       temp: 20,
       volume: 1,
+      home: [x, z],
     };
     scene.add(root);
     return root;
@@ -208,6 +210,32 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
   burner.userData = { kind: 'burner' };
   scene.add(burner);
 
+  // Üç ayaklı ve amyant teli (ocağın üstüne kurulur; tüpler teli üstünde ısıtılır)
+  const tripod = new THREE.Group();
+  const iron = new THREE.MeshStandardMaterial({ color: 0x6b6b6b, metalness: 0.7, roughness: 0.4 });
+  for (let k = 0; k < 3; k += 1) {
+    const a = (k / 3) * Math.PI * 2;
+    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.5, 8), iron);
+    leg.position.set(Math.cos(a) * 0.2, 0.25, Math.sin(a) * 0.2);
+    leg.rotation.set(Math.sin(a) * 0.18, 0, -Math.cos(a) * 0.18);
+    leg.castShadow = true;
+    tripod.add(leg);
+  }
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.22, 0.01, 8, 36), iron);
+  ring.rotation.x = Math.PI / 2;
+  ring.position.y = 0.5;
+  const gauze = new THREE.Mesh(
+    new THREE.PlaneGeometry(0.44, 0.44, 12, 12),
+    new THREE.MeshBasicMaterial({ color: 0x8e8e8e, wireframe: true })
+  );
+  gauze.rotation.x = -Math.PI / 2;
+  gauze.position.y = 0.5;
+  tripod.add(ring, gauze);
+  tripod.position.set(BURNER_POS[0], TOP, BURNER_POS[1]);
+  tripod.visible = false;
+  tripod.userData = { kind: 'tripod' };
+  scene.add(tripod);
+
   // ---------- Parçacıklar (buhar, köpük, duman) ----------
   const pGeo = new THREE.BufferGeometry();
   const pPos = new Float32Array(MAX_PARTICLES * 3);
@@ -236,12 +264,13 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
   // ---------- Oyuncu ----------
   const player = { x: 0, z: 2.1, yaw: 0, pitch: -0.2 };
   const keys = new Set();
-  const pickables = () => [...bottles, ...tubes, burner];
+  const pickables = () => [...bottles, ...tubes, burner, tripod];
 
   // ---------- Durum ----------
   let heldKey = null; // elindeki malzeme (şişeden)
   let carried = null; // elindeki tüp
   let lit = false;
+  let tripodOn = false;
   let disposed = false;
   let time = 0;
   let dragging = false;
@@ -304,6 +333,7 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
   // ---------- Girdi: bakış ve hareket ----------
   const onKeyDown = e => {
     if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key)) e.preventDefault();
+    if (e.key.toLowerCase() === 'q' && !e.repeat) { dropAll(); return; }
     keys.add(e.key.toLowerCase());
   };
   const onKeyUp = e => keys.delete(e.key.toLowerCase());
@@ -322,7 +352,8 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
   };
   const centerHit = () => {
     ray.setFromCamera(ndcCenter, camera);
-    const hit = ray.intersectObjects(pickables(), true)[0];
+    const hit = ray.intersectObjects(pickables(), true)
+      .find(h => rootOf(h.object)?.userData.kind !== 'tripod' || tripodOn);
     return hit ? rootOf(hit.object) : null;
   };
   const tableTarget = () => {
@@ -332,38 +363,81 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
     return hitPoint.clone();
   };
 
+  // Elindekini bırak: tüp varsa son geçerli konumuna (ya da baktığın masa noktasına) konur.
+  const dropCarried = () => {
+    if (!carried) return false;
+    const p = tableTarget();
+    const [hx, hz] = carried.userData.home;
+    const x = THREE.MathUtils.clamp(p ? p.x : hx, -TABLE.hx + 0.2, TABLE.hx - 0.2);
+    const z = THREE.MathUtils.clamp(p ? p.z : hz, -TABLE.hz + 0.2, TABLE.hz - 0.2);
+    carried.position.set(x, TOP + 0.22, z);
+    carried.userData.home = [x, z];
+    carried = null;
+    return true;
+  };
+  const dropHeld = () => {
+    if (!heldKey) return false;
+    heldKey = null;
+    return true;
+  };
+  const dropAll = () => {
+    const had = dropCarried() || dropHeld();
+    say(had ? 'Elinizdekini bıraktınız.' : 'Elinizde bir şey yok.', 'info');
+  };
+
   const interact = () => {
     const target = centerHit();
+    // Tüp elde: her tıklama bırakır (artık takılı kalmaz)
+    if (carried) {
+      dropCarried();
+      return say('Tüp bırakıldı.', 'info');
+    }
+    if (heldKey) {
+      const held = materialOf(heldKey);
+      if (target?.userData.kind === 'bottle') {
+        if (target.userData.key === heldKey) { dropHeld(); return say('Bıraktınız.', 'info'); }
+        heldKey = target.userData.key;
+        return say(`${materialOf(heldKey).name} elinizde. Bir tüpe ya da ocağa tıklayın.`, 'info');
+      }
+      if (target?.userData.kind === 'tube') {
+        if (held.tool) { dropHeld(); return say(`${held.name} tüpe kullanılmaz; bıraktınız.`, 'warn'); }
+        return pour(target, heldKey);
+      }
+      if (target?.userData.kind === 'burner') {
+        if (heldKey === 'kibrit') {
+          lit = true; dropHeld();
+          return say(tripodOn ? 'Ocak yandı. Tüpü amyant telinin üstüne koyun.' : 'Ocak yandı. Önce üç ayaklıyı ocağın üstüne koyun.', 'ok');
+        }
+        if (heldKey === 'tripod') {
+          if (tripodOn) return say('Üç ayaklı zaten ocağın üstünde.', 'warn');
+          tripodOn = true; dropHeld();
+          return say('Üç ayaklı kuruldu. Tüpü amyant telinin üstüne koyup ısıtın.', 'ok');
+        }
+        dropHeld();
+        return say(`${held.name} ocakta kullanılmaz; bıraktınız.`, 'warn');
+      }
+      dropHeld();
+      return say(`${held.name} bırakıldı.`, 'info');
+    }
+    // Elde değil: al
     if (target?.userData.kind === 'bottle') {
-      const bottle = target;
-      const key = bottle.userData.key;
-      if (carried) return say('Önce elinizdeki tüpü masaya bırakın.', 'warn');
-      if (heldKey === key) { heldKey = null; return say('Malzeme bırakıldı.', 'info'); }
-      heldKey = key;
-      return say(`${materialOf(key).name} elinizde. Bir tüpe ya da ocağa tıklayın.`, 'info');
+      heldKey = target.userData.key;
+      return say(`${materialOf(heldKey).name} elinizde. Bir tüpe ya da ocağa tıklayın.`, 'info');
     }
     if (target?.userData.kind === 'tube') {
-      if (heldKey) return pour(target, heldKey);
-      if (carried) return say('Tüp zaten elinizde. Masaya tıklayarak bırakın.', 'warn');
       carried = target;
-      return say('Tüpü aldınız. Masada bir yere tıklayarak bırakın.', 'info');
+      return say('Tüpü aldınız. Bırakmak için masaya tıklayın ya da Q tuşuna basın.', 'info');
+    }
+    if (target?.userData.kind === 'tripod') {
+      tripodOn = false;
+      heldKey = 'tripod';
+      return say('Üç ayaklıyı aldınız. Bırakmak için tıklayın ya da Q.', 'info');
     }
     if (target?.userData.kind === 'burner') {
-      if (carried) return say('Tüpü ocağın üstüne yerleştirmek için masada ocağın yakınına tıklayın.', 'info');
-      if (heldKey === 'kibrit') { lit = true; heldKey = null; return say('Ocak yandı. Tüpü ocağın yanına koyarak ısıtın.', 'ok'); }
-      if (heldKey) return say('Bu malzeme ocakta kullanılmaz. Kibrit gerekir.', 'warn');
       lit = !lit;
-      return say(lit ? 'Ocak yandı.' : 'Ocak söndü.', 'info');
+      const note = lit && !tripodOn ? ' Üç ayaklıyı koymayı unutmayın.' : '';
+      return say(lit ? `Ocak yandı.${note}` : 'Ocak söndü.', 'info');
     }
-    // Hedef yok: masaya bırakma
-    if (carried) {
-      const p = tableTarget();
-      if (!p) return say('Tüpü bırakmak için masaya bakın.', 'warn');
-      carried.position.set(THREE.MathUtils.clamp(p.x, -TABLE.hx + 0.2, TABLE.hx - 0.2), TOP + 0.22, THREE.MathUtils.clamp(p.z, -TABLE.hz + 0.2, TABLE.hz - 0.2));
-      carried = null;
-      return say('Tüp masaya bırakıldı.', 'info');
-    }
-    if (heldKey) { heldKey = null; return say('Malzeme bırakıldı.', 'info'); }
     return null;
   };
 
@@ -428,15 +502,20 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
     }
 
     flame.visible = lit;
+    tripod.visible = tripodOn;
     if (lit) flame.scale.set(1 + Math.sin(time * 18) * 0.08, 1 + Math.sin(time * 23) * 0.12, 1 + Math.sin(time * 18) * 0.08);
     flameLight.position.set(BURNER_POS[0], TOP + 0.3, BURNER_POS[1]);
     flameLight.intensity = lit ? 1.2 + Math.sin(time * 15) * 0.15 : 0;
 
     for (const tube of tubes) {
       const d = tube.userData;
-      const near = !carried || carried !== tube
-        ? lit && Math.hypot(tube.position.x - BURNER_POS[0], tube.position.z - BURNER_POS[1]) < HEAT_RANGE
-        : false;
+      const inRange = Math.hypot(tube.position.x - BURNER_POS[0], tube.position.z - BURNER_POS[1]) < HEAT_RANGE;
+      const onGauze = tripodOn && inRange && tube !== carried;
+      const near = lit && onGauze;
+      if (tube !== carried) {
+        const yGoal = onGauze ? TOP + 0.72 : TOP + 0.22;
+        tube.position.y += (yGoal - tube.position.y) * Math.min(1, dt * 8);
+      }
       const goal = near ? 260 : 20;
       const rate = near ? 90 : 35;
       const delta = goal - d.temp;
@@ -480,8 +559,8 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
     // Bakılan nesneye göre ipucu
     const target = centerHit();
     let hint = '';
-    if (carried) hint = 'Tüp elinizde: masaya tıklayarak bırakın';
-    else if (heldKey) hint = `Elinizde ${materialOf(heldKey).name}: tüpe ya da ocağa tıklayın`;
+    if (carried) hint = 'Tüp elinizde: tıklayın ya da Q ile bırakın';
+    else if (heldKey) hint = `Elinizde ${materialOf(heldKey).name}: tüpe/ocağa tıklayın, boşluğa tıklayın ya da Q ile bırakın`;
     else if (target?.userData.kind === 'bottle') hint = `Al: ${materialOf(target.userData.key).name}`;
     else if (target?.userData.kind === 'tube') hint = 'Tüpü al (elinizde malzeme yoksa) ya da malzeme dök';
     else if (target?.userData.kind === 'burner') hint = lit ? 'Ocağı söndür' : 'Ocağı yak (kibrit gerekir)';
@@ -541,7 +620,7 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
     isAlive: () => !disposed && container.isConnected,
     dispose,
     select(key) {
-      if (carried) return say('Önce elinizdeki tüpü bırakın.', 'warn');
+      dropCarried();
       heldKey = heldKey === key ? null : key;
       say(heldKey ? `${materialOf(heldKey).name} elinizde. Bir tüpe ya da ocağa tıklayın.` : 'Malzeme bırakıldı.', 'info');
       return heldKey;
@@ -563,11 +642,13 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
         d.volume = 1;
         d.content.visible = false;
         d.target.set(0xffffff);
+        d.home = [TUBE_START[i][0], TUBE_START[i][1]];
         tube.position.set(TUBE_START[i][0], TOP + 0.22, TUBE_START[i][1]);
       });
       pLife.fill(0);
       for (let i = 0; i < MAX_PARTICLES; i++) pPos[i * 3 + 1] = -100;
       lit = false;
+      tripodOn = false;
       heldKey = null;
       carried = null;
       player.x = 0; player.z = 2.1; player.yaw = 0; player.pitch = -0.2;

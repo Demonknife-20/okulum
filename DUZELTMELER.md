@@ -41,3 +41,8 @@ Render'da gerekli ortam değişkenleri: DATABASE_URL (ayarlı). Üretimde SUPABA
 ## Laboratuvarlar klasörü: tıklama ve animasyon
 - Klasör tıklaması #nav kapsayıcısına bağlandı (menü yeniden çizilse de çalışır).
 - Açılış/kapanış animasyonlu (yükseklik ve saydamlık geçişi).
+
+## Kimya 3D: üçayak, amyant teli, bırakma; grafik görünümü
+- Raftan "Üç ayaklı + amyant teli" alınıp ocağın üstüne kurulur. Tüpler amyant telinin üstünde ısıtılır; üçayak yoksa ocak ısıtmaz.
+- Elde tutulan tüp artık takılı kalmaz: her tıklama bırakır, Q tuşu her şeyi bırakır.
+- Grafikler ızgara, eksen etiketleri ve gradyan dolgu ile yeniden çizildi (fizik, yay-kütle, titrasyon).

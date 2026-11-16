@@ -4916,6 +4916,123 @@ function setupChemGame() {
   refreshEmpty();
 }
 
+// Ortak grafik çerçevesi: ızgara, eksen etiketleri ve gradyan dolgu.
+const fmtTick = v => (Math.abs(v) >= 10 ? Math.round(v).toString() : Number(v).toFixed(Math.abs(v) < 1 && v !== 0 ? 2 : 1).replace(/\.0$/, ''));
+function plotFrame(ctx, w, h, o) {
+  const L = 52, R = 18, T = 16, B = 40;
+  const X = v => L + ((v - o.xMin) / (o.xMax - o.xMin || 1)) * (w - L - R);
+  const Y = v => h - B - ((v - o.yMin) / (o.yMax - o.yMin || 1)) * (h - T - B);
+  ctx.fillStyle = '#fbfdfc';
+  ctx.fillRect(0, 0, w, h);
+  ctx.font = '11px system-ui, sans-serif';
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= o.yTicks; i += 1) {
+    const v = o.yMin + ((o.yMax - o.yMin) * i) / o.yTicks;
+    const y = Y(v);
+    ctx.strokeStyle = '#e3ece7';
+    ctx.beginPath(); ctx.moveTo(L, y); ctx.lineTo(w - R, y); ctx.stroke();
+    ctx.fillStyle = '#6b7f76';
+    ctx.textAlign = 'right';
+    ctx.fillText(fmtTick(v), L - 6, y + 4);
+  }
+  for (let i = 0; i <= o.xTicks; i += 1) {
+    const v = o.xMin + ((o.xMax - o.xMin) * i) / o.xTicks;
+    const x = X(v);
+    ctx.strokeStyle = '#eef4f1';
+    ctx.beginPath(); ctx.moveTo(x, T); ctx.lineTo(x, h - B); ctx.stroke();
+    ctx.fillStyle = '#6b7f76';
+    ctx.textAlign = 'center';
+    ctx.fillText(fmtTick(v), x, h - B + 15);
+  }
+  ctx.strokeStyle = '#7d958b';
+  ctx.lineWidth = 1.4;
+  ctx.beginPath();
+  ctx.moveTo(L, T); ctx.lineTo(L, h - B); ctx.lineTo(w - R, h - B);
+  ctx.stroke();
+  ctx.fillStyle = '#4f6a60';
+  ctx.font = '600 12px system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText(o.xLabel, (L + w - R) / 2, h - 6);
+  ctx.save();
+  ctx.translate(14, (T + h - B) / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillText(o.yLabel, 0, 0);
+  ctx.restore();
+  return { X, Y, L, R, T, B };
+}
+
+// Eğriyi çizer; altını yumuşak bir gradyanla doldurur.
+function plotCurve(ctx, pts, X, Y, bottom, color) {
+  if (!pts.length) return;
+  const grad = ctx.createLinearGradient(0, T_OF(Y, pts), 0, bottom);
+  grad.addColorStop(0, `${color}33`);
+  grad.addColorStop(1, `${color}00`);
+  ctx.beginPath();
+  pts.forEach((p, i) => (i === 0 ? ctx.moveTo(X(p.x), Y(p.y)) : ctx.lineTo(X(p.x), Y(p.y))));
+  ctx.lineTo(X(pts[pts.length - 1].x), bottom);
+  ctx.lineTo(X(pts[0].x), bottom);
+  ctx.closePath();
+  ctx.fillStyle = grad;
+  ctx.fill();
+  ctx.beginPath();
+  pts.forEach((p, i) => (i === 0 ? ctx.moveTo(X(p.x), Y(p.y)) : ctx.lineTo(X(p.x), Y(p.y))));
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 2.6;
+  ctx.lineJoin = 'round';
+  ctx.stroke();
+}
+const T_OF = (Y, pts) => Math.min(...pts.map(p => Y(p.y)));
+
+function plotDot(ctx, x, y, color) {
+  ctx.save();
+  ctx.shadowColor = color;
+  ctx.shadowBlur = 12;
+  ctx.fillStyle = color;
+  ctx.beginPath(); ctx.arc(x, y, 6, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+  ctx.fillStyle = '#fff';
+  ctx.beginPath(); ctx.arc(x, y, 2.2, 0, Math.PI * 2); ctx.fill();
+}
+
+// Eğik atış yörüngesi
+function drawPhysics(canvas, path, result, ball = null) {
+  const { ctx, w, h } = fitCanvas(canvas);
+  const maxX = Math.max(result.range, 1) * 1.1;
+  const maxY = Math.max(result.height, 1) * 1.3;
+  const f = plotFrame(ctx, w, h, { xMin: 0, xMax: maxX, yMin: 0, yMax: maxY, xTicks: 5, yTicks: 4, xLabel: 'x (m)', yLabel: 'y (m)' });
+  const pts = path.map(p => ({ x: p.x, y: p.y }));
+  plotCurve(ctx, pts, f.X, f.Y, h - f.B, '#1b6b50');
+  if (ball !== null && path[ball]) plotDot(ctx, f.X(path[ball].x), f.Y(path[ball].y), '#e8762b');
+}
+
+// Yay-kütle konum-zaman grafiği
+function drawSeries(canvas, pts, dot = null) {
+  const { ctx, w, h } = fitCanvas(canvas);
+  const tMax = pts[pts.length - 1].t || 1;
+  const yMax = Math.max(...pts.map(p => Math.abs(p.x)), 0.01) * 1.2;
+  const f = plotFrame(ctx, w, h, { xMin: 0, xMax: tMax, yMin: -yMax, yMax, xTicks: 6, yTicks: 4, xLabel: 't (s)', yLabel: 'x (m)' });
+  const curve = pts.map(p => ({ x: p.t, y: p.x }));
+  plotCurve(ctx, curve, f.X, f.Y, f.Y(0), '#1b6b50');
+  if (dot !== null && pts[dot]) plotDot(ctx, f.X(pts[dot].t), f.Y(pts[dot].x), '#e8762b');
+}
+
+// Titrasyon: eklenen baza karşı pH
+function drawTitration(canvas, series, veq, current) {
+  const { ctx, w, h } = fitCanvas(canvas);
+  const maxV = Math.max(10, Math.ceil(Math.max(veq * 2, 10)));
+  const f = plotFrame(ctx, w, h, { xMin: 0, xMax: maxV, yMin: 0, yMax: 14, xTicks: 5, yTicks: 7, xLabel: 'Eklenen baz (mL)', yLabel: 'pH' });
+  ctx.setLineDash([5, 5]);
+  ctx.strokeStyle = '#e8590c';
+  ctx.lineWidth = 1.4;
+  ctx.beginPath(); ctx.moveTo(f.X(veq), f.T); ctx.lineTo(f.X(veq), h - f.B); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = '#e8590c';
+  ctx.textAlign = 'left';
+  ctx.fillText(`Eşdeğerlik ${veq.toFixed(1)} mL`, f.X(veq) + 6, f.T + 12);
+  plotCurve(ctx, series.map(p => ({ x: p.v, y: p.pH })), f.X, f.Y, h - f.B, '#1b6b50');
+  plotDot(ctx, f.X(current.v), f.Y(current.pH), '#e5484d');
+}
+
 function fitCanvas(canvas) {
   const dpr = window.devicePixelRatio || 1;
   const rect = canvas.getBoundingClientRect();
@@ -4929,95 +5046,9 @@ function fitCanvas(canvas) {
   return { ctx, w, h };
 }
 
-function drawPhysics(canvas, path, result, ball = null) {
-  const { ctx, w, h } = fitCanvas(canvas);
-  const pad = 36;
-  const maxX = Math.max(result.range, 1) * 1.1;
-  const maxY = Math.max(result.height, 1) * 1.3;
-  const sx = (w - pad * 2) / maxX;
-  const sy = (h - pad * 2) / maxY;
-  ctx.strokeStyle = '#cfd9d3';
-  ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.moveTo(pad, h - pad); ctx.lineTo(w - pad / 2, h - pad); ctx.moveTo(pad, h - pad); ctx.lineTo(pad, pad / 2); ctx.stroke();
-  ctx.fillStyle = '#6b7f76';
-  ctx.font = '12px system-ui, sans-serif';
-  ctx.fillText('x (m)', w - 46, h - pad + 16);
-  ctx.fillText('y (m)', 4, pad / 2 + 4);
-  ctx.strokeStyle = '#1b6b50';
-  ctx.lineWidth = 2.4;
-  ctx.beginPath();
-  path.forEach((p, i) => {
-    const px = pad + p.x * sx;
-    const py = h - pad - p.y * sy;
-    if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
-  });
-  ctx.stroke();
-  if (ball !== null && path[ball]) {
-    const b = path[ball];
-    ctx.fillStyle = '#e8762b';
-    ctx.beginPath();
-    ctx.arc(pad + b.x * sx, h - pad - b.y * sy, 6, 0, Math.PI * 2);
-    ctx.fill();
-  }
-}
 
 // Zamana bağlı konum grafiği; isteğe bağlı olarak hareketli bir nokta çizer.
-function drawSeries(canvas, pts, dot = null) {
-  const { ctx, w, h } = fitCanvas(canvas);
-  const pad = 36;
-  const tMax = pts[pts.length - 1].t || 1;
-  const yMax = Math.max(...pts.map(p => Math.abs(p.x)), 0.01) * 1.2;
-  const X = t => pad + (t / tMax) * (w - pad * 1.5);
-  const Y = x => h / 2 - (x / yMax) * (h / 2 - pad);
-  ctx.strokeStyle = '#cfd9d3';
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(pad, h / 2); ctx.lineTo(w - pad / 2, h / 2);
-  ctx.moveTo(pad, pad / 2); ctx.lineTo(pad, h - pad / 2);
-  ctx.stroke();
-  ctx.fillStyle = '#6b7f76';
-  ctx.font = '12px system-ui, sans-serif';
-  ctx.fillText('t (s)', w - 40, h / 2 + 16);
-  ctx.fillText('x (m)', 4, pad / 2 + 4);
-  ctx.strokeStyle = '#1b6b50';
-  ctx.lineWidth = 2.4;
-  ctx.beginPath();
-  pts.forEach((p, i) => (i === 0 ? ctx.moveTo(X(p.t), Y(p.x)) : ctx.lineTo(X(p.t), Y(p.x))));
-  ctx.stroke();
-  if (dot !== null && pts[dot]) {
-    ctx.fillStyle = '#e8762b';
-    ctx.beginPath();
-    ctx.arc(X(pts[dot].t), Y(pts[dot].x), 6, 0, Math.PI * 2);
-    ctx.fill();
-  }
-}
 
-function drawTitration(canvas, series, veq, current) {
-  const { ctx, w, h } = fitCanvas(canvas);
-  const pad = 36;
-  const maxV = Math.max(10, Math.ceil(Math.max(veq * 2, 10)));
-  const X = v => pad + (v / maxV) * (w - pad * 1.5);
-  const Y = pH => h - pad - (pH / 14) * (h - pad * 1.5);
-  ctx.strokeStyle = '#cfd9d3';
-  ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.moveTo(pad, h - pad); ctx.lineTo(w - pad / 2, h - pad); ctx.moveTo(pad, h - pad); ctx.lineTo(pad, pad / 2); ctx.stroke();
-  ctx.fillStyle = '#6b7f76';
-  ctx.font = '12px system-ui, sans-serif';
-  ctx.fillText('Eklenen baz (mL)', w - 130, h - pad + 16);
-  ctx.fillText('pH', 6, pad / 2 + 4);
-  ctx.setLineDash([5, 5]);
-  ctx.strokeStyle = '#e8590c';
-  ctx.beginPath(); ctx.moveTo(X(veq), h - pad); ctx.lineTo(X(veq), pad / 2); ctx.stroke();
-  ctx.setLineDash([]);
-  ctx.strokeStyle = '#1b6b50';
-  ctx.lineWidth = 2.4;
-  ctx.beginPath();
-  series.forEach((p, i) => { if (i === 0) ctx.moveTo(X(p.v), Y(p.pH)); else ctx.lineTo(X(p.v), Y(p.pH)); });
-  ctx.stroke();
-  const marker = { v: current.v, pH: current.pH };
-  ctx.fillStyle = '#e5484d';
-  ctx.beginPath(); ctx.arc(X(marker.v), Y(marker.pH), 5, 0, Math.PI * 2); ctx.fill();
-}
 
 function setupLabs() {
   const fizikBox = document.querySelector('[data-lab=fizik]');
