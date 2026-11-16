@@ -1,6 +1,8 @@
 import { playUnlockTransition } from './interactions.js';
 
 const $ = selector => document.querySelector(selector);
+const ICONS = { trash: '<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/>' };
+const icon = name => `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name] || ''}</svg>`;
 const esc = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
 
 async function request(path, { method = 'GET', body } = {}) {

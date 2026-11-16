@@ -53,6 +53,7 @@ async function requireAdmin(req) {
 }
 
 async function bootstrapPlatformAdmin() {
+  await ensureSchoolsStatusColumn();
   const username = str(process.env.PLATFORM_ADMIN_USERNAME, 32).toLowerCase();
   const password = process.env.PLATFORM_ADMIN_PASSWORD || '';
   if (Boolean(username) !== Boolean(password)) {
@@ -167,8 +168,8 @@ async function handlePlatformApi({ req, res, url, body }) {
     }
     return json(res, 201, { school: { slug, name, city, year, status: 'active', url: schoolUrl(slug) } });
   }
-  if (url.pathname.match(/^\/api\/platform\/schools\/([^\/]+)$/) && req.method === 'DELETE') {
-    const slug = url.pathname.match(/^\/api\/platform\/schools\/([^\/]+)$/)[1];
+  if (url.pathname.match(/^\/api\/platform\/schools\/([^/]+)$/) && req.method === 'DELETE') {
+    const slug = url.pathname.match(/^\/api\/platform\/schools\/([^/]+)$/)[1];
     if (!validSlug(slug)) return json(res, 400, { error: 'Geçersiz okul adresi.' });
     const schema = schemaForSlug(slug);
     const client = await pool.connect();

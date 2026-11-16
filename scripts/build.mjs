@@ -17,7 +17,6 @@ const js = await build({
   entryPoints: [path.join(src, 'app.js')],
   bundle: true, minify: true, format: 'esm', target: ['es2020'], legalComments: 'none',
   outdir: out, entryNames: 'app.[hash]', metafile: true, write: true,
-  external: ['three', 'three/addons/controls/OrbitControls.js'],
 });
 const css = await build({
   entryPoints: [path.join(src, 'styles.css')],

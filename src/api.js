@@ -3660,7 +3660,7 @@ on('POST', '/api/geogebra/worksheets', async ({ body, user }) => {
 }, { roles: STAFF });
 
 // ---------- Web Push bildirim uç noktaları ----------
-on('GET', '/api/push/key', async ({ user }) => {
+on('GET', '/api/push/key', async () => {
   const key = push.publicKey();
   if (!key) fail(503, 'Bildirim sunucusu henüz hazır değil.');
   return ok({ publicKey: key });

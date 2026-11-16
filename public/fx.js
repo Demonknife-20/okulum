@@ -11,6 +11,10 @@ export function fxEnabled() {
   return !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 }
 
+export function applyFxClass() {
+  document.documentElement.classList.toggle('fx-off', !fxEnabled());
+}
+
 export function setFx(on) {
   try { localStorage.setItem(KEY, on ? 'on' : 'off'); } catch { /* depolama kapalı */ }
   applyFxClass();
@@ -56,3 +60,4 @@ export function applyThemePref() {
 // Başlangıçta uygula
 applyFontSize(getFontSize());
 applyThemePref();
+applyFxClass();

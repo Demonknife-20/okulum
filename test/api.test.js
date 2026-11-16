@@ -10,6 +10,7 @@ const http = require('node:http');
 const DB = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
 const dbOk = Boolean(DB);
 const nodeTest = require('node:test');
+const PDF = Buffer.from('%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n');
 let test, before, after;
 if (dbOk) {
   ({ test, before, after } = nodeTest);

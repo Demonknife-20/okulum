@@ -198,6 +198,9 @@ export function initChem3d(containerId) {
   // ---------- Deney malzemesi yerleştirme ----------
   let selectedMaterial = null;
   const materialButtons = {};
+  const updateMaterialButtons = () => {
+    Object.entries(materialButtons).forEach(([key, btn]) => btn.classList.toggle('active', key === selectedMaterial));
+  };
 
   const placeMaterial = (tube, materialKey) => {
     const mat = MATERIALS[materialKey];

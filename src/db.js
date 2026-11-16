@@ -6,13 +6,14 @@ const { Pool, types } = require('pg');
 // DATE sütunları JS Date'e dönüşmesin (saat dilimi kaymasın), düz metin gelsin.
 types.setTypeParser(1082, value => value);
 
+let pool;
 const url = process.env.DATABASE_URL;
 if (!url) {
   console.warn('Uyarı: DATABASE_URL tanımlı değil. Geliştirme modunda sınırlı özellikler.');
   module.exports.hasDatabase = false;
   // DB erişimi yok; q() çağrıları belirli bir hata fırlatacak
   pool = {
-    query: async (text, params) => {
+    query: async () => {
       throw new Error('Veritabanı bağlantısı yapılandırılmamış. .env dosyası oluşturun.');
     },
   };
