@@ -3988,7 +3988,8 @@ function chem3dHtml() {
           <button class="btn" id="chem3d-reset" type="button">↺ Sıfırla</button>
         </div>
         <p class="muted" style="font-size:12px;margin:8px 0 0">Kibritle ocağı yakın (kibriti alıp ocağa tıklayın), sonra tüpü ocağın yanına koyun.</p>
-        <p class="muted" style="font-size:12px;margin:8px 0 0"><b>Gezinme:</b> W A S D veya ok tuşları. <b>Bakış:</b> sürükleyin. <b>Etkileşim:</b> tıklayın (imleç hedefine göre).</p>
+        <p class="muted" style="font-size:12px;margin:8px 0 0"><b>Gezinme:</b> W A S D veya ok tuşları. <b>Bakış:</b> sürükleyin. <b>Etkileşim:</b> tıklayın. <b>Q:</b> elindekini bırak.</p>
+        <p class="muted" style="font-size:12px;margin:8px 0 0"><b>Duvar:</b> periyodik tablo — Na ve Mg alınabilir. <b>Termometre:</b> alıp tüpe tıklayın. Asidin üstüne su dökmeyin, asidi suya ekleyin!</p>
       </div>
       <div class="lab-panel">
         <h3>Durum</h3>
@@ -3997,6 +3998,7 @@ function chem3dHtml() {
           <div class="lab-stat"><span>Elinizde</span><strong id="chem3d-mat">—</strong></div>
         </div>
         <p class="chem3d-msg" id="chem3d-msg" role="status" aria-live="polite">Bir malzeme seçin ve tüplerden birine tıklayın.</p>
+        <p class="chem3d-info" id="chem3d-info"></p>
       </div>
     </aside>
     <div class="chem3d-stage" id="chem3d-canvas" role="img" aria-label="3D kimya laboratuvarı sahnesi"></div>
@@ -4009,6 +4011,7 @@ function setChem3dStatus(s) {
   const text = (id, value) => { const el = document.getElementById(id); if (el && value !== undefined) el.textContent = value; };
   text('chem3d-temp', `${s.hottest}°C`);
   text('chem3d-mat', s.carrying ? 'Tüp' : s.selected ? CHEM3D_MATERIALS.find(m => m.key === s.selected)?.name : '—');
+  text('chem3d-info', s.info ?? undefined);
   const msg = document.getElementById('chem3d-msg');
   if (msg && s.message) {
     msg.textContent = s.message;

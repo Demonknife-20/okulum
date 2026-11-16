@@ -1,56 +1,38 @@
 // ============================================================================
 // OKULUM — 3D KİMYA LABORATUVARI (birinci şahıs)
-// Oda içinde gezin (W A S D veya ok tuşları, sürükleyerek bakın).
-// Raftan malzeme al, masadaki tüpe tıkla ve dök. Tüpü tutup ispirto ocağının üstüne koy.
-// Kibritle ocağı yak. Tepkimeler malzemelere ve sıcaklığa göre gerçekleşir.
-// Three.js, esbuild ile paketlenir (npm run build).
+// Gezin: W A S D / ok tuşları. Bakış: sürükleyin. Etkileşim: tıklayın. Q: elindekini bırak.
+// Raftan malzeme al, tüpe dök. Duvardaki periyodik tablodan element al (Na, Mg).
+// Termometreyle tüpü ölç. Üçayağı ocağa kur, amyant telinin üstünde ısıt.
+// Kurallar ve maddeler public/chemistry.js içinde.
 // ============================================================================
 
 import * as THREE from 'three';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { SUBSTANCES, ELEMENTS, applicableReactions, mixtureProps, elementInfo } from './chemistry.js';
 
-export const CHEM3D_MATERIALS = [
-  { key: 'su', name: 'Su', icon: '💧', color: 0x4a90e2, fill: 0.5 },
-  { key: 'asit', name: 'Hidroklorik asit (HCl)', icon: '🧪', color: 0xe6fff2, fill: 0.4 },
-  { key: 'baz', name: 'Sodyum hidroksit (NaOH)', icon: '🧫', color: 0xf4f4ff, fill: 0.4 },
-  { key: 'fenolftalein', name: 'Fenolftalein (indikatör)', icon: '🩷', color: 0xfbf3ff, fill: 0.08 },
-  { key: 'toz', name: 'Beyaz toz', icon: '⚪', color: 0xf2f2f2, fill: 0.22 },
-  { key: 'tuz', name: 'Tuz', icon: '🧂', color: 0xf5fbff, fill: 0.22 },
-  { key: 'efervesan', name: 'Efervesan tablet', icon: '💊', color: 0xffd966, fill: 0.18 },
-  { key: 'kagit', name: 'Kağıt', icon: '📄', color: 0xfffdf5, fill: 0.16 },
-  { key: 'kibrit', name: 'Kibrit', icon: '🔥', color: 0xd32f2f, fill: 0, tool: true },
-  { key: 'tripod', name: 'Üç ayaklı + amyant teli', icon: '🔺', color: 0x7a7a7a, fill: 0, tool: true },
-];
+const SHELF_KEYS = ['su', 'asit', 'baz', 'fenolftalein', 'toz', 'tuz', 'efervesan', 'kagit', 'kibrit', 'tripod', 'termometre'];
+const ICONS = { su: '💧', asit: '🧪', baz: '🧫', fenolftalein: '🩷', toz: '⚪', tuz: '🧂', efervesan: '💊', kagit: '📄', kibrit: '🔥', tripod: '🔺', termometre: '🌡️' };
+export const CHEM3D_MATERIALS = SHELF_KEYS.map(key => ({ key, name: SUBSTANCES[key].name, icon: ICONS[key], color: SUBSTANCES[key].color, tool: Boolean(SUBSTANCES[key].tool) }));
 
-// Tepkimeler sırayla denetlenir; son kural önceki kuralların sonucunu değiştirebilir.
-const REACTIONS = [
-  { id: 'cozunme', needs: ['toz', 'su'], minTemp: 0, color: 0x7fb6e6, name: 'Çözünme', desc: 'Beyaz toz suda çözündü; şeffaf bir çözelti oluştu.' },
-  { id: 'tuzlu', needs: ['tuz', 'su'], minTemp: 0, color: 0xc4e2f0, name: 'Tuzlu su', desc: 'Tuz suda eridi; tuzlu su hazır.' },
-  { id: 'kopuk', needs: ['efervesan', 'su'], minTemp: 0, color: 0xd6f1ff, name: 'Köpürme', desc: 'Efervesan tablet karbondioksit çıkararak çözündü.', fx: { type: 'bubbles', minTemp: 0 } },
-  { id: 'notr', needs: ['asit', 'baz'], minTemp: 0, color: 0xdff3ff, name: 'Nötrleşme', desc: 'Asit ve baz birbirini nötrleştirdi; ortam ısındı.', heat: 40 },
-  { id: 'pembe', needs: ['baz', 'fenolftalein'], minTemp: 0, color: 0xff4fa3, name: 'Pembe renk', desc: 'Baz ortamında fenolftalein pembeleşti.' },
-  { id: 'renk_kaybi', needs: ['asit', 'baz', 'fenolftalein'], after: 'notr', minTemp: 0, color: 0xf3f6ff, name: 'Renk kayboldu', desc: 'Ortam nötrleşince pembe renk kayboldu.' },
-  { id: 'kaynama', needs: ['su'], minTemp: 100, color: 0xbfe3ff, name: 'Kaynama', desc: 'Su 100 °C\'de kaynayıp buhara dönüştü.', fx: { type: 'steam', minTemp: 95 }, evaporate: true },
-  { id: 'yanma', needs: ['kagit'], minTemp: 200, color: 0x3e2a1e, name: 'Yanma', desc: 'Kağıt yüksek sıcaklıkta yanıp kömürleşti.', fx: { type: 'smoke', minTemp: 150 } },
-];
-
-const FX = {
-  steam: { color: 0xffffff, rate: 18, vy: 0.35, spread: 0.05, life: 1.3, y: 0.42 },
-  bubbles: { color: 0xcfefff, rate: 24, vy: 0.5, spread: 0.06, life: 0.9, y: 0.05 },
-  smoke: { color: 0x666666, rate: 14, vy: 0.25, spread: 0.1, life: 1.6, y: 0.42 },
-};
-
-const TOP = 0.9; // masa üstü yüksekliği
+const TOP = 0.9;
 const TABLE = { hx: 1.3, hz: 0.6 };
 const BURNER_POS = [0, 0.05];
 const HEAT_RANGE = 0.3;
 const TUBE_START = [[-0.8, -0.1], [0.8, -0.1], [0, -0.35]];
 const GLASS_H = 0.4;
 const CONTENT_H = 0.36;
-const MAX_PARTICLES = 320;
+const MAX_PARTICLES = 420;
 const MAX_CONTENTS = 3;
 const SHELF_Y = [1.25, 1.75, 2.25];
+const SHELF_X = [-2.4, -1.2, 0, 1.2, 2.4];
 const PLAYER_SPEED = 1.8;
-const ROOM = { minX: -2.7, maxX: 2.7, minZ: -2.4, maxZ: 2.8 };
+const ROOM = { minX: -3.5, maxX: 3.5, minZ: -3.1, maxZ: 3.4 };
+const FX = {
+  steam: { color: 0xffffff, rate: 18, vy: 0.35, spread: 0.05, life: 1.3, y: 0.42 },
+  bubbles: { color: 0xcfefff, rate: 24, vy: 0.5, spread: 0.06, life: 0.9, y: 0.05 },
+  smoke: { color: 0x666666, rate: 14, vy: 0.25, spread: 0.1, life: 1.6, y: 0.42 },
+};
 
 export function initChem3d(containerId, { onStatus = () => {} } = {}) {
   const container = document.getElementById(containerId);
@@ -61,7 +43,6 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
   // ---------- Sahne ----------
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0xdfe7ea);
-
   const camera = new THREE.PerspectiveCamera(68, width() / height(), 0.05, 40);
   camera.rotation.order = 'YXZ';
 
@@ -70,12 +51,17 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
   renderer.setSize(width(), height());
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.0;
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+  pmrem.dispose();
   renderer.domElement.style.display = 'block';
   renderer.domElement.style.touchAction = 'none';
   renderer.domElement.style.cursor = 'crosshair';
   container.appendChild(renderer.domElement);
 
-  // Üstte imleç ve ipucu (dokunmaz, tıklamayı geçirir)
   const hud = document.createElement('div');
   hud.className = 'chem3d-hud';
   hud.innerHTML = '<div class="chem3d-cross">+</div><div class="chem3d-held" data-held></div><div class="chem3d-msg-hud" data-msg></div><div class="chem3d-hint" data-hint></div>';
@@ -91,116 +77,183 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
   sun.castShadow = true;
   sun.shadow.mapSize.set(1024, 1024);
   scene.add(sun);
-  const flameLight = new THREE.PointLight(0xff8a2b, 0, 1.6);
+  const flameLight = new THREE.PointLight(0xff8a2b, 0, 2);
   scene.add(flameLight);
+  const blastLight = new THREE.PointLight(0xffb060, 0, 4);
+  blastLight.position.set(0, TOP + 0.4, 0);
+  scene.add(blastLight);
 
   // ---------- Oda ----------
   const std = (color, extra = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.85, ...extra });
-  const addBox = (w, h, d, x, y, z, color, parent = scene) => {
-    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), std(color));
+  // ---------- Dokular ----------
+  const canvasTex = (size, paint, repeat = 1) => {
+    const c = document.createElement('canvas');
+    c.width = size;
+    c.height = size;
+    paint(c.getContext('2d'), size);
+    const t = new THREE.CanvasTexture(c);
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.wrapS = THREE.RepeatWrapping;
+    t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(repeat, repeat);
+    t.anisotropy = 4;
+    return t;
+  };
+  const woodTex = canvasTex(512, (g, s) => {
+    g.fillStyle = '#b07c4f';
+    g.fillRect(0, 0, s, s);
+    for (let i = 0; i < 240; i += 1) {
+      g.strokeStyle = `rgba(90,50,20,${0.05 + Math.random() * 0.12})`;
+      g.lineWidth = 0.6 + Math.random() * 1.6;
+      const y = Math.random() * s;
+      g.beginPath();
+      g.moveTo(0, y);
+      g.bezierCurveTo(s * 0.3, y + (Math.random() - 0.5) * 14, s * 0.7, y + (Math.random() - 0.5) * 14, s, y);
+      g.stroke();
+    }
+  }, 1);
+  const tileTex = canvasTex(256, (g, s) => {
+    g.fillStyle = '#e6e2da';
+    g.fillRect(0, 0, s, s);
+    g.strokeStyle = '#b3ab9e';
+    g.lineWidth = 3;
+    g.strokeRect(1.5, 1.5, s - 3, s - 3);
+    for (let i = 0; i < s * 0.6; i += 1) { g.fillStyle = `rgba(0,0,0,${Math.random() * 0.04})`; g.fillRect(Math.random() * s, Math.random() * s, 2, 2); }
+  }, 5);
+  const plasterTex = canvasTex(256, (g, s) => {
+    g.fillStyle = '#eef2ee';
+    g.fillRect(0, 0, s, s);
+    for (let i = 0; i < s * 1.5; i += 1) { g.fillStyle = `rgba(80,90,80,${Math.random() * 0.035})`; g.fillRect(Math.random() * s, Math.random() * s, 2, 2); }
+  }, 3);
+  const woodMat = new THREE.MeshStandardMaterial({ map: woodTex, roughness: 0.5 });
+  const plasterMat = new THREE.MeshStandardMaterial({ map: plasterTex, roughness: 0.95 });
+  const floorMat = new THREE.MeshStandardMaterial({ map: tileTex, roughness: 0.35 });
+  const roundedBox = (w, h, d) => new RoundedBoxGeometry(w, h, d, 3, Math.min(0.02, Math.min(w, h, d) / 3));
+  const addMesh = (geo, mat, x, y, z, parent = scene) => {
+    const m = new THREE.Mesh(geo, mat);
     m.position.set(x, y, z);
-    m.receiveShadow = true;
     m.castShadow = true;
+    m.receiveShadow = true;
     parent.add(m);
     return m;
   };
-  const floor = addBox(8, 0.1, 8, 0, -0.05, 0, 0xc9b79c);
-  floor.position.y = -0.05;
-  addBox(8, 3, 0.1, 0, 1.5, -3.05, 0xe9efe6); // arka duvar
-  addBox(0.1, 3, 8, -3.05, 1.5, 0, 0xe9efe6); // sol duvar
-  addBox(0.1, 3, 8, 3.05, 1.5, 0, 0xe9efe6); // sağ duvar
-  addBox(8, 0.1, 8, 0, 3.0, 0, 0xf5f5f5); // tavan
-
-  // Raflar (arka duvarda)
-  SHELF_Y.forEach(y => addBox(5.2, 0.06, 0.5, 0, y, -2.8, 0x8d6e63));
+  // Renk sayısı verilirse standart malzeme, malzeme verilirse doğrudan kullanılır
+  const addBox = (w, h, d, x, y, z, mat, parent = scene) =>
+    addMesh(roundedBox(w, h, d), typeof mat === 'number' ? std(mat) : mat, x, y, z, parent);
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(9, 9), floorMat);
+  floor.rotation.x = -Math.PI / 2;
+  floor.receiveShadow = true;
+  scene.add(floor);
+  addBox(9, 3.2, 0.1, 0, 1.6, -3.7, plasterMat); // arka duvar
+  addBox(0.1, 3.2, 9, -4.2, 1.6, 0, plasterMat); // sol duvar
+  addBox(0.1, 3.2, 9, 4.2, 1.6, 0, plasterMat); // sağ duvar
+  addBox(9, 0.1, 9, 0, 3.2, 0, plasterMat); // tavan
+  SHELF_Y.forEach(y => addBox(5.4, 0.06, 0.5, 0, y, -3.4, 0x8d6e63));
 
   // Masa
-  addBox(TABLE.hx * 2, 0.08, TABLE.hz * 2, 0, TOP - 0.04, 0, 0x8d6e63);
-  [[-1.2, -0.5], [1.2, -0.5], [-1.2, 0.5], [1.2, 0.5]].forEach(([x, z]) => addBox(0.08, TOP - 0.08, 0.08, x, (TOP - 0.08) / 2, z, 0x6d4c41));
+  addBox(TABLE.hx * 2, 0.08, TABLE.hz * 2, 0, TOP - 0.04, 0, woodMat);
+  [[-1.2, -0.5], [1.2, -0.5], [-1.2, 0.5], [1.2, 0.5]].forEach(([x, z]) => addBox(0.08, TOP - 0.08, 0.08, x, (TOP - 0.08) / 2, z, woodMat));
 
-  // ---------- Raftaki malzemeler (şişeler) ----------
+  // ---------- Periyodik tablo (sol duvarda) ----------
+  const TILE = 64;
+  const BOARD_W = 18 * TILE;
+  const BOARD_H = TILE * 5; // 1 başlık + 4 periyot
+  const boardCanvas = document.createElement('canvas');
+  boardCanvas.width = BOARD_W;
+  boardCanvas.height = BOARD_H;
+  const bctx = boardCanvas.getContext('2d');
+  bctx.fillStyle = '#fbfcfb';
+  bctx.fillRect(0, 0, BOARD_W, BOARD_H);
+  bctx.fillStyle = '#1b6b50';
+  bctx.font = '600 34px system-ui, sans-serif';
+  bctx.textAlign = 'center';
+  bctx.fillText('Periyodik Tablo — tıklayıp element alın', BOARD_W / 2, 44);
+  const CATEGORY = el => (['Li', 'Na', 'K'].includes(el[0]) ? '#ffd7c2' : ['Be', 'Mg', 'Ca'].includes(el[0]) ? '#ffe9c2' : el[2] >= 13 ? '#dbeaff' : '#e8f7ee');
+  ELEMENTS.forEach(el => {
+    const x = (el[2] - 1) * TILE;
+    const y = TILE + (el[3] - 1) * TILE;
+    bctx.fillStyle = CATEGORY(el);
+    bctx.fillRect(x + 3, y + 3, TILE - 6, TILE - 6);
+    bctx.fillStyle = '#17352b';
+    bctx.font = '600 24px system-ui, sans-serif';
+    bctx.textAlign = 'left';
+    bctx.fillText(el[0], x + 8, y + 28);
+    bctx.font = '12px system-ui, sans-serif';
+    bctx.fillText(el[4].toFixed(1), x + 8, y + 50);
+  });
+  const boardTex = new THREE.CanvasTexture(boardCanvas);
+  boardTex.colorSpace = THREE.SRGBColorSpace;
+  const board = new THREE.Mesh(
+    new THREE.PlaneGeometry(4.6, 4.6 * (BOARD_H / BOARD_W)),
+    new THREE.MeshStandardMaterial({ map: boardTex, roughness: 0.6 })
+  );
+  board.position.set(-4.14, 1.5, 0);
+  board.rotation.y = Math.PI / 2;
+  board.userData = { kind: 'board' };
+  scene.add(board);
+
+  // ---------- Raftaki malzemeler ----------
+  // Dönel geometri (profil: [yarıçap, yükseklik] noktaları)
+  const lathe = pts => new THREE.LatheGeometry(pts.map(([x, y]) => new THREE.Vector2(x, y)), 40);
+  const glassMat = new THREE.MeshPhysicalMaterial({ color: 0xffffff, roughness: 0.04, transparent: true, opacity: 0.24, clearcoat: 1, clearcoatRoughness: 0.05, side: THREE.DoubleSide, depthWrite: false });
+  const BOTTLE_OUTER = [[0, -0.13], [0.07, -0.13], [0.078, -0.115], [0.078, 0.05], [0.036, 0.085], [0.03, 0.12], [0.03, 0.14], [0, 0.14]];
+  const BOTTLE_LIQUID = [[0, -0.12], [0.065, -0.12], [0.07, -0.1], [0.07, 0.04], [0, 0.04]];
   const bottles = [];
-  const shelfItems = CHEM3D_MATERIALS;
-  shelfItems.forEach((mat, i) => {
+  SHELF_KEYS.forEach((key, i) => {
     const row = Math.floor(i / 5);
     const col = i % 5;
-    const x = -1.6 + col * 0.8;
-    const y = SHELF_Y[row] + (mat.tool ? 0.04 : 0.14);
-    const z = -2.8;
-    let mesh;
-    if (mat.tool) {
-      mesh = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.04, 0.05), std(mat.color));
+    const s2 = SUBSTANCES[key];
+    const group = new THREE.Group();
+    if (s2.tool) {
+      addMesh(roundedBox(0.24, 0.05, 0.06), new THREE.MeshStandardMaterial({ color: s2.color, roughness: 0.4, metalness: 0.2 }), 0, 0.03, 0, group);
     } else {
-      mesh = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.075, 0.075, 0.26, 18),
-        new THREE.MeshStandardMaterial({ color: mat.color, transparent: true, opacity: 0.85, roughness: 0.2 })
-      );
+      group.add(new THREE.Mesh(lathe(BOTTLE_LIQUID), new THREE.MeshPhysicalMaterial({ color: s2.color, roughness: 0.15, transparent: true, opacity: 0.85 })));
+      group.add(new THREE.Mesh(lathe(BOTTLE_OUTER), glassMat));
+      const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.034, 0.034, 0.04, 20), new THREE.MeshStandardMaterial({ color: 0x2b2b2b, roughness: 0.5 }));
+      cap.position.y = 0.16;
+      group.add(cap);
     }
-    mesh.position.set(x, y, z);
-    mesh.castShadow = true;
-    mesh.userData = { kind: 'bottle', key: mat.key };
-    scene.add(mesh);
-    bottles.push(mesh);
+    group.position.set(SHELF_X[col], SHELF_Y[row] + (s2.tool ? 0 : 0.13), -3.4);
+    group.userData = { kind: 'bottle', key };
+    scene.add(group);
+    bottles.push(group);
   });
 
-  // ---------- Tüpler (cam beher) ----------
+  // ---------- Tüpler ----------
+  const TUBE_GLASS = [[0, -0.2], [0.1, -0.2], [0.126, -0.19], [0.13, -0.17], [0.13, 0.19], [0.136, 0.2], [0.138, 0.21]];
+  const TUBE_INNER = [[0, 0], [0.104, 0], [0.113, 0.012], [0.116, 0.03], [0.116, 1], [0, 1]];
   const createTube = (x, z) => {
     const root = new THREE.Group();
-    const glass = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.13, 0.13, GLASS_H, 20),
-      new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.25, roughness: 0.1 })
-    );
+    const glass = new THREE.Mesh(lathe(TUBE_GLASS), glassMat);
     glass.castShadow = true;
-    const bottom = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.13, 0.02, 20), std(0xcfd8dc));
-    bottom.position.y = -GLASS_H / 2 + 0.01;
     const content = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.115, 0.115, 1, 20),
-      new THREE.MeshStandardMaterial({ color: 0xffffff, transparent: true, opacity: 0.92 })
+      lathe(TUBE_INNER),
+      new THREE.MeshPhysicalMaterial({ color: 0xffffff, roughness: 0.12, transparent: true, opacity: 0.9, clearcoat: 0.6 })
     );
     content.visible = false;
-    root.add(glass, bottom, content);
+    content.position.y = -0.18;
+    root.add(glass, content);
     root.position.set(x, TOP + 0.22, z);
     root.userData = {
-      kind: 'tube',
-      content,
-      contents: [],
-      reacted: new Set(),
-      reactionColor: null,
-      target: new THREE.Color(0xffffff),
-      fx: [],
-      emitAcc: {},
-      temp: 20,
-      volume: 1,
-      home: [x, z],
+      kind: 'tube', content, contents: [], lastAdded: null, reacted: new Set(), reactionColor: null,
+      target: new THREE.Color(0xffffff), fx: [], emitAcc: {}, temp: 20, volume: 1, home: [x, z],
     };
     scene.add(root);
     return root;
   };
   const tubes = TUBE_START.map(([x, z]) => createTube(x, z));
 
-  // ---------- İspirto ocağı ----------
+  // ---------- İspirto ocağı, üçayak, amyant teli ----------
   const burner = new THREE.Group();
-  const body = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.16, 0.2, 0.12, 24),
-    new THREE.MeshStandardMaterial({ color: 0x9aa6ad, metalness: 0.6, roughness: 0.35 })
-  );
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.2, 0.12, 24), new THREE.MeshStandardMaterial({ color: 0x9aa6ad, metalness: 0.6, roughness: 0.35 }));
   body.position.y = 0.06;
   body.castShadow = true;
-  const cap = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.1, 0.1, 0.03, 20),
-    new THREE.MeshStandardMaterial({ color: 0x5f6b72, metalness: 0.5, roughness: 0.4 })
-  );
+  const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.03, 20), new THREE.MeshStandardMaterial({ color: 0x5f6b72, metalness: 0.5, roughness: 0.4 }));
   cap.position.y = 0.135;
   const flame = new THREE.Group();
-  const outerFlame = new THREE.Mesh(
-    new THREE.ConeGeometry(0.1, 0.26, 14),
-    new THREE.MeshStandardMaterial({ color: 0xff7a1a, emissive: 0xff5500, emissiveIntensity: 0.9, transparent: true, opacity: 0.9 })
-  );
+  const outerFlame = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.26, 14), new THREE.MeshStandardMaterial({ color: 0xff7a1a, emissive: 0xff5500, emissiveIntensity: 0.9, transparent: true, opacity: 0.9 }));
   outerFlame.position.y = 0.16;
-  const innerFlame = new THREE.Mesh(
-    new THREE.ConeGeometry(0.05, 0.16, 12),
-    new THREE.MeshStandardMaterial({ color: 0xffe066, emissive: 0xffd000, emissiveIntensity: 1 })
-  );
+  const innerFlame = new THREE.Mesh(new THREE.ConeGeometry(0.05, 0.16, 12), new THREE.MeshStandardMaterial({ color: 0xffe066, emissive: 0xffd000, emissiveIntensity: 1 }));
   innerFlame.position.y = 0.1;
   flame.add(outerFlame, innerFlame);
   flame.position.y = 0.15;
@@ -210,7 +263,6 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
   burner.userData = { kind: 'burner' };
   scene.add(burner);
 
-  // Üç ayaklı ve amyant teli (ocağın üstüne kurulur; tüpler teli üstünde ısıtılır)
   const tripod = new THREE.Group();
   const iron = new THREE.MeshStandardMaterial({ color: 0x6b6b6b, metalness: 0.7, roughness: 0.4 });
   for (let k = 0; k < 3; k += 1) {
@@ -224,10 +276,7 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
   const ring = new THREE.Mesh(new THREE.TorusGeometry(0.22, 0.01, 8, 36), iron);
   ring.rotation.x = Math.PI / 2;
   ring.position.y = 0.5;
-  const gauze = new THREE.Mesh(
-    new THREE.PlaneGeometry(0.44, 0.44, 12, 12),
-    new THREE.MeshBasicMaterial({ color: 0x8e8e8e, wireframe: true })
-  );
+  const gauze = new THREE.Mesh(new THREE.PlaneGeometry(0.44, 0.44, 12, 12), new THREE.MeshBasicMaterial({ color: 0x8e8e8e, wireframe: true }));
   gauze.rotation.x = -Math.PI / 2;
   gauze.position.y = 0.5;
   tripod.add(ring, gauze);
@@ -236,7 +285,7 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
   tripod.userData = { kind: 'tripod' };
   scene.add(tripod);
 
-  // ---------- Parçacıklar (buhar, köpük, duman) ----------
+  // ---------- Parçacıklar ----------
   const pGeo = new THREE.BufferGeometry();
   const pPos = new Float32Array(MAX_PARTICLES * 3);
   const pCol = new Float32Array(MAX_PARTICLES * 3);
@@ -245,11 +294,7 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
   pGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3));
   pGeo.setAttribute('color', new THREE.BufferAttribute(pCol, 3));
   for (let i = 0; i < MAX_PARTICLES; i++) pPos[i * 3 + 1] = -100;
-  const points = new THREE.Points(
-    pGeo,
-    new THREE.PointsMaterial({ size: 0.09, vertexColors: true, transparent: true, opacity: 0.8, depthWrite: false })
-  );
-  scene.add(points);
+  scene.add(new THREE.Points(pGeo, new THREE.PointsMaterial({ size: 0.09, vertexColors: true, transparent: true, opacity: 0.85, depthWrite: false })));
   let cursor = 0;
   const spawn = (x, y, z, color, vy, spread, life) => {
     const i = cursor;
@@ -260,33 +305,46 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
     pCol.set([c.r, c.g, c.b], i * 3);
     pLife[i] = life;
   };
+  const blast = (tube) => {
+    for (let i = 0; i < 90; i += 1) {
+      const hot = Math.random() < 0.5;
+      spawn(tube.position.x, TOP + 0.3, tube.position.z, hot ? 0xffa040 : 0xffffff, 0.8 + Math.random() * 1.6, 1.8, 1.1);
+    }
+  };
 
   // ---------- Oyuncu ----------
-  const player = { x: 0, z: 2.1, yaw: 0, pitch: -0.2 };
+  const player = { x: 0, z: 2.6, yaw: 0, pitch: -0.2 };
   const keys = new Set();
-  const pickables = () => [...bottles, ...tubes, burner, tripod];
+  const pickables = () => [...bottles, ...tubes, burner, tripod, board];
 
   // ---------- Durum ----------
-  let heldKey = null; // elindeki malzeme (şişeden)
-  let carried = null; // elindeki tüp
+  let heldKey = null;
+  let carried = null;
   let lit = false;
   let tripodOn = false;
+  let shake = 0;
   let disposed = false;
   let time = 0;
   let dragging = false;
   let press = null;
 
-  const materialOf = key => CHEM3D_MATERIALS.find(m => m.key === key);
+  const materialOf = key => SUBSTANCES[key];
   const hottest = () => Math.round(Math.max(...tubes.map(t => t.userData.temp)));
   const heldLabel = () => {
-    if (carried) return 'Elinizde: tüp (masaya tıklayın)';
+    if (carried) return 'Elinizde: tüp';
     if (heldKey) return `Elinizde: ${materialOf(heldKey).name}`;
     return '';
   };
-  const emit = (message, tone) => {
+  const tubeInfo = tube => {
+    const d = tube.userData;
+    const mix = mixtureProps(d.contents);
+    const contents = d.contents.length ? d.contents.map(k => materialOf(k).name).join(' + ') : 'boş';
+    return `Tüp: ${Math.round(d.temp)}°C · ${mix.volumeMl} mL · ${mix.massG} g · yoğunluk ${mix.densityGmL} g/mL · ${contents}`;
+  };
+  const emit = (message, tone, info) => {
     if (disposed) return;
     heldEl.textContent = heldLabel();
-    onStatus({ hottest: hottest(), selected: heldKey, carrying: Boolean(carried), burnerOn: lit, message, tone });
+    onStatus({ hottest: hottest(), selected: heldKey, carrying: Boolean(carried), burnerOn: lit, message, tone, info });
   };
   const say = (message, tone = 'info') => {
     if (disposed) return;
@@ -295,27 +353,24 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
     emit(message, tone);
   };
 
-  // ---------- Tepkime mantığı ----------
+  // ---------- Tepkimeler ----------
   const averageColor = d => {
     const sum = new THREE.Color(0, 0, 0);
     d.contents.forEach(k => sum.add(new THREE.Color(materialOf(k).color)));
     return d.contents.length ? sum.multiplyScalar(1 / d.contents.length) : new THREE.Color(0xffffff);
   };
 
-  const checkReactions = (tube, dt) => {
+  const checkReactions = tube => {
     const d = tube.userData;
-    for (const r of REACTIONS) {
-      if (d.reacted.has(r.id)) continue;
-      if (!r.needs.every(k => d.contents.includes(k))) continue;
-      if (r.after && !d.reacted.has(r.after)) continue;
-      if (d.temp < r.minTemp) continue;
+    const events = applicableReactions({ contents: d.contents, temp: d.temp, lastAdded: d.lastAdded, reacted: d.reacted });
+    for (const r of events) {
       d.reacted.add(r.id);
       d.reactionColor = new THREE.Color(r.color);
       if (r.heat) d.temp += r.heat;
       if (r.fx && !d.fx.some(f => f.type === r.fx.type)) d.fx.push(r.fx);
-      say(`${r.name}: ${r.desc}`, 'ok');
+      if (r.explosion) { blast(tube); shake = 1; blastLight.intensity = 6; }
+      say(`${r.name}: ${r.desc}`, r.tone);
     }
-    void dt;
   };
 
   const pour = (tube, key) => {
@@ -324,13 +379,14 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
     if (d.contents.includes(key)) return say(`${mat.name} bu tüpte zaten var.`, 'warn');
     if (d.contents.length >= MAX_CONTENTS) return say('Tüp dolu: en fazla üç malzeme karıştırılabilir.', 'warn');
     d.contents.push(key);
+    d.lastAdded = key;
     d.target.copy(d.reactionColor ?? averageColor(d));
     heldKey = null;
     say(`${mat.name} tüpe döküldü.`, 'info');
     checkReactions(tube);
   };
 
-  // ---------- Girdi: bakış ve hareket ----------
+  // ---------- Girdi ----------
   const onKeyDown = e => {
     if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key)) e.preventDefault();
     if (e.key.toLowerCase() === 'q' && !e.repeat) { dropAll(); return; }
@@ -344,17 +400,18 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
   const ray = new THREE.Raycaster();
   const tablePlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -TOP);
   const hitPoint = new THREE.Vector3();
-
   const rootOf = obj => {
     let o = obj;
     while (o && !o.userData?.kind) o = o.parent;
     return o;
   };
-  const centerHit = () => {
+  const hitCenter = () => {
     ray.setFromCamera(ndcCenter, camera);
-    const hit = ray.intersectObjects(pickables(), true)
-      .find(h => rootOf(h.object)?.userData.kind !== 'tripod' || tripodOn);
-    return hit ? rootOf(hit.object) : null;
+    return ray.intersectObjects(pickables(), true).find(h => rootOf(h.object)?.userData.kind !== 'tripod' || tripodOn) ?? null;
+  };
+  const centerHit = () => {
+    const h = hitCenter();
+    return h ? rootOf(h.object) : null;
   };
   const tableTarget = () => {
     ray.setFromCamera(ndcCenter, camera);
@@ -363,7 +420,6 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
     return hitPoint.clone();
   };
 
-  // Elindekini bırak: tüp varsa son geçerli konumuna (ya da baktığın masa noktasına) konur.
   const dropCarried = () => {
     if (!carried) return false;
     const p = tableTarget();
@@ -385,13 +441,33 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
     say(had ? 'Elinizdekini bıraktınız.' : 'Elinizde bir şey yok.', 'info');
   };
 
+  const boardElement = hit => {
+    const u = hit.uv.x;
+    const vPx = (1 - hit.uv.y) * BOARD_H;
+    if (vPx < TILE) return null;
+    const group = Math.floor(u * 18) + 1;
+    const period = Math.floor((vPx - TILE) / TILE) + 1;
+    const el = ELEMENTS.find(e => e[2] === group && e[3] === period);
+    return el ? el[0] : null;
+  };
+
   const interact = () => {
-    const target = centerHit();
-    // Tüp elde: her tıklama bırakır (artık takılı kalmaz)
-    if (carried) {
-      dropCarried();
-      return say('Tüp bırakıldı.', 'info');
+    const hit = hitCenter();
+    const target = hit ? rootOf(hit.object) : null;
+    if (carried) { dropCarried(); return say('Tüp bırakıldı.', 'info'); }
+
+    if (target?.userData.kind === 'board') {
+      const symbol = boardElement(hit);
+      if (!symbol) return say('Bu alan periyodik tablo dışında.', 'info');
+      const e = elementInfo(symbol);
+      if (e.item) {
+        if (heldKey) dropHeld();
+        heldKey = e.item;
+        return say(`${e.name} (${e.symbol}) alındı. Tüpe ya da suya dökün.`, 'ok');
+      }
+      return say(`${e.name} (${e.symbol}): grup ${e.group}, periyot ${e.period}, atom kütlesi ${e.mass} g/mol. Bu element laboratuvarda yok.`, 'info');
     }
+
     if (heldKey) {
       const held = materialOf(heldKey);
       if (target?.userData.kind === 'bottle') {
@@ -400,6 +476,10 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
         return say(`${materialOf(heldKey).name} elinizde. Bir tüpe ya da ocağa tıklayın.`, 'info');
       }
       if (target?.userData.kind === 'tube') {
+        if (heldKey === 'termometre') {
+          dropHeld();
+          return say(`Sıcaklık: ${Math.round(target.userData.temp)} °C`, 'info');
+        }
         if (held.tool) { dropHeld(); return say(`${held.name} tüpe kullanılmaz; bıraktınız.`, 'warn'); }
         return pour(target, heldKey);
       }
@@ -419,7 +499,7 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
       dropHeld();
       return say(`${held.name} bırakıldı.`, 'info');
     }
-    // Elde değil: al
+
     if (target?.userData.kind === 'bottle') {
       heldKey = target.userData.key;
       return say(`${materialOf(heldKey).name} elinizde. Bir tüpe ya da ocağa tıklayın.`, 'info');
@@ -442,17 +522,15 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
   };
 
   const onPointerDown = e => {
-    press = { x: e.clientX, y: e.clientY, moved: false };
+    press = { x: e.clientX, y: e.clientY, moved: false, lx: e.clientX, ly: e.clientY };
     renderer.domElement.setPointerCapture?.(e.pointerId);
   };
   const onPointerMove = e => {
     if (!press) return;
-    const dx = e.clientX - press.x;
-    const dy = e.clientY - press.y;
-    if (!press.moved && Math.hypot(dx, dy) > 6) { press.moved = true; dragging = true; }
+    if (!press.moved && Math.hypot(e.clientX - press.x, e.clientY - press.y) > 6) { press.moved = true; dragging = true; }
     if (dragging) {
-      player.yaw -= (e.clientX - (press.lx ?? press.x)) * 0.005;
-      player.pitch = THREE.MathUtils.clamp(player.pitch - (e.clientY - (press.ly ?? press.y)) * 0.004, -1.2, 1.2);
+      player.yaw -= (e.clientX - press.lx) * 0.005;
+      player.pitch = THREE.MathUtils.clamp(player.pitch - (e.clientY - press.ly) * 0.004, -1.2, 1.2);
     }
     press.lx = e.clientX;
     press.ly = e.clientY;
@@ -469,17 +547,16 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
   renderer.domElement.addEventListener('pointerup', onPointerUp);
   renderer.domElement.addEventListener('pointercancel', onPointerUp);
 
-  // ---------- Her karede güncelleme ----------
+  // ---------- Her karede ----------
   const collidesTable = (x, z) => Math.abs(x) < TABLE.hx + 0.2 && Math.abs(z) < TABLE.hz + 0.2;
-
   const movePlayer = dt => {
     const forward = (keys.has('w') || keys.has('arrowup') ? 1 : 0) - (keys.has('s') || keys.has('arrowdown') ? 1 : 0);
     const strafe = (keys.has('d') || keys.has('arrowright') ? 1 : 0) - (keys.has('a') || keys.has('arrowleft') ? 1 : 0);
     if (!forward && !strafe) return;
     const sin = Math.sin(player.yaw);
     const cos = Math.cos(player.yaw);
-    let dx = (-sin * forward + cos * strafe);
-    let dz = (-cos * forward - sin * strafe);
+    let dx = -sin * forward + cos * strafe;
+    let dz = -cos * forward - sin * strafe;
     const len = Math.hypot(dx, dz) || 1;
     dx = (dx / len) * PLAYER_SPEED * dt;
     dz = (dz / len) * PLAYER_SPEED * dt;
@@ -494,8 +571,13 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
     movePlayer(dt);
     camera.position.set(player.x, 1.55, player.z);
     camera.rotation.set(player.pitch, player.yaw, 0);
+    if (shake > 0) {
+      shake = Math.max(0, shake - dt * 2.2);
+      camera.position.x += (Math.random() - 0.5) * shake * 0.08;
+      camera.position.y += (Math.random() - 0.5) * shake * 0.08;
+    }
+    blastLight.intensity = Math.max(0, blastLight.intensity - dt * 8);
 
-    // Taşınan tüp: bakılan masa noktasının üstünde süzülür
     if (carried) {
       const p = tableTarget();
       if (p) carried.position.lerp(new THREE.Vector3(p.x, TOP + 0.4, p.z), Math.min(1, dt * 10));
@@ -520,20 +602,18 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
       const rate = near ? 90 : 35;
       const delta = goal - d.temp;
       d.temp += Math.sign(delta) * Math.min(Math.abs(delta), rate * dt);
-
       if (d.reacted.has('kaynama') && d.temp >= 100) d.volume = Math.max(0.35, d.volume - dt * 0.02);
-      checkReactions(tube, dt);
+      checkReactions(tube);
 
-      const fillSum = d.contents.reduce((s, k) => s + materialOf(k).fill, 0);
+      const fillSum = d.contents.reduce((s, k) => s + (materialOf(k).fill ?? 0), 0);
       const level = Math.min(1, fillSum) * d.volume;
       d.content.visible = level > 0.001;
       if (d.content.visible) {
         const h = Math.max(0.001, level * CONTENT_H);
         d.content.scale.y = h;
-        d.content.position.y = -0.18 + h / 2;
+        d.content.position.y = -0.18;
         d.content.material.color.lerp(d.reactionColor ?? averageColor(d), Math.min(1, dt * 4));
       }
-
       for (const fx of d.fx) {
         if (d.temp < fx.minTemp) continue;
         const spec = FX[fx.type];
@@ -552,21 +632,27 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
       pPos[i * 3] += pVel[i * 3] * dt;
       pPos[i * 3 + 1] += pVel[i * 3 + 1] * dt;
       pPos[i * 3 + 2] += pVel[i * 3 + 2] * dt;
+      pVel[i * 3 + 1] -= dt * 0.6;
     }
     pGeo.attributes.position.needsUpdate = true;
     pGeo.attributes.color.needsUpdate = true;
 
-    // Bakılan nesneye göre ipucu
+    // İpucu ve tüp bilgisi
     const target = centerHit();
     let hint = '';
+    let info = '';
     if (carried) hint = 'Tüp elinizde: tıklayın ya da Q ile bırakın';
-    else if (heldKey) hint = `Elinizde ${materialOf(heldKey).name}: tüpe/ocağa tıklayın, boşluğa tıklayın ya da Q ile bırakın`;
+    else if (heldKey) hint = `Elinizde ${materialOf(heldKey).name}: tüpe/ocağa tıklayın, boşluğa tıklayın ya da Q`;
     else if (target?.userData.kind === 'bottle') hint = `Al: ${materialOf(target.userData.key).name}`;
-    else if (target?.userData.kind === 'tube') hint = 'Tüpü al (elinizde malzeme yoksa) ya da malzeme dök';
-    else if (target?.userData.kind === 'burner') hint = lit ? 'Ocağı söndür' : 'Ocağı yak (kibrit gerekir)';
+    else if (target?.userData.kind === 'tube') { hint = 'Tüp: malzeme dökmek için elinizde malzeme olmalı; boşsa tüpü alın'; info = tubeInfo(target); }
+    else if (target?.userData.kind === 'burner') hint = lit ? 'Ocağı söndür' : 'Ocağı yak (kibrit ve üç ayaklı gerekir)';
+    else if (target?.userData.kind === 'tripod') hint = 'Üç ayaklıyı al';
+    else if (target?.userData.kind === 'board') hint = 'Periyodik tablo: element almak için tıklayın';
     else hint = 'W A S D ile gezin, sürükleyerek bakın';
     if (hint !== hintEl.textContent) hintEl.textContent = hint;
+    if (info) onStatusInfo = info; else onStatusInfo = '';
   };
+  let onStatusInfo = '';
 
   // ---------- Boyut ----------
   const onResize = () => {
@@ -594,6 +680,7 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
       obj.geometry?.dispose();
       if (obj.material) (Array.isArray(obj.material) ? obj.material : [obj.material]).forEach(m => m.dispose());
     });
+    [boardTex, woodTex, tileTex, plasterTex].forEach(t => t.dispose());
     renderer.dispose();
     renderer.domElement.remove();
     hud.remove();
@@ -611,7 +698,7 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
     step(dt);
     renderer.render(scene, camera);
     heartbeat += dt;
-    if (heartbeat > 0.25) { heartbeat = 0; emit(); }
+    if (heartbeat > 0.2) { heartbeat = 0; emit(undefined, undefined, onStatusInfo); }
   };
   frameId = requestAnimationFrame(loop);
 
@@ -633,16 +720,10 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
     reset() {
       tubes.forEach((tube, i) => {
         const d = tube.userData;
-        d.contents = [];
+        Object.assign(d, { contents: [], lastAdded: null, reactionColor: null, fx: [], emitAcc: {}, temp: 20, volume: 1, home: [TUBE_START[i][0], TUBE_START[i][1]] });
         d.reacted.clear();
-        d.reactionColor = null;
-        d.fx = [];
-        d.emitAcc = {};
-        d.temp = 20;
-        d.volume = 1;
         d.content.visible = false;
         d.target.set(0xffffff);
-        d.home = [TUBE_START[i][0], TUBE_START[i][1]];
         tube.position.set(TUBE_START[i][0], TOP + 0.22, TUBE_START[i][1]);
       });
       pLife.fill(0);
@@ -651,7 +732,7 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
       tripodOn = false;
       heldKey = null;
       carried = null;
-      player.x = 0; player.z = 2.1; player.yaw = 0; player.pitch = -0.2;
+      player.x = 0; player.z = 2.6; player.yaw = 0; player.pitch = -0.2;
       say('Laboratuvar sıfırlandı.', 'info');
     },
   };

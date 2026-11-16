@@ -46,3 +46,14 @@ Render'da gerekli ortam değişkenleri: DATABASE_URL (ayarlı). Üretimde SUPABA
 - Raftan "Üç ayaklı + amyant teli" alınıp ocağın üstüne kurulur. Tüpler amyant telinin üstünde ısıtılır; üçayak yoksa ocak ısıtmaz.
 - Elde tutulan tüp artık takılı kalmaz: her tıklama bırakır, Q tuşu her şeyi bırakır.
 - Grafikler ızgara, eksen etiketleri ve gradyan dolgu ile yeniden çizildi (fizik, yay-kütle, titrasyon).
+
+## Kimya laboratuvarı v4: genişletilmiş oda, periyodik tablo, termometre, tüp bilgisi
+- Oda büyüdü; sol duvarda periyodik tablo var. Tıklayarak element alınır (Na, Mg); diğer elementler bilgi verir.
+- Termometre: elinize alıp tüpe tıklayın; sıcaklığı ölçer. Tüp bilgisi (sıcaklık, hacim, kütle, yoğunluk, içerik) bakarken görünür.
+- Tepkimeler public/chemistry.js içinde: asit üstüne su dökmek (sıçrama ve ani ısınma, kamera sarsıntısı), suya asit eklemek (güvenli), sodyum+su (patlama), magnezyum+asit (hidrojen).
+- Kurallar ve maddelerin yoğunlukları test/chemistry.test.mjs ile doğrulanır.
+
+## Kimya 3D görsel yenileme
+- Cam tüpler ve şişeler dönel (yuvarlatılmış) profillerden; ahşap masa, karo zemin ve sıva duvar dokuları eklendi.
+- Ortam yansımaları (RoomEnvironment) ve ACES ton eşleme ile daha gerçekçi ışık.
+- Arayüz: cam efektli kutular, yumuşak gölgeler, malzeme düğmelerinde etkileşim, düzenli durum kartları.
