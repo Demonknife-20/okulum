@@ -24,6 +24,7 @@ export const SUBSTANCES = {
   termometre: { name: 'Lazerli termometre', formula: '—', tool: true, color: 0xe53935 },
   tup: { name: 'Yeni deney tüpü', formula: '—', tool: true, color: 0xdfe9ef },
   cimbiz: { name: 'Cımbız', formula: '—', tool: true, color: 0xb0bec5 },
+  tarti: { name: 'Dijital tartı', formula: '—', tool: true, color: 0x607d8b },
   radyasyon: { name: 'Radyasyon ölçer', formula: '—', tool: true, color: 0x424242 },
   eldiven: { name: 'Eldiven', formula: '—', tool: true, color: 0x42a5f5, ppe: true },
   gozluk: { name: 'Koruyucu gözlük', formula: '—', tool: true, color: 0x90caf9, ppe: true },
@@ -134,7 +135,7 @@ export const SURFACE_LOSS = 2.5;
 export const AMBIENT = 20;
 export const GLASS_HEAT = 15; // J/K: cam tüpün ısı kapasitesi
 export const WATER_LATENT = 2260; // J/g buharlaşma ısısı
-export const EVAP_SPEEDUP = 8;    // oyun hızlandırması: gerçek süreden 8 kat hızlı buharlaşma
+export const EVAP_SPEEDUP = 25;   // oyun hızlandırması: su gerçekte dakikalar sürer; burada yaklaşık yarım dakika
 
 // Bir tüpün sıcaklığını dt saniye ilerletir. Su varsa 100 °C'de kaynama plato yapar.
 // Döner: { temp, evaporatedMl } — buharlaşan su miktarı (mL).
@@ -195,6 +196,14 @@ export function applicableReactions(state) {
     out.push(r);
   }
   return out;
+}
+
+// Tartı: maddenin kütlesi (g). Sıvılarda hacim × yoğunluk, katılarda kütle.
+export function itemMass(key) {
+  const s = SUBSTANCES[key];
+  if (!s || s.tool) return null;
+  if (s.kind === 'liquid') return Number((s.ml * s.density).toFixed(2));
+  return Number((s.g ?? 1).toFixed(2));
 }
 
 // Radyasyon dozu (µSv/h): arka plan + her kaynak için güç / (uzaklık² + 0.05)

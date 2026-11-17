@@ -96,3 +96,10 @@ Render'da gerekli ortam değişkenleri: DATABASE_URL (ayarlı). Üretimde SUPABA
 - Raflar alçaltıldı ve bakış açısı ayarlandı; yukarı bakmak gerekmez.
 - Tuşlar pencere odağı kaybolunca ya da sekme gizlenince temizlenir (takılı kalma sorunu).
 - Ekranın sol altında ▲ ◀ ▼ ▶ yön düğmeleri var (dokunmatik ve fare için).
+
+## Kimya 3D: tam el modu, elde görünen eşyalar, tartı, buharlaşma
+- Tam el modu: iki el (parmaklı), tıklayınca el uzanır, yürürken hafif sallanır. Eldiven giyince eller mavi olur.
+- Elde tutulan madde, alet ya da tüp artık elde görünür. Tüp de elde taşınır.
+- Raftaki aletler (üçayak, cımbız, termometre, kibrit vb.) gerçek şekilleriyle görünür.
+- Dijital tartı masada: elinizdeki maddeye tıklayın ya da tartıya bakın; kütle ekranda görünür.
+- Buharlaşma hızlandırıldı: su yaklaşık yarım dakikada buharlaşır; su bitince tüp 100 °C'nin üstüne çıkar.

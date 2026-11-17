@@ -12,7 +12,7 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import {
   SUBSTANCES, ELEMENTS, elementLayout, elementBySymbol, elementItemKey, ensureElementSubstance,
-  applicableReactions, mixtureProps, stepTemperature, doseRate, requiredPpe, missingPpe, elementInfo,
+  applicableReactions, mixtureProps, stepTemperature, doseRate, requiredPpe, missingPpe, elementInfo, itemMass,
 } from './chemistry.js';
 
 const SHELF_KEYS = ['su', 'asit', 'baz', 'fenolftalein', 'toz', 'tuz', 'efervesan', 'kagit', 'kibrit', 'tripod', 'termometre', 'tup', 'cimbiz', 'radyasyon', 'etanol', 'yag', 'permanganat', 'bakir_sulfat', 'cinko_toz', 'kalsiyum_karbonat'];
@@ -163,6 +163,69 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
   const lathe = pts => new THREE.LatheGeometry(pts.map(([x, y]) => new THREE.Vector2(x, y)), 40);
   const glassMat = new THREE.MeshPhysicalMaterial({ color: 0xffffff, roughness: 0.04, transparent: true, opacity: 0.24, clearcoat: 1, clearcoatRoughness: 0.05, side: THREE.DoubleSide, depthWrite: false });
 
+  // ---------- Eşya modelleri (raf, el ve elde tutulan) ----------
+  const itemModel = key => {
+    const s = SUBSTANCES[key] ?? {};
+    const g = new THREE.Group();
+    if (!s.tool && s.kind === 'liquid') {
+      g.add(new THREE.Mesh(lathe([[0, -0.12], [0.065, -0.12], [0.07, -0.1], [0.07, 0.04], [0, 0.04]]), new THREE.MeshPhysicalMaterial({ color: s.color, roughness: 0.15, transparent: true, opacity: 0.85 })));
+      g.add(new THREE.Mesh(lathe([[0, -0.13], [0.07, -0.13], [0.078, -0.115], [0.078, 0.05], [0.036, 0.085], [0.03, 0.12], [0.03, 0.14], [0, 0.14]]), glassMat));
+      const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.034, 0.034, 0.04, 20), new THREE.MeshStandardMaterial({ color: 0x2b2b2b, roughness: 0.5 }));
+      cap.position.y = 0.16;
+      g.add(cap);
+      return g;
+    }
+    if (!s.tool) {
+      addMesh(roundedBox(0.09, 0.07, 0.09), new THREE.MeshStandardMaterial({ color: s.color ?? 0xcccccc, roughness: 0.6 }), 0, 0.035, 0, g);
+      return g;
+    }
+    const metal = new THREE.MeshStandardMaterial({ color: 0x6b6b6b, metalness: 0.7, roughness: 0.4 });
+    switch (key) {
+      case 'kibrit':
+        addMesh(roundedBox(0.2, 0.04, 0.05), new THREE.MeshStandardMaterial({ color: 0xd32f2f, roughness: 0.5 }), 0, 0.02, 0, g);
+        break;
+      case 'tripod': {
+        for (let k = 0; k < 3; k += 1) {
+          const a = (k / 3) * Math.PI * 2;
+          const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.5, 8), metal);
+          leg.position.set(Math.cos(a) * 0.2, 0.25, Math.sin(a) * 0.2);
+          leg.rotation.set(Math.sin(a) * 0.18, 0, -Math.cos(a) * 0.18);
+          g.add(leg);
+        }
+        const r = new THREE.Mesh(new THREE.TorusGeometry(0.22, 0.01, 8, 36), metal);
+        r.rotation.x = Math.PI / 2;
+        r.position.y = 0.5;
+        const gz = new THREE.Mesh(new THREE.PlaneGeometry(0.44, 0.44, 12, 12), new THREE.MeshBasicMaterial({ color: 0x8e8e8e, wireframe: true }));
+        gz.rotation.x = -Math.PI / 2;
+        gz.position.y = 0.5;
+        g.add(r, gz);
+        break;
+      }
+      case 'termometre':
+        addMesh(new THREE.CylinderGeometry(0.012, 0.012, 0.22, 12), new THREE.MeshStandardMaterial({ color: 0x263238 }), 0, 0.11, 0, g);
+        addMesh(new THREE.SphereGeometry(0.02, 12, 12), new THREE.MeshStandardMaterial({ color: 0xe53935 }), 0, 0.01, 0, g);
+        addMesh(roundedBox(0.05, 0.04, 0.02), new THREE.MeshBasicMaterial({ color: 0x9ff5b0 }), 0, 0.14, 0.012, g);
+        break;
+      case 'tup':
+        g.add(new THREE.Mesh(lathe([[0, -0.2], [0.1, -0.2], [0.126, -0.19], [0.13, -0.17], [0.13, 0.19], [0.136, 0.2], [0.138, 0.21]]), glassMat));
+        break;
+      case 'cimbiz':
+        addMesh(roundedBox(0.012, 0.012, 0.24), metal, -0.018, 0, 0, g);
+        addMesh(roundedBox(0.012, 0.012, 0.24), metal, 0.018, 0, 0, g);
+        break;
+      case 'radyasyon':
+        addMesh(roundedBox(0.14, 0.08, 0.1), std(0x424242), 0, 0.04, 0, g);
+        addMesh(new THREE.CircleGeometry(0.03, 16), new THREE.MeshBasicMaterial({ color: 0xffd600 }), 0, 0.04, 0.052, g);
+        break;
+      case 'tarti':
+        addMesh(roundedBox(0.2, 0.03, 0.2), std(0x607d8b), 0, 0.015, 0, g);
+        break;
+      default:
+        addMesh(roundedBox(0.12, 0.06, 0.08), std(s.color ?? 0xcccccc), 0, 0.03, 0, g);
+    }
+    return g;
+  };
+
   // ---------- Oda ----------
   const floor = new THREE.Mesh(new THREE.PlaneGeometry(9, 9), floorMat);
   floor.rotation.x = -Math.PI / 2;
@@ -248,29 +311,25 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
 
   // ---------- Raftaki malzemeler ----------
   const bottles = [];
-  const lathePts = {
-    outer: [[0, -0.13], [0.07, -0.13], [0.078, -0.115], [0.078, 0.05], [0.036, 0.085], [0.03, 0.12], [0.03, 0.14], [0, 0.14]],
-    liquid: [[0, -0.12], [0.065, -0.12], [0.07, -0.1], [0.07, 0.04], [0, 0.04]],
-  };
   SHELF_KEYS.forEach((key, i) => {
     const row = Math.floor(i / 5);
     const col = i % 5;
     const s = SUBSTANCES[key];
-    const group = new THREE.Group();
-    if (s.tool) {
-      addMesh(roundedBox(0.24, 0.05, 0.06), new THREE.MeshStandardMaterial({ color: s.color, roughness: 0.4, metalness: 0.2 }), 0, 0.03, 0, group);
-    } else {
-      group.add(new THREE.Mesh(lathe(lathePts.liquid), new THREE.MeshPhysicalMaterial({ color: s.color, roughness: 0.15, transparent: true, opacity: 0.85 })));
-      group.add(new THREE.Mesh(lathe(lathePts.outer), glassMat));
-      const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.034, 0.034, 0.04, 20), new THREE.MeshStandardMaterial({ color: 0x2b2b2b, roughness: 0.5 }));
-      cap.position.y = 0.16;
-      group.add(cap);
-    }
+    const group = itemModel(key);
     group.position.set(SHELF_X[col], SHELF_Y[row] + (s.tool ? 0 : 0.13), -3.4);
     group.userData = { kind: 'bottle', key };
     scene.add(group);
     bottles.push(group);
   });
+
+  // ---------- Dijital tartı (masada) ----------
+  const balance = new THREE.Group();
+  addMesh(roundedBox(0.3, 0.03, 0.22), std(0x90a4ae, { metalness: 0.5 }), 0, 0.015, 0, balance);
+  addMesh(roundedBox(0.04, 0.12, 0.04), std(0x607d8b), 0.1, 0.09, -0.08, balance);
+  addMesh(roundedBox(0.1, 0.05, 0.02), std(0x1c2a24), -0.06, 0.12, 0.08, balance);
+  balance.position.set(-0.92, TOP, 0.3);
+  balance.userData = { kind: 'balance' };
+  scene.add(balance);
 
   // ---------- Koruyucu ekipman askısı (sağ duvar) ----------
   const rack = new THREE.Group();
@@ -439,15 +498,41 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
     }
   };
 
-  // ---------- Kollar, önlük, gözlük (birinci şahıs) ----------
+  // ---------- Tam el modu: iki el, kollar, elde tutulan eşya ----------
   const arms = new THREE.Group();
   const skinMat = new THREE.MeshStandardMaterial({ color: 0xf0c8a0, roughness: 0.7 });
   const gloveMat = new THREE.MeshStandardMaterial({ color: 0x42a5f5, roughness: 0.5 });
-  const leftArm = addMesh(roundedBox(0.14, 0.14, 0.42), skinMat, -0.24, -0.3, -0.5, arms);
-  const rightArm = addMesh(roundedBox(0.14, 0.14, 0.42), skinMat, 0.24, -0.3, -0.5, arms);
-  leftArm.rotation.x = 0.25;
-  rightArm.rotation.x = 0.25;
+  const makeHand = mirror => {
+    const h = new THREE.Group();
+    const sx = mirror ? -1 : 1;
+    addMesh(roundedBox(0.1, 0.1, 0.34), skinMat, 0, -0.06, 0.16, h);
+    addMesh(roundedBox(0.11, 0.03, 0.12), skinMat, 0, 0, -0.02, h);
+    for (let f = 0; f < 4; f += 1) addMesh(roundedBox(0.018, 0.02, 0.07), skinMat, (f - 1.5) * 0.024, 0, -0.11, h);
+    addMesh(roundedBox(0.02, 0.02, 0.07), skinMat, 0.07 * sx, 0, -0.03, h);
+    return h;
+  };
+  const rightHand = makeHand(false);
+  rightHand.position.set(0.26, -0.3, -0.5);
+  const leftHand = makeHand(true);
+  leftHand.position.set(-0.26, -0.3, -0.5);
+  arms.add(rightHand, leftHand);
   camera.add(arms);
+  const wearGloves = () => [rightHand, leftHand].forEach(h => h.traverse(o => { if (o.isMesh && o.material === skinMat) o.material = gloveMat; }));
+  let heldShown = null;
+  let heldObj = null;
+  const syncHeld = () => {
+    if (heldKey === heldShown) return;
+    if (heldObj) { rightHand.remove(heldObj); heldObj.traverse(o => o.geometry?.dispose()); }
+    heldObj = null;
+    heldShown = heldKey;
+    if (heldKey) {
+      heldObj = itemModel(heldKey);
+      heldObj.position.set(0, 0.06, -0.2);
+      heldObj.rotation.x = -0.6;
+      heldObj.scale.setScalar(0.9);
+      rightHand.add(heldObj);
+    }
+  };
   const coatOverlay = new THREE.Group();
   addBox(0.09, 0.22, 0.02, -0.4, -0.3, -0.46, 0xf5f5f5, coatOverlay);
   addBox(0.09, 0.22, 0.02, 0.4, -0.3, -0.46, 0xf5f5f5, coatOverlay);
@@ -462,17 +547,11 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
   goggleView.position.set(0, -0.35, -0.3);
   goggleView.visible = false;
   camera.add(goggleView);
-  const tongsView = new THREE.Group();
-  addBox(0.012, 0.012, 0.22, -0.02, 0, 0, 0xb0bec5, tongsView);
-  addBox(0.012, 0.012, 0.22, 0.02, 0, 0, 0xb0bec5, tongsView);
-  tongsView.position.set(0.2, -0.28, -0.45);
-  tongsView.visible = false;
-  camera.add(tongsView);
 
   // ---------- Oyuncu ----------
   const player = { x: 0, z: 2.6, yaw: 0, pitch: -0.12 };
   const keys = new Set();
-  const pickables = () => [...bottles, ...tubes, burner, tripod, board, box, ...ppeHitList()];
+  const pickables = () => [...bottles, ...tubes, burner, tripod, board, box, balance, ...ppeHitList()];
 
   // ---------- Durum ----------
   let heldKey = null;       // elde tutulan malzeme veya alet
@@ -482,7 +561,9 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
   let tripodOn = false;
   const worn = new Set();   // giyilen koruyucu ekipman
   const equipTweens = [];   // ekipman giyme animasyonları
-  let armTime = -1;         // kol kaldırma animasyonu zamanı
+  let armTime = -1;         // kullanılmıyor (geriye dönük uyum)
+  let reachT = 0;           // elin uzanma animasyonu
+  let moving = false;
   let shake = 0;
   let disposed = false;
   let time = 0;
@@ -563,12 +644,11 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
     const mesh = ppeItems[key];
     const from = mesh.getWorldPosition(new THREE.Vector3());
     equipTweens.push({ key, mesh, from, t: 0 });
-    armTime = 0;
     return say(`${itemName(key)} alınıyor…`, 'info');
   };
   const finishEquip = key => {
     worn.add(key);
-    if (key === 'eldiven') { leftArm.material = gloveMat; rightArm.material = gloveMat; }
+    if (key === 'eldiven') wearGloves();
     if (key === 'onluk') coatOverlay.visible = true;
     if (key === 'gozluk') goggleView.visible = true;
     say(`${itemName(key)} giyildi.`, 'ok');
@@ -716,6 +796,14 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
       return say('Cımbızı bıraktınız.', 'info');
     }
 
+    // Tartı: elindeki maddenin kütlesi
+    if (target?.userData.kind === 'balance') {
+      if (!heldKey) return say('Tartı boş: önce bir madde alın, sonra tartıya tıklayın.', 'info');
+      const m = itemMass(heldKey);
+      if (m === null) return say('Bu alet tartılamaz.', 'warn');
+      return say(`${itemName(heldKey)} tartıldı: ${m} g`, 'ok');
+    }
+
     // Periyodik tablo: element al
     if (target?.userData.kind === 'board') {
       const e = elementAtUv(hit.uv);
@@ -810,7 +898,7 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
   };
   const onPointerUp = e => {
     if (!press) return;
-    if (!press.moved && press.button === 0) interact();
+    if (!press.moved && press.button === 0) { reachT = 1; interact(); }
     press = null;
     dragging = false;
     renderer.domElement.releasePointerCapture?.(e.pointerId);
@@ -825,7 +913,8 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
   const movePlayer = dt => {
     const forward = (keys.has('w') || keys.has('arrowup') ? 1 : 0) - (keys.has('s') || keys.has('arrowdown') ? 1 : 0);
     const strafe = (keys.has('d') || keys.has('arrowright') ? 1 : 0) - (keys.has('a') || keys.has('arrowleft') ? 1 : 0);
-    if (!forward && !strafe) return;
+    moving = Boolean(forward || strafe);
+    if (!moving) return;
     const sin = Math.sin(player.yaw);
     const cos = Math.cos(player.yaw);
     let dx = -sin * forward + cos * strafe;
@@ -863,17 +952,16 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
       tw.mesh.visible = tw.t < 1;
       if (tw.t >= 1) { finishEquip(tw.key); equipTweens.splice(i, 1); tw.mesh.visible = false; }
     }
-    if (armTime >= 0) {
-      armTime += dt;
-      const lift = Math.max(0, 0.9 - armTime * 2.2);
-      leftArm.rotation.x = 0.25 + lift;
-      rightArm.rotation.x = 0.25 + lift;
-      if (armTime > 0.9) armTime = -1;
-    }
+    reachT = Math.max(0, reachT - dt * 2.8);
+    const reach = Math.sin(Math.min(1, reachT) * Math.PI);
+    const bob = moving ? Math.sin(time * 9) * 0.012 : 0;
+    rightHand.position.set(0.26, -0.3 + bob, -0.5 - reach * 0.12);
+    rightHand.rotation.x = -reach * 0.5;
+    leftHand.position.set(-0.26, -0.3 + bob, -0.5);
 
     if (carried) {
-      const p = tableTarget();
-      if (p) carried.position.lerp(new THREE.Vector3(p.x, TOP + 0.4, p.z), Math.min(1, dt * 10));
+      const inHand = camera.localToWorld(new THREE.Vector3(0.26, -0.22, -0.55));
+      carried.position.lerp(inHand, Math.min(1, dt * 12));
     }
 
     flame.visible = lit;
@@ -942,16 +1030,21 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
     pGeo.attributes.color.needsUpdate = true;
 
     // Elde tutulan alet görünümleri
-    tongsView.visible = heldKey === 'cimbiz';
-    const measuring = heldKey === 'termometre' || heldKey === 'radyasyon';
-    lcd.hidden = !measuring;
+    syncHeld();
     const root = centerRoot();
+    const measuring = heldKey === 'termometre' || heldKey === 'radyasyon' || root?.userData.kind === 'balance';
+    lcd.hidden = !measuring;
     if (measuring) {
       if (heldKey === 'termometre') {
         lcdTitle.textContent = 'Lazerli termometre';
         const t = root?.userData.kind === 'tube' ? root : null;
         lcdVal.textContent = t ? `${t.userData.temp.toFixed(1)} °C` : '— °C';
         lcdInfo.textContent = t ? tubeInfo(t) : 'Ölçmek için bir tüpe bakın';
+      } else if (heldKey !== 'radyasyon') {
+        lcdTitle.textContent = 'Dijital tartı';
+        const m = heldKey ? itemMass(heldKey) : null;
+        lcdVal.textContent = m === null ? '0.00 g' : `${m.toFixed(2)} g`;
+        lcdInfo.textContent = heldKey ? `${itemName(heldKey)} tartılıyor` : 'Tartıya bakarken elinizde madde varsa kütlesi görünür.';
       } else {
         lcdTitle.textContent = 'Radyasyon ölçer';
         const dose = doseRate(sourcesNear());
