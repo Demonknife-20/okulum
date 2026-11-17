@@ -30,7 +30,7 @@ const GLASS_H = 0.4;
 const CONTENT_H = 0.36;
 const MAX_PARTICLES = 420;
 const MAX_CONTENTS = 3;
-const SHELF_Y = [1.25, 1.75, 2.25, 2.75];
+const SHELF_Y = [0.95, 1.3, 1.65, 2.0];
 const SHELF_X = [-2.4, -1.2, 0, 1.2, 2.4];
 const PLAYER_SPEED = 1.8;
 const ROOM = { minX: -3.5, maxX: 3.5, minZ: -3.1, maxZ: 3.4 };
@@ -72,13 +72,24 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
 
   const hud = document.createElement('div');
   hud.className = 'chem3d-hud';
-  hud.innerHTML = '<div class="chem3d-cross">+</div><div class="chem3d-held" data-held></div><div class="chem3d-msg-hud" data-msg></div><div class="chem3d-hint" data-hint></div>'
+  hud.innerHTML = '<div class="chem3d-pad" data-pad><button type="button" data-k="w">▲</button><div class="chem3d-pad-row"><button type="button" data-k="a">◀</button><button type="button" data-k="s">▼</button><button type="button" data-k="d">▶</button></div></div><div class="chem3d-cross">+</div><div class="chem3d-held" data-held></div><div class="chem3d-msg-hud" data-msg></div><div class="chem3d-hint" data-hint></div>'
     + '<div class="chem3d-lcd" data-lcd hidden><div class="chem3d-lcd-title" data-lcd-title>Lazerli termometre</div><div class="chem3d-lcd-val" data-lcd-val>— °C</div><div class="chem3d-lcd-info" data-lcd-info></div></div>';
   container.appendChild(hud);
   const hintEl = hud.querySelector('[data-hint]');
   const msgEl = hud.querySelector('[data-msg]');
   const heldEl = hud.querySelector('[data-held]');
   const lcd = hud.querySelector('[data-lcd]');
+  const padKeys = new Map();
+  hud.querySelectorAll('[data-pad] button').forEach(btn => {
+    const k = btn.dataset.k;
+    const down = e => { e.preventDefault(); keys.add(k); btn.setPointerCapture?.(e.pointerId); };
+    const up = () => keys.delete(k);
+    btn.addEventListener('pointerdown', down);
+    btn.addEventListener('pointerup', up);
+    btn.addEventListener('pointercancel', up);
+    btn.addEventListener('pointerleave', up);
+    padKeys.set(btn, { down, up });
+  });
   const lcdTitle = hud.querySelector('[data-lcd-title]');
   const lcdVal = hud.querySelector('[data-lcd-val]');
   const lcdInfo = hud.querySelector('[data-lcd-info]');
@@ -438,8 +449,8 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
   rightArm.rotation.x = 0.25;
   camera.add(arms);
   const coatOverlay = new THREE.Group();
-  addBox(0.36, 0.5, 0.04, -0.28, -0.22, -0.46, 0xf5f5f5, coatOverlay);
-  addBox(0.36, 0.5, 0.04, 0.28, -0.22, -0.46, 0xf5f5f5, coatOverlay);
+  addBox(0.09, 0.22, 0.02, -0.4, -0.3, -0.46, 0xf5f5f5, coatOverlay);
+  addBox(0.09, 0.22, 0.02, 0.4, -0.3, -0.46, 0xf5f5f5, coatOverlay);
   coatOverlay.visible = false;
   camera.add(coatOverlay);
   const goggleView = new THREE.Group();
@@ -459,7 +470,7 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
   camera.add(tongsView);
 
   // ---------- Oyuncu ----------
-  const player = { x: 0, z: 2.6, yaw: 0, pitch: -0.2 };
+  const player = { x: 0, z: 2.6, yaw: 0, pitch: -0.12 };
   const keys = new Set();
   const pickables = () => [...bottles, ...tubes, burner, tripod, board, box, ...ppeHitList()];
 
@@ -602,8 +613,12 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
     keys.add(e.key.toLowerCase());
   };
   const onKeyUp = e => keys.delete(e.key.toLowerCase());
+  const clearKeys = () => keys.clear();
+  const onVisibility = () => { if (document.hidden) keys.clear(); };
   window.addEventListener('keydown', onKeyDown);
   window.addEventListener('keyup', onKeyUp);
+  window.addEventListener('blur', clearKeys);
+  document.addEventListener('visibilitychange', onVisibility);
 
   const ndcCenter = new THREE.Vector2(0, 0);
   const ray = new THREE.Raycaster();
@@ -777,8 +792,10 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
     return null;
   };
 
+  const onContextMenu = e => e.preventDefault();
+  renderer.domElement.addEventListener('contextmenu', onContextMenu);
   const onPointerDown = e => {
-    press = { x: e.clientX, y: e.clientY, moved: false, lx: e.clientX, ly: e.clientY };
+    press = { x: e.clientX, y: e.clientY, moved: false, lx: e.clientX, ly: e.clientY, button: e.button };
     renderer.domElement.setPointerCapture?.(e.pointerId);
   };
   const onPointerMove = e => {
@@ -793,7 +810,7 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
   };
   const onPointerUp = e => {
     if (!press) return;
-    if (!press.moved) interact();
+    if (!press.moved && press.button === 0) interact();
     press = null;
     dragging = false;
     renderer.domElement.releasePointerCapture?.(e.pointerId);
@@ -825,7 +842,7 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
   const step = dt => {
     time += dt;
     movePlayer(dt);
-    camera.position.set(player.x, 1.55, player.z);
+    camera.position.set(player.x, 1.45, player.z);
     camera.rotation.set(player.pitch, player.yaw, 0);
     if (shake > 0) {
       shake = Math.max(0, shake - dt * 2.2);
@@ -991,11 +1008,15 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
     renderer.domElement.removeEventListener('pointermove', onPointerMove);
     renderer.domElement.removeEventListener('pointerup', onPointerUp);
     renderer.domElement.removeEventListener('pointercancel', onPointerUp);
+    renderer.domElement.removeEventListener('contextmenu', onContextMenu);
+    window.removeEventListener('blur', clearKeys);
+    document.removeEventListener('visibilitychange', onVisibility);
     scene.traverse(obj => {
       obj.geometry?.dispose();
       if (obj.material) (Array.isArray(obj.material) ? obj.material : [obj.material]).forEach(m => m.dispose());
     });
     [boardTex, woodTex, tileTex, plasterTex].forEach(t => t.dispose());
+    padKeys.forEach((h, btn) => { btn.removeEventListener('pointerdown', h.down); btn.removeEventListener('pointerup', h.up); });
     stopFlameSound();
     audioCtx?.close?.().catch?.(() => {});
     renderer.dispose();

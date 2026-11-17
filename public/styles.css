@@ -2839,3 +2839,11 @@ input:valid:not(:placeholder-shown){border-color:var(--ok);box-shadow:0 0 0 4px 
   }
   .material-btn:hover, .material-btn:active { transform: none; }
 }
+
+/* Ekran üstü yön tuşları */
+.chem3d-pad{position:absolute;left:14px;bottom:14px;display:grid;justify-items:center;gap:6px;pointer-events:auto;touch-action:none}
+.chem3d-pad-row{display:flex;gap:6px}
+.chem3d-pad button{width:44px;height:44px;border-radius:12px;border:1px solid rgba(255,255,255,.25);background:rgba(20,30,26,.55);color:#fff;font:600 16px/1 system-ui,sans-serif;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);cursor:pointer;user-select:none;-webkit-user-select:none}
+.chem3d-pad button:active{background:rgba(27,107,80,.85)}
+.chem3d-pad button:focus-visible{outline:2px solid #fff;outline-offset:2px}
+@media (max-width:760px){.chem3d-pad button{width:52px;height:52px}}

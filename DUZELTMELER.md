@@ -89,3 +89,10 @@ Render'da gerekli ortam değişkenleri: DATABASE_URL (ayarlı). Üretimde SUPABA
 - Klavye odağı: tüm bağlantı, düğme, giriş ve sekmelerde görünür odak halkası.
 - Mobilde dokunma hedefleri en az 44 px.
 - Yeni laboratuvar animasyonları, azaltılmış hareket tercihinde kapanır.
+
+## Kimya 3D: kontrol ve görünüm düzeltmeleri
+- Önlük artık görüşü kapatmaz; sadece kol kenarlarında ince parçalar görünür.
+- Sağ tık tarayıcı menüsünü açmaz. Sağ tuşla sürükleyerek bakılır; sağ tık etkileşim yapmaz.
+- Raflar alçaltıldı ve bakış açısı ayarlandı; yukarı bakmak gerekmez.
+- Tuşlar pencere odağı kaybolunca ya da sekme gizlenince temizlenir (takılı kalma sorunu).
+- Ekranın sol altında ▲ ◀ ▼ ▶ yön düğmeleri var (dokunmatik ve fare için).
