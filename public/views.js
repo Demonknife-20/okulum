@@ -3999,25 +3999,48 @@ function chem3dHtml() {
         </div>
         <p class="chem3d-msg" id="chem3d-msg" role="status" aria-live="polite">Bir malzeme seçin ve tüplerden birine tıklayın.</p>
         <p class="chem3d-info" id="chem3d-info"></p>
+        <h3 style="margin-top:12px">Deney günlüğü</h3>
+        <ol class="chem3d-log" id="chem3d-log"></ol>
       </div>
     </aside>
-    <div class="chem3d-stage" id="chem3d-canvas" role="img" aria-label="3D kimya laboratuvarı sahnesi"></div>
+    <div class="chem3d-wrap">
+      <div class="chem3d-keys" aria-label="Kısayollar">
+        <span class="chip"><kbd>W A S D</kbd> gezin</span>
+        <span class="chip"><kbd>Sürükle</kbd> bak</span>
+        <span class="chip"><kbd>Tıkla</kbd> al / dök</span>
+        <span class="chip"><kbd>Q</kbd> bırak</span>
+      </div>
+      <div class="chem3d-stage" id="chem3d-canvas" role="img" aria-label="3D kimya laboratuvarı sahnesi"></div>
+    </div>
   </div>`;
 }
 
 let chem3dView = null;
+let chem3dLastMessage = '';
 
 function setChem3dStatus(s) {
   const text = (id, value) => { const el = document.getElementById(id); if (el && value !== undefined) el.textContent = value; };
   text('chem3d-temp', `${s.hottest}°C`);
   text('chem3d-mat', s.carrying ? 'Tüp' : s.selected ? CHEM3D_MATERIALS.find(m => m.key === s.selected)?.name : '—');
   text('chem3d-info', s.info ?? undefined);
+  if (s.message && s.message !== chem3dLastMessage) {
+    chem3dLastMessage = s.message;
+    const log = document.getElementById('chem3d-log');
+    if (log) {
+      const li = document.createElement('li');
+      li.textContent = s.message;
+      li.className = s.tone || '';
+      log.prepend(li);
+      while (log.children.length > 12) log.lastElementChild.remove();
+    }
+  }
   const msg = document.getElementById('chem3d-msg');
   if (msg && s.message) {
     msg.textContent = s.message;
     msg.className = `chem3d-msg ${s.tone || ''}`;
   }
   document.querySelectorAll('[data-mat]').forEach(b => b.classList.toggle('active', b.dataset.mat === s.selected));
+  document.querySelectorAll('[data-mat]').forEach(b => b.classList.toggle('worn', (s.worn ?? []).includes(b.dataset.mat)));
   const heat = document.getElementById('chem3d-heat');
   if (heat) heat.textContent = s.burnerOn ? '⏸ Ocağı söndür' : '🔥 Ocağı aç';
 }

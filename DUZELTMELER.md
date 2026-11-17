@@ -57,3 +57,35 @@ Render'da gerekli ortam değişkenleri: DATABASE_URL (ayarlı). Üretimde SUPABA
 - Cam tüpler ve şişeler dönel (yuvarlatılmış) profillerden; ahşap masa, karo zemin ve sıva duvar dokuları eklendi.
 - Ortam yansımaları (RoomEnvironment) ve ACES ton eşleme ile daha gerçekçi ışık.
 - Arayüz: cam efektli kutular, yumuşak gölgeler, malzeme düğmelerinde etkileşim, düzenli durum kartları.
+
+## Kimya 3D: lazerli termometre, yeni tüp, buharlaşma
+- Lazerli termometre elinizde görünür (ekran ve kırmızı lazer ışını). Ekrandaki LCD, baktığınız tüpün sıcaklığını ve içeriğini anlık gösterir. Tıklayınca ölçüm mesajı çıkar, termometre elinizde kalır.
+- Raftan "Yeni deney tüpü" alıp masanın boş bir yerine tıklayarak tüp eklenir (en fazla 5). Sıfırlayınca ekstra tüpler kaldırılır.
+- Su kaynayınca hacmi azalır, buhar yükselerek dağılır; su tamamen bitince tüpten çıkar ve bilgi mesajı verilir.
+
+## Kimya 3D v6: gerçekçi ısınma, 118 element, koruyucu ekipman, radyoaktif kutu
+- Isınma fiziksel: sıcaklık artışı = güç ÷ (kütle × özgül ısı + cam). Metal hızlı, su yavaş ısınır. Su 100 °C'de kaynama plato yapar, enerji buharlaşmaya gider; buharlaşan su tamamen bitince tüpten çıkar.
+- Periyodik tablo: 118 element, ana tablo + lantanit/aktinit satırları. Radyoaktif olmayan her element alınabilir; radyoaktifler yalnızca kutudan cımbızla alınır.
+- Koruyucu ekipman: eldiven, gözlük, önlük raftan değil sağ duvardaki askıdan alınır; giyme animasyonu ve kolların kalkması vardır. Ocak yakma ve dökme ekipman gerektirir.
+- Radyoaktif kutu: aç/kapat, cımbızla örnek al ve geri koy. Radyasyon ölçer doz (µSv/h) gösterir; uzaklık arttıkça düşer.
+- Testler: test/chem-physics.test.mjs (ısınma, element verisi, doz, ekipman kuralları).
+
+## Kimya 3D: ölçek çizgileri, ocak sesi, deney günlüğü
+- Cam tüplerde ölçek çizgileri.
+- Ocak yanarken hafif çıtırtı sesi (WebAudio; ilk etkileşimden sonra çalışır, ocak söndürülünce durur).
+- Sidebar'da son 12 olayın deney günlüğü (uyarılar turuncu, başarılar yeşil).
+
+## Kimya: daha çok malzeme (20 raf öğesi)
+- Yeni maddeler: etanol (ispirto, 78 °C'de tutuşur), zeytinyağı, potasyum permanganat, bakır(II) sülfat, çinko tozu, kalsiyum karbonat.
+- Yeni tepkimeler: yağ-su ayrışması, mor çözelti, kireç-asit köpürmesi, çinkoyla bakır çökmesi, etanol tutuşması.
+- Raf 4. sıra eklendi.
+
+## Kimya 3D arayüzü v7
+- Kısayol çipleri sahnenin üstünde (W A S D, sürükle, tıkla, Q).
+- İki sütunlu düzen: sol panel yapışkan, sahne büyük. Mobilde tek sütun.
+- Malzeme düğmeleri 4 sütun, daha kompakt; panel kartları gölgeli ve sistem renkleriyle uyumlu.
+
+## Site geneli arayüz iyileştirmeleri
+- Klavye odağı: tüm bağlantı, düğme, giriş ve sekmelerde görünür odak halkası.
+- Mobilde dokunma hedefleri en az 44 px.
+- Yeni laboratuvar animasyonları, azaltılmış hareket tercihinde kapanır.

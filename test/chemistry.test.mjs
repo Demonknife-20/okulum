@@ -33,7 +33,7 @@ test('kaynama sıcaklık eşiğinde gerçekleşir', () => {
 
 test('periyodik tablo: element bilgisi ve alınabilir malzemeler', () => {
   assert.equal(elementInfo('Na').item, 'sodyum');
-  assert.equal(elementInfo('Cu').item, null);
+  assert.equal(elementInfo('Cu').item, 'el_Cu');
   assert.equal(elementInfo('Xx'), null);
   assert.ok(SUBSTANCES.termometre.tool);
 });

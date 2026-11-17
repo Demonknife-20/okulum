@@ -10,7 +10,7 @@
     "start": "node server.js",
     "dev": "node --env-file-if-exists=.env server.js",
     "build": "node scripts/build.mjs",
-    "test": "node --test --test-concurrency=1 test/security.test.js test/api.test.js && node --test test/graph.test.mjs test/labs.test.mjs test/lab-extra.test.mjs test/math-tools.test.mjs test/chemistry.test.mjs test/chem.test.mjs test/computing.test.mjs test/pyterm.test.mjs test/quizdraft.test.mjs test/schema.test.mjs test/tenancy.test.js test/privacy.test.js test/build.test.mjs test/otp.test.mjs",
+    "test": "node --test --test-concurrency=1 test/security.test.js test/api.test.js && node --test test/graph.test.mjs test/labs.test.mjs test/lab-extra.test.mjs test/math-tools.test.mjs test/chemistry.test.mjs test/chem-physics.test.mjs test/chem.test.mjs test/computing.test.mjs test/pyterm.test.mjs test/quizdraft.test.mjs test/schema.test.mjs test/tenancy.test.js test/privacy.test.js test/build.test.mjs test/otp.test.mjs",
     "test:graph": "node --test test/graph.test.mjs",
     "lint": "eslint public src server.js scripts test"
   },
