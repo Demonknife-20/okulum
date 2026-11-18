@@ -7,6 +7,7 @@ import { parseBase, toBase, truthTable, bubbleSortSteps, mergeSortSteps, quickSo
 import { runPython, highlightPython, pyHint } from './pyterm.js';
 import { fxEnabled, setFx } from './fx.js';
 import { microscopeField } from './biology.js';
+import { guideProgress } from './chem-guide.js';
 import { inclinedPlane, inclinedSeries, freeFall, freeFallSeries, collision1D, pendulum as pendulumPhys, pendulumSeries, pushedBlockSeries, SURFACES } from './physics.js';
 import { evaluatePolynomial, polynomialRoots, quadraticRoots, quadraticSteps, solveLinearSystem, triangleFromSides, describeNumbers, percentChange, compoundGrowth, primeFactors, gcdLcm, combinatorics } from './math-tools.js';
 import { helpHtml } from './help.js';
@@ -4477,6 +4478,10 @@ function chem3dHtml() {
               <div class="lab-stat"><span>Ocak</span><strong id="chem3d-flame-2">Kapalı</strong></div>
             </div>
             <p class="chem3d-info" id="chem3d-info"></p>
+            <h4 class="c3d-sub">Rehberli deney</h4>
+            <label class="field"><span>Kılavuz seçin</span><select id="chem3d-guide"><option value="">Kılavuz kapalı</option><option value="notr">Asit–baz nötrleşmesi</option><option value="kaynama">Suyun kaynaması</option><option value="metal">Metal ile asit</option></select></label>
+            <p class="chem3d-guide-title" id="chem3d-guide-title"></p>
+            <ol class="chem3d-checklist" id="chem3d-checklist"></ol>
             <h4 class="c3d-sub">Deney günlüğü</h4>
             <ol class="chem3d-log" id="chem3d-log"></ol>
             <button class="btn ghost sm c3d-export" id="chem3d-export" type="button">⬇ Günlüğü indir (.txt)</button>
@@ -4497,6 +4502,17 @@ function chem3dHtml() {
 }
 
 let chem3dView = null;
+
+// Rehberli deney listesi: sahnenin anlık durumuna göre adımlar işaretlenir
+function renderGuide(snapshot) {
+  const key = document.getElementById('chem3d-guide')?.value;
+  const title = document.getElementById('chem3d-guide-title');
+  const list = document.getElementById('chem3d-checklist');
+  if (!key || !snapshot || !title || !list) { if (title) title.textContent = ''; if (list) list.innerHTML = ''; return; }
+  const p = guideProgress(snapshot, key);
+  title.textContent = `${p.title}: ${p.done}/${p.total}${p.complete ? ' · tamamlandı ✓' : ''}`;
+  list.innerHTML = p.steps.map(st => `<li class="${st.done ? 'done' : ''}${st.id === p.next ? ' next' : ''}">${esc(st.text)}</li>`).join('');
+}
 let chem3dLastMessage = '';
 
 function setChem3dStatus(s) {
@@ -4505,6 +4521,7 @@ function setChem3dStatus(s) {
   text('chem3d-mat', s.carrying ? 'Tüp' : s.selected ? CHEM3D_MATERIALS.find(m => m.key === s.selected)?.name : '—');
   text('chem3d-info', s.info ?? undefined);
   text('chem3d-flame', s.burnerOn ? 'Açık' : 'Kapalı');
+  renderGuide(s.snapshot);
   text('chem3d-flame-2', s.burnerOn ? 'Açık' : 'Kapalı');
   if (s.info) text('chem3d-info-short', s.info.split(' · ').slice(1, 2).join('') || '—');
   const pill = document.querySelector('.c3d-pill--flame');

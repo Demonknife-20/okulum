@@ -579,6 +579,7 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
   let reachT = 0;           // elin uzanma animasyonu
   let moving = false;
   let shake = 0;
+  let evaporatedOnce = false; // su bir kez tamamen buharlaştı mı (kılavuz için)
   let disposed = false;
   let time = 0;
   let dragging = false;
@@ -601,7 +602,10 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
   const emit = (message, tone, info) => {
     if (disposed) return;
     heldEl.textContent = heldLabel();
-    onStatus({ hottest: hottest(), selected: heldKey, carrying: Boolean(carried), burnerOn: lit, message, tone, info, worn: [...worn] });
+    onStatus({
+      hottest: hottest(), selected: heldKey, carrying: Boolean(carried), burnerOn: lit, message, tone, info, worn: [...worn],
+      snapshot: { worn: [...worn], lit, tripodOn, evaporated: evaporatedOnce, tubes: tubes.map(t => ({ contents: [...t.userData.contents], temp: t.userData.temp })) },
+    });
   };
   const say = (message, tone = 'info') => {
     if (disposed) return;
@@ -1046,6 +1050,7 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
           d.reacted.delete('kaynama');
           d.fx = d.fx.filter(f => f.type !== 'steam');
           d.volume = 1;
+          evaporatedOnce = true;
           say('Su tamamen buharlaştı ve havaya karıştı.', 'info');
         }
       }
@@ -1221,6 +1226,7 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
       });
       pLife.fill(0);
       for (let i = 0; i < MAX_PARTICLES; i++) pPos[i * 3 + 1] = -100;
+      evaporatedOnce = false;
       lit = false;
       tripodOn = false;
       heldKey = null;

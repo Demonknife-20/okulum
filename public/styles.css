@@ -2957,3 +2957,12 @@ input:valid:not(:placeholder-shown){border-color:var(--ok);box-shadow:0 0 0 4px 
 @media (prefers-reduced-motion: reduce){
   .btn[aria-busy="true"]::after{animation-duration:2.4s}
 }
+
+/* ---------- Kimya 3D: rehberli deney listesi ---------- */
+.chem3d-guide-title{margin:6px 0 4px;font-size:13px;font-weight:600;color:var(--ink)}
+.chem3d-checklist{margin:0;padding:0;list-style:none;display:grid;gap:4px;font-size:12.5px}
+.chem3d-checklist li{padding:6px 10px;border-radius:10px;background:var(--surface-2);color:var(--muted);position:relative;padding-left:28px}
+.chem3d-checklist li::before{content:"";position:absolute;left:10px;top:50%;width:10px;height:10px;margin-top:-5px;border-radius:50%;border:2px solid var(--line,#c9d6cf)}
+.chem3d-checklist li.done{color:#1e6b3a}
+.chem3d-checklist li.done::before{background:#2e7d32;border-color:#2e7d32}
+.chem3d-checklist li.next{color:var(--ink);box-shadow:inset 0 0 0 1px var(--brand,#1b6b50)}

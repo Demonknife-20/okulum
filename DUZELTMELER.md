@@ -155,3 +155,7 @@ Render'da gerekli ortam değişkenleri: DATABASE_URL (ayarlı). Üretimde SUPABA
 - Doğrulama src/labreport.js içinde (deney kodu, başlık, en fazla 200 satır, satır başına 300 karakter). Testler test/labreport.test.mjs.
 - İstemci: Fizik ve Kimya 3D sayfalarında "Deney raporu" kartı; ölçüm satırlarını kaydeder, son raporları ve toplam tamamlanmayı gösterir.
 - Henüz yok: öğretmenin sınıf raporlarını görmesi.
+
+## Kimya 3D: rehberli deney kılavuzu
+- Durum sekmesinde bir deney seçilir (nötrleşme, suyun kaynaması, metal ile asit). Adımlar sahnenin anlık durumundan otomatik işaretlenir: giyilen ekipman, ocak, üçayak, tüplerdeki maddeler ve sıcaklık.
+- Kontrol mantığı public/chem-guide.js içinde, testler test/chem-guide.test.mjs.
