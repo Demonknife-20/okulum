@@ -6,7 +6,9 @@ import { ELEMENTS, bestReaction, parseFormulaComp, atomComp, iconFor, molarMass,
 import { parseBase, toBase, truthTable, bubbleSortSteps, mergeSortSteps, quickSortSteps, textToBinary, binaryToText, hexToRgb, rgbToHex, binaryAdd } from './computing.js';
 import { runPython, highlightPython, pyHint } from './pyterm.js';
 import { fxEnabled, setFx } from './fx.js';
-import { quadraticRoots, solveLinearSystem, triangleFromSides, describeNumbers, percentChange, compoundGrowth, primeFactors, gcdLcm, combinatorics } from './math-tools.js';
+import { microscopeField } from './biology.js';
+import { inclinedPlane, inclinedSeries, freeFall, freeFallSeries, collision1D, pendulum as pendulumPhys, pendulumSeries, pushedBlockSeries, SURFACES } from './physics.js';
+import { evaluatePolynomial, polynomialRoots, quadraticRoots, quadraticSteps, solveLinearSystem, triangleFromSides, describeNumbers, percentChange, compoundGrowth, primeFactors, gcdLcm, combinatorics } from './math-tools.js';
 import { helpHtml } from './help.js';
 import { initChem3d, CHEM3D_MATERIALS } from './chem3d.js';
 import { state, api, apiUrl, $, $$, esc, ROLE, icon, fmtDate, todayIso, pct, initials, tone, readFile, toast, openModal, closeModal, confirmDialog, refreshMe, refresh, val, setBusy, setQuery, parseHash, paintWidths, refreshBadges } from './core.js';
@@ -841,9 +843,13 @@ FORMS['new-user'] = async form => {
   } else {
     body.teaching = checkedPairs(form);
   }
-  await api('/users', { method: 'POST', body });
+  const created = await api('/users', { method: 'POST', body });
   closeModal();
-  toast('Hesap oluşturuldu');
+  if (created?.guardian?.username) {
+    toast(`Öğrenci hesabı oluşturuldu. Veli hesabı: ${created.guardian.username} (şifre öğrencinin şifresiyle aynı)`);
+  } else {
+    toast('Hesap oluşturuldu');
+  }
   refresh();
 };
 
@@ -3815,15 +3821,461 @@ function setupChemCalcs() {
   mountCalcs(document.querySelector('[data-calcgrid=kimya-hesap]'), CHEM_CALCS);
 }
 
+// ---------- Fizik: serbest düşme, eğik düzlem, çarpışma ----------
+const physSlider = (name, label, min, max, step, value, unit) =>
+  `<label class="field"><span>${label}: <b data-out="${name}">${value}</b> ${unit}</span><input type="range" data-in="${name}" min="${min}" max="${max}" step="${step}" value="${value}"></label>`;
+
+function labPhysics2Html() {
+  return `<div class="lab-grid">
+    <div class="lab-controls" data-lab="serbest">
+      ${physSlider('h', 'Yükseklik', 1, 100, 1, 20, 'm')}
+      <button class="btn ghost" type="button" data-play>▶ Düşüşü göster</button>
+      <ul class="lab-results">
+        <li>Düşme süresi: <b data-res="t">–</b> s</li>
+        <li>Yere çarpma hızı: <b data-res="v">–</b> m/s</li>
+        <li>Yere çarpmadaki kinetik enerji (kütle = 1 kg): <b data-res="ek">–</b> J</li>
+      </ul>
+    </div>
+    <canvas class="lab-canvas" data-canvas="serbest" aria-label="Serbest düşme konum-zaman grafiği"></canvas>
+  </div>`;
+}
+
+function labInclineHtml() {
+  return `<div class="lab-grid">
+    <div class="lab-controls" data-lab="egik">
+      ${physSlider('theta', 'Eğim açısı θ', 5, 85, 1, 30, '°')}
+      ${physSlider('mu', 'Sürtünme katsayısı μ', 0, 1, 0.05, 0.1, '')}
+      ${physSlider('len', 'Düzlem uzunluğu', 1, 10, 0.5, 4, 'm')}
+      <button class="btn ghost" type="button" data-play>▶ Kayışı göster</button>
+      <ul class="lab-results">
+        <li>İvme: <b data-res="a">–</b> m/s²</li>
+        <li>Kayma süresi: <b data-res="t">–</b> s</li>
+        <li>Düzlem sonundaki hız: <b data-res="v">–</b> m/s</li>
+        <li data-res="note" class="muted"></li>
+      </ul>
+    </div>
+    <canvas class="lab-canvas" data-canvas="egik" aria-label="Eğik düzlemde kayan blok"></canvas>
+  </div>`;
+}
+
+function labCollisionHtml() {
+  return `<div class="lab-grid">
+    <div class="lab-controls" data-lab="carpisma">
+      ${physSlider('m1', 'Birinci kütle m₁', 0.5, 5, 0.5, 2, 'kg')}
+      ${physSlider('v1', 'Birinci hız v₁', -5, 5, 0.5, 3, 'm/s')}
+      ${physSlider('m2', 'İkinci kütle m₂', 0.5, 5, 0.5, 2, 'kg')}
+      ${physSlider('v2', 'İkinci hız v₂', -5, 5, 0.5, 0, 'm/s')}
+      ${physSlider('e', 'Geri esneklik e', 0, 1, 0.05, 1, '')}
+      <ul class="lab-results">
+        <li>Sonra v₁′: <b data-res="v1">–</b> m/s</li>
+        <li>Sonra v₂′: <b data-res="v2">–</b> m/s</li>
+        <li>Momentum (önce / sonra): <b data-res="p">–</b></li>
+        <li>Kaybolan kinetik enerji: <b data-res="lost">–</b> J</li>
+        <li data-res="type" class="muted"></li>
+      </ul>
+    </div>
+    <canvas class="lab-canvas" data-canvas="carpisma" aria-label="Çarpışma öncesi ve sonrası hızlar"></canvas>
+  </div>`;
+}
+
+function setupPhysics2() {
+  const readAll = box => Object.fromEntries([...box.querySelectorAll('[data-in]')].map(el => [el.dataset.in, Number(el.value)]));
+  const showOuts = box => { box.querySelectorAll('[data-in]').forEach(el => { const o = box.querySelector(`[data-out="${el.dataset.in}"]`); if (o) o.textContent = el.value; }); };
+  const canvasOf = name => document.querySelector(`[data-canvas=${name}]`);
+  const animate = (name, duration, draw, onDone) => {
+    const canvas = canvasOf(name);
+    const start = performance.now();
+    const frame = now => {
+      if (!canvas?.isConnected) return;
+      const t = Math.min(1, (now - start) / duration);
+      draw(t);
+      if (t < 1) requestAnimationFrame(frame); else onDone?.();
+    };
+    requestAnimationFrame(frame);
+  };
+
+  // Serbest düşme
+  const serbest = document.querySelector('[data-lab=serbest]');
+  if (serbest) {
+    const update = () => {
+      showOuts(serbest);
+      const { h } = readAll(serbest);
+      const f = freeFall({ height: h });
+      serbest.querySelector('[data-res=t]').textContent = f.time.toFixed(2);
+      serbest.querySelector('[data-res=v]').textContent = f.finalSpeed.toFixed(2);
+      serbest.querySelector('[data-res=ek]').textContent = f.kineticAtGround.toFixed(1);
+      const pts = freeFallSeries({ height: h, steps: 160 }).map(p => ({ x: p.t, y: p.y }));
+      drawLine(canvasOf('serbest'), pts, '#1b6b50', 'Zaman (s)', 'Yükseklik (m)', null);
+    };
+    serbest.addEventListener('input', update);
+    serbest.querySelector('[data-play]')?.addEventListener('click', () => {
+      const { h } = readAll(serbest);
+      const pts = freeFallSeries({ height: h, steps: 160 });
+      animate('serbest', 2200, t => {
+        const i = Math.round(t * (pts.length - 1));
+        drawLine(canvasOf('serbest'), pts.map(p => ({ x: p.t, y: p.y })), '#1b6b50', 'Zaman (s)', 'Yükseklik (m)', i);
+      });
+    });
+    update();
+  }
+
+  // Eğik düzlem
+  const egik = document.querySelector('[data-lab=egik]');
+  if (egik) {
+    let last = null;
+    const update = () => {
+      showOuts(egik);
+      const { theta, mu, len } = readAll(egik);
+      try {
+        const { points, info } = inclinedSeries({ angleDeg: theta, mu, length: len });
+        last = { theta, mu, len, points, info };
+        egik.querySelector('[data-res=a]').textContent = info.slides ? info.acceleration.toFixed(2) : '0.00';
+        egik.querySelector('[data-res=t]').textContent = info.slides ? info.time.toFixed(2) : '—';
+        egik.querySelector('[data-res=v]').textContent = info.slides ? info.finalSpeed.toFixed(2) : '0.00';
+        egik.querySelector('[data-res=note]').textContent = info.staticNote;
+        drawIncline(canvasOf('egik'), theta, len, info.slides ? 1 : 0, info.slides);
+      } catch (error) {
+        egik.querySelector('[data-res=note]').textContent = error.message;
+      }
+    };
+    egik.addEventListener('input', update);
+    egik.querySelector('[data-play]')?.addEventListener('click', () => {
+      if (!last || !last.info.slides) return update();
+      animate('egik', 2600, t => drawIncline(canvasOf('egik'), last.theta, last.len, t, true));
+    });
+    update();
+  }
+
+  // Çarpışma
+  const carp = document.querySelector('[data-lab=carpisma]');
+  if (carp) {
+    const update = () => {
+      showOuts(carp);
+      const v = readAll(carp);
+      try {
+        const r = collision1D({ m1: v.m1, v1: v.v1, m2: v.m2, v2: v.v2, e: v.e });
+        carp.querySelector('[data-res=v1]').textContent = r.v1After.toFixed(2);
+        carp.querySelector('[data-res=v2]').textContent = r.v2After.toFixed(2);
+        carp.querySelector('[data-res=p]').textContent = `${r.momentumBefore.toFixed(2)} / ${r.momentumAfter.toFixed(2)} kg·m/s`;
+        carp.querySelector('[data-res=lost]').textContent = r.keLost.toFixed(2);
+        carp.querySelector('[data-res=type]').textContent = `Çarpışma türü: ${r.type}`;
+        drawCollision(canvasOf('carpisma'), [v.v1, v.v2], [r.v1After, r.v2After]);
+      } catch (error) {
+        carp.querySelector('[data-res=type]').textContent = error.message;
+      }
+    };
+    carp.addEventListener('input', update);
+    update();
+  }
+}
+
+// Genel çizgi grafiği (fizik)
+function drawLine(canvas, pts, color, xLabel, yLabel, dot) {
+  const { ctx, w, h } = fitCanvas(canvas);
+  const xMax = pts[pts.length - 1].x || 1;
+  const yMax = Math.max(...pts.map(p => p.y), 0.01) * 1.1;
+  const f = plotFrame(ctx, w, h, { xMin: 0, xMax, yMin: 0, yMax, xTicks: 5, yTicks: 4, xLabel, yLabel });
+  plotCurve(ctx, pts, f.X, f.Y, h - f.B, color);
+  if (dot !== null && pts[dot]) plotDot(ctx, f.X(pts[dot].x), f.Y(pts[dot].y), '#e8762b');
+}
+
+// Eğik düzlem: rampa (dik kenar sol altta) ve ramp üzerinde kayan blok (progress 0..1)
+function drawIncline(canvas, thetaDeg, len, progress, slides) {
+  const { ctx, w, h } = fitCanvas(canvas);
+  ctx.fillStyle = '#fbfdfc';
+  ctx.fillRect(0, 0, w, h);
+  const th = (thetaDeg * Math.PI) / 180;
+  const pad = 30;
+  const baseW = w - pad * 2;
+  const rise = Math.min(h - pad * 2, baseW * Math.tan(th));
+  const x0 = pad;
+  const yBase = h - pad;
+  const yTop = yBase - rise;
+  const x1 = x0 + baseW;
+  // Üçgen: dik kenar sol, hipotenüs (rampa) üst-soldan alt-sağa
+  ctx.fillStyle = '#d9c8a8';
+  ctx.beginPath();
+  ctx.moveTo(x0, yBase);
+  ctx.lineTo(x1, yBase);
+  ctx.lineTo(x0, yTop);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = '#8b6d3f';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  // Blok: rampanın üstünde, konumu ilerlemeye göre
+  const f = slides ? Math.min(1, progress) * 0.85 : 0.0;
+  const rx = x0 + baseW * f;
+  const ry = yTop + rise * f;
+  ctx.save();
+  ctx.translate(rx, ry);
+  ctx.rotate(th);
+  ctx.fillStyle = '#1b6b50';
+  ctx.fillRect(-16, -30, 32, 26);
+  ctx.restore();
+  ctx.fillStyle = '#4f6a60';
+  ctx.font = '12px system-ui, sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText(`θ = ${thetaDeg}°  ·  rampa ${len} m`, x0 + 8, yBase - 8);
+  if (!slides) {
+    ctx.fillStyle = '#b34700';
+    ctx.fillText('Sürtünme blokun kaymasını engelliyor', x0 + 8, yTop + 18);
+  }
+}
+
+// Çarpışma öncesi ve sonrası hızlar: çubuk grafik
+function drawCollision(canvas, before, after) {
+  const { ctx, w, h } = fitCanvas(canvas);
+  ctx.fillStyle = '#fbfdfc';
+  ctx.fillRect(0, 0, w, h);
+  const all = [...before, ...after];
+  const vmax = Math.max(1, ...all.map(v => Math.abs(v))) * 1.2;
+  const mid = h / 2;
+  const scale = (h / 2 - 30) / vmax;
+  const labels = ['A önce', 'B önce', 'A sonra', 'B sonra'];
+  const values = [...before, ...after];
+  const colors = ['#1b6b50', '#3f7fd9', '#2e9a6b', '#6aa6e8'];
+  const bw = (w - 40) / 4;
+  ctx.strokeStyle = '#8fa39a';
+  ctx.beginPath(); ctx.moveTo(20, mid); ctx.lineTo(w - 20, mid); ctx.stroke();
+  values.forEach((v, i) => {
+    const x = 20 + i * bw + bw * 0.2;
+    const bh = Math.abs(v) * scale;
+    ctx.fillStyle = colors[i];
+    ctx.fillRect(x, v >= 0 ? mid - bh : mid, bw * 0.6, bh);
+    ctx.fillStyle = '#4f6a60';
+    ctx.font = '12px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(labels[i], x + bw * 0.3, h - 8);
+    ctx.fillText(`${v.toFixed(2)} m/s`, x + bw * 0.3, v >= 0 ? mid - bh - 6 : mid + bh + 14);
+  });
+}
+
+// ---------- Fizik: sarkaç ve sürtünmeli itme (etkileşimli) ----------
+function labPendulumHtml() {
+  return `<div class="lab-grid">
+    <div class="lab-controls" data-lab="sarkac">
+      ${physSlider('length', 'İp uzunluğu', 0.2, 3, 0.1, 1, 'm')}
+      ${physSlider('angle', 'Başlangıç açısı', 2, 60, 1, 10, '°')}
+      <ul class="lab-results">
+        <li>Periyot: <b data-res="period">–</b> s</li>
+        <li>Frekans: <b data-res="freq">–</b> Hz</li>
+        <li>En yüksek hız: <b data-res="vmax">–</b> m/s</li>
+      </ul>
+    </div>
+    <canvas class="lab-canvas" data-canvas="sarkac" aria-label="Sarkaç açısının zamana göre değişimi"></canvas>
+  </div>`;
+}
+
+function labPushedHtml() {
+  const options = Object.entries(SURFACES).map(([k, v]) => `<option value="${k}"${k === 'tahta' ? ' selected' : ''}>${v.label} (μ = ${v.mu})</option>`).join('');
+  return `<div class="lab-grid">
+    <div class="lab-controls" data-lab="itme">
+      ${physSlider('mass', 'Blok kütlesi (ağırlık ekleyin)', 0.5, 10, 0.5, 2, 'kg')}
+      ${physSlider('force', 'İtme kuvveti', 0, 30, 0.5, 8, 'N')}
+      <label class="field"><span>Sürtünme yüzeyi</span><select data-in="surface">${options}</select></label>
+      ${physSlider('dist', 'Alınacak mesafe', 0.5, 10, 0.5, 3, 'm')}
+      <ul class="lab-results">
+        <li>Sürtünme kuvveti: <b data-res="friction">–</b> N</li>
+        <li>İvme: <b data-res="a">–</b> m/s²</li>
+        <li>Mesafeye varış süresi: <b data-res="t">–</b> s</li>
+        <li data-res="note" class="muted"></li>
+      </ul>
+    </div>
+    <canvas class="lab-canvas" data-canvas="itme" aria-label="Sürtünmeli itmede konum-zaman"></canvas>
+  </div>`;
+}
+
+function drawSymmetric(canvas, pts, yLabel, yMax) {
+  const { ctx, w, h } = fitCanvas(canvas);
+  const tMax = pts[pts.length - 1].x || 1;
+  const f = plotFrame(ctx, w, h, { xMin: 0, xMax: tMax, yMin: -yMax, yMax, xTicks: 6, yTicks: 4, xLabel: 't (s)', yLabel });
+  plotCurve(ctx, pts, f.X, f.Y, f.Y(0), '#1b6b50');
+}
+
+function setupPhysics3() {
+  const sar = document.querySelector('[data-lab=sarkac]');
+  if (sar) {
+    const update = () => {
+      showPhysOuts(sar);
+      const length = Number(sar.querySelector('[data-in=length]').value);
+      const angle = Number(sar.querySelector('[data-in=angle]').value);
+      const p = pendulumPhys({ length, angleDeg: angle });
+      sar.querySelector('[data-res=period]').textContent = p.period.toFixed(2);
+      sar.querySelector('[data-res=freq]').textContent = p.frequency.toFixed(2);
+      sar.querySelector('[data-res=vmax]').textContent = p.maxSpeed.toFixed(2);
+      const series = pendulumSeries({ length, angleDeg: angle, steps: 200 });
+      drawSymmetric(document.querySelector('[data-canvas=sarkac]'), series.map(s => ({ x: s.t, y: s.angleDeg })), 'θ (°)', angle * 1.15);
+    };
+    sar.addEventListener('input', update);
+    update();
+  }
+  const itme = document.querySelector('[data-lab=itme]');
+  if (itme) {
+    const update = () => {
+      showPhysOuts(itme);
+      const mass = Number(itme.querySelector('[data-in=mass]').value);
+      const force = Number(itme.querySelector('[data-in=force]').value);
+      const surface = itme.querySelector('[data-in=surface]').value;
+      const dist = Number(itme.querySelector('[data-in=dist]').value);
+      const { points, info } = pushedBlockSeries({ mass, force, surface, distance: dist });
+      itme.querySelector('[data-res=friction]').textContent = info.friction.toFixed(2);
+      itme.querySelector('[data-res=a]').textContent = info.acceleration.toFixed(2);
+      itme.querySelector('[data-res=t]').textContent = info.moves ? info.time.toFixed(2) : '—';
+      itme.querySelector('[data-res=note]').textContent = info.note;
+      const canvas = document.querySelector('[data-canvas=itme]');
+      const { ctx, w, h } = fitCanvas(canvas);
+      const xMax = dist * 1.1;
+      const f = plotFrame(ctx, w, h, { xMin: 0, xMax: info.moves ? info.time * 1.05 : 1, yMin: 0, yMax: xMax, xTicks: 5, yTicks: 4, xLabel: 'Zaman (s)', yLabel: 'Konum (m)' });
+      if (info.moves) plotCurve(ctx, points.map(p => ({ x: p.t, y: p.x })), f.X, f.Y, h - f.B, '#1b6b50');
+      else { ctx.fillStyle = '#b34700'; ctx.font = '13px system-ui, sans-serif'; ctx.textAlign = 'left'; ctx.fillText('Blok kıpırdamadı', f.L + 10, f.T + 20); }
+    };
+    itme.addEventListener('input', update);
+    itme.addEventListener('change', update);
+    update();
+  }
+}
+function showPhysOuts(box) {
+  box.querySelectorAll('[data-in]').forEach(el => { const o = box.querySelector(`[data-out="${el.dataset.in}"]`); if (o) o.textContent = el.value; });
+}
+
+// ---------- Biyoloji: enzim ve fotosentez grafikleri ----------
+function labChartsHtml() {
+  return `<div class="lab-grid">
+    <div class="lab-controls" data-lab="grafik">
+      <label class="field"><span>Grafik</span>
+        <select data-in="chart"><option value="enzim">Enzim etkinliği – sıcaklık (pH 7,4)</option><option value="foto">Fotosentez – ışık yoğunluğu (25 °C, 400 ppm CO₂)</option></select>
+      </label>
+      <p class="muted" style="font-size:13px;margin:8px 0 0">Eğri, diğer değişkenler sabitken hızın nasıl değiştiğini gösterir. Tepe noktası optimumdur.</p>
+    </div>
+    <canvas class="lab-canvas" data-canvas="grafik" aria-label="Biyoloji grafiği"></canvas>
+  </div>`;
+}
+function setupBioCharts() {
+  const box = document.querySelector('[data-lab=grafik]');
+  if (!box) return;
+  const update = () => {
+    const canvas = document.querySelector('[data-canvas=grafik]');
+    const { ctx, w, h } = fitCanvas(canvas);
+    const isEnzyme = box.querySelector('[data-in=chart]').value === 'enzim';
+    const pts = [];
+    if (isEnzyme) {
+      for (let t = 0; t <= 80; t += 1) pts.push({ x: t, y: enzymeKinetics(t, 7.4, 10).activity });
+    } else {
+      for (let l = 0; l <= 1000; l += 10) pts.push({ x: l, y: photosynthesis(l, 400, 25) });
+    }
+    const yMax = Math.max(1, ...pts.map(p => p.y)) * 1.1;
+    const f = plotFrame(ctx, w, h, { xMin: 0, xMax: isEnzyme ? 80 : 1000, yMin: 0, yMax, xTicks: 8, yTicks: 4, xLabel: isEnzyme ? 'Sıcaklık (°C)' : 'Işık yoğunluğu (µmol)', yLabel: isEnzyme ? 'Enzim etkinliği' : 'Fotosentez hızı (0–100)' });
+    plotCurve(ctx, pts, f.X, f.Y, h - f.B, '#1b6b50');
+  };
+  box.addEventListener('input', update);
+  update();
+}
+
+// ---------- Matematik: ikinci derece adım adım çözüm ----------
+function labStepsHtml() {
+  const f = (name, label, v) => `<label class="field"><span>${label}</span><input type="number" step="any" data-quad="${name}" value="${v}"></label>`;
+  return `<div class="lab-grid">
+    <div class="lab-controls" data-lab="adimlar">
+      ${f('a', 'a', 1)}${f('b', 'b', -3)}${f('c', 'c', 2)}
+      <ol class="lab-steps" data-steps></ol>
+    </div>
+    <div class="pad"><p class="muted">Her adım, diskriminant ve kök formülüyle birlikte yazılır. Katsayıları değiştirerek farklı durumları (çakışık, karmaşık kök) deneyin.</p></div>
+  </div>`;
+}
+function setupQuadraticSteps() {
+  const box = document.querySelector('[data-lab=adimlar]');
+  if (!box) return;
+  const update = () => {
+    const v = n => Number(box.querySelector(`[data-quad=${n}]`).value);
+    const out = box.querySelector('[data-steps]');
+    try {
+      out.innerHTML = quadraticSteps(v('a'), v('b'), v('c')).map(line => `<li>${esc(line)}</li>`).join('');
+    } catch (error) {
+      out.innerHTML = `<li class="lab-error">${esc(error.message)}</li>`;
+    }
+  };
+  box.addEventListener('input', update);
+  update();
+}
+
+// ---------- Deney raporu kartı (öğrenci) ----------
+function labReportHtml(key, label) {
+  return `<div class="lab-report" data-report="${esc(key)}" data-report-label="${esc(label)}">
+    <p class="muted" style="margin:0 0 10px">Ölçüm sonuçlarını bir rapora kaydedin. Kayıtlı raporlarınız ve ilerlemeniz burada görünür.</p>
+    <div class="lab-report-bar">
+      <button class="btn primary sm" type="button" data-report-save>Raporu kaydet</button>
+      <span class="muted" data-report-progress></span>
+    </div>
+    <p class="lab-error" data-report-err></p>
+    <ul class="lab-results" data-report-list></ul>
+  </div>`;
+}
+
+async function setupLabReport(key) {
+  const root = document.querySelector(`[data-report="${key}"]`);
+  if (!root || state.me?.role !== 'student') {
+    if (root) root.querySelector('[data-report-save]').hidden = true;
+    return;
+  }
+  const label = root.dataset.reportLabel || key;
+  const err = root.querySelector('[data-report-err]');
+  const list = root.querySelector('[data-report-list]');
+  const progress = root.querySelector('[data-report-progress]');
+  const linesFromPage = () => [...document.querySelectorAll('.lab-results li, #chem3d-log li')]
+    .map(li => li.textContent.trim()).filter(Boolean);
+  const refresh = async () => {
+    try {
+      const [reports, prog] = await Promise.all([api('/lab/reports'), api('/lab/progress')]);
+      progress.textContent = prog.total ? `Toplam ${prog.total} tamamlanmış deney` : 'Henüz kayıtlı deney yok';
+      list.innerHTML = reports.slice(0, 5).map(r => `<li><span>${esc(r.title)}</span><b>${new Date(r.created_at).toLocaleDateString('tr-TR')}</b></li>`).join('')
+        || '<li class="muted">Henüz rapor yok.</li>';
+      err.textContent = '';
+    } catch (error) {
+      err.textContent = error.message;
+    }
+  };
+  root.querySelector('[data-report-save]').addEventListener('click', async event => {
+    const button = event.currentTarget;
+    const lines = linesFromPage();
+    if (!lines.length) { err.textContent = 'Kaydedilecek ölçüm yok. Önce bir deney yapın.'; return; }
+    setBusy(button, true);
+    try {
+      await api('/lab/reports', { method: 'POST', body: {
+        experiment: key,
+        title: `${label} · ${new Date().toLocaleString('tr-TR')}`,
+        lines,
+        summary: {},
+      } });
+      toast('Deney raporu kaydedildi');
+      await refresh();
+    } catch (error) {
+      err.textContent = error.message;
+    } finally {
+      setBusy(button, false);
+    }
+  });
+  refresh();
+}
+
 async function pageFizik() {
   return {
     html: `${head('Fizik laboratuvarı', 'Başlangıç hızı, açı ve ortama göre eğik atışın menzilini, yüksekliğini ve süresini hesaplayın.', '')}
       ${panel('Eğik atış', 'Değerleri değiştirin; yörünge grafiği anında güncellenir.', labPhysicsHtml())}
       ${panel('Yay–kütle sistemi', 'Kütle, yay sabiti ve genliğin salınım periyodunu ve enerjisini nasıl değiştirdiğini görün.', labSpringHtml())}
+      ${panel('Serbest düşme', 'Yüksekliğe göre düşme süresini ve yere çarpma hızını görün (hava direnci ihmal).', labPhysics2Html())}
+      ${panel('Eğik düzlemde kayma', 'Eğim ve sürtünmeye göre blokun kayıp kaymadığını ve hızını inceleyin.', labInclineHtml())}
+      ${panel('Basit sarkaç', 'İp uzunluğu ve açıyı değiştirerek periyodun nasıl değiştiğini görün.', labPendulumHtml())}
+      ${panel('Sürtünmeli itme', 'Blok kütlesini (ağırlık) ve itme kuvvetini ayarlayın, sürtünme yüzeyini seçin; blok kayar mı?', labPushedHtml())}
+      ${panel('Deney raporu', 'Fizik ölçümlerinizi kaydedin ve ilerlemenizi görün.', labReportHtml('fizik', 'Fizik deneyi'))}
+      ${panel('Bir boyutta çarpışma', 'İki kütlenin çarpışmasında momentum ve kinetik enerjinin nasıl değiştiğini görün.', labCollisionHtml())}
       ${panel('Hesap panosu', 'Ohm kanunu, eşdeğer direnç, sarkaç, mercek, hareket, enerji ve dalga hesaplarını adım adım yapın.', labCalcGrid(PHYSICS_CALCS, 'fizik'))}`,
     after: () => {
       setupLabs();
       setupPhysicsCalcs();
+      setupPhysics2();
+      setupPhysics3();
+      setupLabReport('fizik');
     },
   };
 }
@@ -3972,45 +4424,74 @@ function setupEncoding() {
 }
 
 // ---------- Kimya 3D laboratuvarı ----------
+const CHEM3D_PPE = ['eldiven', 'gozluk', 'onluk'];
+
 function chem3dHtml() {
-  const materials = CHEM3D_MATERIALS.map(m => `<button class="material-btn" data-mat="${esc(m.key)}" type="button"><span class="m-icon">${m.icon}</span><span class="m-name">${esc(m.name)}</span></button>`).join('');
-  return `<div class="chem3d-layout">
-    <aside class="lab-sidebar">
-      <div class="lab-panel">
-        <h3>Raftaki malzemeler</h3>
-        <div class="material-grid" id="chem3d-materials">${materials}</div>
-        <p class="muted" style="font-size:12px;margin:8px 0 0">Malzemeye tıklayın; elinize alınır. Sonra bir tüpe tıklayarak dökün. En fazla üç malzeme karıştırılabilir.</p>
+  const btn = m => `<button class="material-btn" data-mat="${esc(m.key)}" type="button" title="${esc(m.name)}"><span class="m-icon">${m.icon}</span><span class="m-name">${esc(m.name)}</span></button>`;
+  const shelf = CHEM3D_MATERIALS.filter(m => !CHEM3D_PPE.includes(m.key)).map(btn).join('');
+  const ppe = CHEM3D_MATERIALS.filter(m => CHEM3D_PPE.includes(m.key)).map(btn).join('');
+  return `<div class="c3d">
+    <header class="c3d-top">
+      <div class="c3d-title">
+        <span class="c3d-dot" aria-hidden="true"></span>
+        <div><strong>Kimya 3D Laboratuvarı</strong><small>Birinci şahıs · deney masası</small></div>
       </div>
-      <div class="lab-panel">
-        <h3>Ocak ve kontroller</h3>
-        <div class="lab-actions">
-          <button class="btn primary" id="chem3d-heat" type="button">🔥 Ocağı aç</button>
-          <button class="btn" id="chem3d-reset" type="button">↺ Sıfırla</button>
+      <div class="c3d-pills" aria-live="off">
+        <span class="c3d-pill">🌡️ <span>En sıcak</span> <b id="chem3d-temp">20°C</b></span>
+        <span class="c3d-pill">✋ <span>Elinizde</span> <b id="chem3d-mat">—</b></span>
+        <span class="c3d-pill c3d-pill--flame">🔥 <span>Ocak</span> <b id="chem3d-flame">Kapalı</b></span>
+      </div>
+      <div class="c3d-actions">
+        <button class="btn primary sm" id="chem3d-heat" type="button">🔥 Ocağı aç</button>
+        <button class="btn sm" id="chem3d-reset" type="button">↺ Sıfırla</button>
+        <button class="btn ghost sm" id="chem3d-help" type="button" aria-expanded="false" aria-controls="chem3d-helpbox">? Yardım</button>
+      </div>
+    </header>
+    <div class="chem3d-msg c3d-banner" id="chem3d-msg" role="status" aria-live="polite">Bir malzeme seçin ya da sahnede bir şeye tıklayın.</div>
+    <section class="c3d-help" id="chem3d-helpbox" hidden>
+      <div><h4>Gezinme</h4><p><kbd>W A S D</kbd> veya ok tuşları, ekrandaki ▲ ◀ ▼ ▶ düğmeleri. Sağ tuşla sürükleyerek bakın.</p></div>
+      <div><h4>Etkileşim</h4><p>Tıkla: al, dök, tart, ısıt. <kbd>Q</kbd> elindekini bırakır.</p></div>
+      <div><h4>Güvenlik</h4><p>Önce <b>gözlük, eldiven ve önlük</b> giyin (Ekipman sekmesi ya da sağ duvardaki askı). Asidin üstüne su dökmeyin: asidi suya ekleyin.</p></div>
+      <div><h4>Isınma</h4><p>Ocağa <b>üç ayaklıyı</b> kurun, tüpü amyant telinin üstüne koyun. Su 100 °C'de kaynar ve buharlaşır.</p></div>
+    </section>
+    <div class="c3d-body">
+      <aside class="c3d-side" aria-label="Laboratuvar araçları">
+        <div class="c3d-tabs" role="tablist" aria-label="Panel">
+          <button class="c3d-tab" role="tab" type="button" aria-selected="true" data-tab="raf">Raf</button>
+          <button class="c3d-tab" role="tab" type="button" aria-selected="false" data-tab="ekipman">Ekipman</button>
+          <button class="c3d-tab" role="tab" type="button" aria-selected="false" data-tab="durum">Durum</button>
         </div>
-        <p class="muted" style="font-size:12px;margin:8px 0 0">Kibritle ocağı yakın (kibriti alıp ocağa tıklayın), sonra tüpü ocağın yanına koyun.</p>
-        <p class="muted" style="font-size:12px;margin:8px 0 0"><b>Gezinme:</b> W A S D veya ok tuşları. <b>Bakış:</b> sürükleyin. <b>Etkileşim:</b> tıklayın. <b>Q:</b> elindekini bırak.</p>
-        <p class="muted" style="font-size:12px;margin:8px 0 0"><b>Duvar:</b> periyodik tablo — Na ve Mg alınabilir. <b>Termometre:</b> alıp tüpe tıklayın. Asidin üstüne su dökmeyin, asidi suya ekleyin!</p>
-      </div>
-      <div class="lab-panel">
-        <h3>Durum</h3>
-        <div class="lab-stats">
-          <div class="lab-stat"><span>En yüksek sıcaklık</span><strong id="chem3d-temp">20°C</strong></div>
-          <div class="lab-stat"><span>Elinizde</span><strong id="chem3d-mat">—</strong></div>
+        <div id="chem3d-materials">
+          <section class="c3d-panel" role="tabpanel" data-panel="raf">
+            <label class="c3d-search"><span class="sr-only">Malzeme ara</span><input type="search" id="chem3d-search" placeholder="Malzeme ara…" autocomplete="off"></label>
+            <div class="material-grid" data-grid="raf">${shelf}</div>
+            <p class="c3d-note">Malzemeye tıklayın, elinize alın. Sonra tüpe tıklayarak dökün. Tüpte en fazla üç madde olabilir.</p>
+          </section>
+          <section class="c3d-panel" role="tabpanel" data-panel="ekipman" hidden>
+            <p class="c3d-note">Koruyucu ekipmanı buradan ya da sağ duvardaki askıdan giyin. Ocak ve dökme işlemleri için gerekir.</p>
+            <div class="material-grid" data-grid="ekipman">${ppe}</div>
+          </section>
+          <section class="c3d-panel" role="tabpanel" data-panel="durum" hidden>
+            <div class="lab-stats">
+              <div class="lab-stat"><span>Tüp bilgisi</span><strong id="chem3d-info-short">—</strong></div>
+              <div class="lab-stat"><span>Ocak</span><strong id="chem3d-flame-2">Kapalı</strong></div>
+            </div>
+            <p class="chem3d-info" id="chem3d-info"></p>
+            <h4 class="c3d-sub">Deney günlüğü</h4>
+            <ol class="chem3d-log" id="chem3d-log"></ol>
+            <button class="btn ghost sm c3d-export" id="chem3d-export" type="button">⬇ Günlüğü indir (.txt)</button>
+          </section>
         </div>
-        <p class="chem3d-msg" id="chem3d-msg" role="status" aria-live="polite">Bir malzeme seçin ve tüplerden birine tıklayın.</p>
-        <p class="chem3d-info" id="chem3d-info"></p>
-        <h3 style="margin-top:12px">Deney günlüğü</h3>
-        <ol class="chem3d-log" id="chem3d-log"></ol>
+      </aside>
+      <div class="chem3d-wrap">
+        <div class="chem3d-keys" aria-label="Kısayollar">
+          <span class="chip"><kbd>W A S D</kbd> gezin</span>
+          <span class="chip"><kbd>Sürükle</kbd> bak</span>
+          <span class="chip"><kbd>Tıkla</kbd> al / dök</span>
+          <span class="chip"><kbd>Q</kbd> bırak</span>
+        </div>
+        <div class="chem3d-stage" id="chem3d-canvas" role="img" aria-label="3D kimya laboratuvarı sahnesi"></div>
       </div>
-    </aside>
-    <div class="chem3d-wrap">
-      <div class="chem3d-keys" aria-label="Kısayollar">
-        <span class="chip"><kbd>W A S D</kbd> gezin</span>
-        <span class="chip"><kbd>Sürükle</kbd> bak</span>
-        <span class="chip"><kbd>Tıkla</kbd> al / dök</span>
-        <span class="chip"><kbd>Q</kbd> bırak</span>
-      </div>
-      <div class="chem3d-stage" id="chem3d-canvas" role="img" aria-label="3D kimya laboratuvarı sahnesi"></div>
     </div>
   </div>`;
 }
@@ -4023,6 +4504,11 @@ function setChem3dStatus(s) {
   text('chem3d-temp', `${s.hottest}°C`);
   text('chem3d-mat', s.carrying ? 'Tüp' : s.selected ? CHEM3D_MATERIALS.find(m => m.key === s.selected)?.name : '—');
   text('chem3d-info', s.info ?? undefined);
+  text('chem3d-flame', s.burnerOn ? 'Açık' : 'Kapalı');
+  text('chem3d-flame-2', s.burnerOn ? 'Açık' : 'Kapalı');
+  if (s.info) text('chem3d-info-short', s.info.split(' · ').slice(1, 2).join('') || '—');
+  const pill = document.querySelector('.c3d-pill--flame');
+  if (pill) pill.classList.toggle('on', Boolean(s.burnerOn));
   if (s.message && s.message !== chem3dLastMessage) {
     chem3dLastMessage = s.message;
     const log = document.getElementById('chem3d-log');
@@ -4060,15 +4546,65 @@ function mountChem3d() {
 async function pageKimya3d() {
   return {
     html: `${head('Kimya 3D Laboratuvarı', 'Malzeme seçin, tüpe tıklayın, brülörle ısıtın ve tepkimeyi üç boyutlu izleyin.', '')}
-      ${panel('3D kimya deneyi', 'Tüpleri ve brülörü sürükleyin; tepkimeler sıcaklığa göre gerçekleşir.', chem3dHtml())}`,
+      ${panel('3D kimya deneyi', 'Tüpleri ve brülörü sürükleyin; tepkimeler sıcaklığa göre gerçekleşir.', chem3dHtml())}
+      ${panel('Deney raporu', 'Deney günlüğünüzü ve ölçümlerinizi rapor olarak kaydedin.', labReportHtml('kimya3d', 'Kimya 3D deneyi'))}`,
     after: () => {
       mountChem3d();
+      setupLabReport('kimya3d');
+      // Sekmeler
+      const tabs = [...document.querySelectorAll('.c3d-tab')];
+      const selectTab = tab => {
+        tabs.forEach(x => {
+          const on = x === tab;
+          x.setAttribute('aria-selected', String(on));
+          x.classList.toggle('on', on);
+        });
+        document.querySelectorAll('[data-panel]').forEach(p => { p.hidden = p.dataset.panel !== tab.dataset.tab; });
+      };
+      tabs.forEach(t => t.addEventListener('click', () => selectTab(t)));
+      tabs.forEach((t, i) => t.addEventListener('keydown', e => {
+        if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+        e.preventDefault();
+        const next = tabs[(i + (e.key === 'ArrowRight' ? 1 : tabs.length - 1)) % tabs.length];
+        next.focus();
+        selectTab(next);
+      }));
+      if (tabs[0]) selectTab(tabs[0]);
+      // Malzeme arama (Türkçe büyük/küçük harf duyarlı değil)
+      const search = document.getElementById('chem3d-search');
+      search?.addEventListener('input', () => {
+        const q = search.value.trim().toLocaleLowerCase('tr');
+        document.querySelectorAll('[data-grid=raf] [data-mat]').forEach(b => {
+          b.hidden = Boolean(q) && !(b.title || '').toLocaleLowerCase('tr').includes(q);
+        });
+      });
+      // Yardım paneli
+      const helpBtn = document.getElementById('chem3d-help');
+      const helpBox = document.getElementById('chem3d-helpbox');
+      helpBtn?.addEventListener('click', () => {
+        helpBox.hidden = !helpBox.hidden;
+        helpBtn.setAttribute('aria-expanded', String(!helpBox.hidden));
+      });
+      // Malzeme, ısıtma, sıfırlama
       document.getElementById('chem3d-materials')?.addEventListener('click', e => {
         const btn = e.target.closest('[data-mat]');
         if (btn) chem3dView?.select(btn.dataset.mat);
       });
       document.getElementById('chem3d-heat')?.addEventListener('click', () => chem3dView?.toggleBurner());
       document.getElementById('chem3d-reset')?.addEventListener('click', () => chem3dView?.reset());
+      // Deney günlüğünü metin olarak indir
+      document.getElementById('chem3d-export')?.addEventListener('click', () => {
+        const lines = [...document.querySelectorAll('#chem3d-log li')].reverse().map((li, i) => `${i + 1}. ${li.textContent}`);
+        const text = ['Okulum · Kimya 3D deney günlüğü', `Tarih: ${new Date().toLocaleString('tr-TR')}`, '', ...(lines.length ? lines : ['(Henüz kayıt yok)'])].join('\n');
+        const url = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }));
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `kimya-deney-gunlugu-${new Date().toISOString().slice(0, 10)}.txt`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      });
     },
   };
 }
@@ -4254,12 +4790,14 @@ async function pageBiyoloji() {
         ${bioSlider('minutes', 'Toplam süre', 10, 1440, 10, 120, 'dk')}
         <p class="lab-error" data-err></p>
         <ul class="lab-results" data-out></ul>`))}
+      ${panel('Mikroskop', 'Objektif büyütmesini değiştirin; hücreler ve çekirdekler büyür, görüş alanı daralır.', labMicroscopeHtml())}
+      ${panel('Grafikler', 'Enzim ve fotosentez deneylerinin sonuçlarını eğri olarak görün.', labChartsHtml())}
       ${panel('Kalp atış hızı', 'Yaşa ve dinlenme nabzına göre hedef egzersiz bölgesi.', bioBox('kalp', `
         ${bioSlider('age', 'Yaş', 5, 100, 1, 16, 'yıl')}
         ${bioSlider('rest', 'Dinlenme nabzı', 30, 120, 1, 75, 'dk⁻¹')}
         <p class="lab-error" data-err></p>
         <ul class="lab-results" data-out></ul>`))}`,
-    after: setupBioBoxes,
+    after: () => { setupBioBoxes(); setupMicroscope(); setupBioCharts(); },
   };
 }
 
@@ -5257,6 +5795,106 @@ const MATH_CALCS = [
   } },
 ];
 
+// ---------- Matematik: polinom çizici (gerçek kökler işaretli) ----------
+function labPolyHtml() {
+  const f = (name, label, v) => `<label class="field"><span>${label}</span><input type="number" step="any" data-poly="${name}" value="${v}"></label>`;
+  return `<div class="lab-grid">
+    <div class="lab-controls" data-lab="polinom">
+      <p class="muted" style="margin:0 0 8px">y = a·x³ + b·x² + c·x + d</p>
+      ${f('a', 'a (x³)', 1)}${f('b', 'b (x²)', 0)}${f('c', 'c (x)', -4)}${f('d', 'd (sabit)', 0)}
+      <label class="field"><span>Aralık: <b data-out="range">±6</b></span><input type="range" min="2" max="20" step="1" value="6" data-poly="range"></label>
+      <ul class="lab-results"><li>Gerçek kökler: <b data-res="roots">–</b></li><li>Denklem: <b data-res="eq">–</b></li></ul>
+    </div>
+    <canvas class="lab-canvas" data-canvas="polinom" aria-label="Polinom grafiği"></canvas>
+  </div>`;
+}
+
+function setupPolyPlot() {
+  const box = document.querySelector('[data-lab=polinom]');
+  if (!box) return;
+  const update = () => {
+    const get = n => Number(box.querySelector(`[data-poly=${n}]`).value) || 0;
+    const [a, b, c, d] = [get('a'), get('b'), get('c'), get('d')];
+    const R = get('range') || 6;
+    box.querySelector('[data-out=range]').textContent = `±${R}`;
+    // Katsayıları baştaki sıfırları atarak kullan
+    const coeffs = [a, b, c, d].reduce((acc, v, i, arr) => (acc.length || v !== 0 || i === 3 ? [...acc, v] : acc), []);
+    const roots = polynomialRoots(coeffs.length ? coeffs : [0], -R, R);
+    box.querySelector('[data-res=roots]').textContent = roots.length ? roots.join(', ') : 'yok (bu aralıkta)';
+    box.querySelector('[data-res=eq]').textContent = `${a}x³ + ${b}x² + ${c}x + ${d}`.replace(/\+ -/g, '− ');
+    const canvas = document.querySelector('[data-canvas=polinom]');
+    const { ctx, w, h } = fitCanvas(canvas);
+    const pts = [];
+    for (let i = 0; i <= 200; i += 1) {
+      const x = -R + (2 * R * i) / 200;
+      pts.push({ x, y: evaluatePolynomial([a, b, c, d], x) });
+    }
+    const yMax = Math.max(1, ...pts.map(p => Math.abs(p.y))) * 1.1;
+    const f = plotFrame(ctx, w, h, { xMin: -R, xMax: R, yMin: -yMax, yMax, xTicks: 6, yTicks: 6, xLabel: 'x', yLabel: 'y' });
+    ctx.strokeStyle = '#8fa39a';
+    ctx.beginPath(); ctx.moveTo(f.L, f.Y(0)); ctx.lineTo(w - f.R, f.Y(0)); ctx.stroke();
+    plotCurve(ctx, pts.map(p => ({ x: p.x, y: p.y })), f.X, f.Y, f.Y(0), '#1b6b50');
+    roots.forEach(r => plotDot(ctx, f.X(r), f.Y(0), '#e8762b'));
+  };
+  box.addEventListener('input', update);
+  box.addEventListener('change', update);
+  update();
+}
+
+// ---------- Biyoloji: etkileşimli mikroskop ----------
+function labMicroscopeHtml() {
+  return `<div class="lab-grid">
+    <div class="lab-controls" data-lab="mikroskop">
+      <label class="field"><span>Objektif büyütmesi</span>
+        <select data-micro="objective"><option value="4">4×</option><option value="10" selected>10×</option><option value="40">40×</option><option value="100">100×</option></select>
+      </label>
+      <ul class="lab-results">
+        <li>Toplam büyütme: <b data-res="total">–</b></li>
+        <li>Görüş alanı: <b data-res="field">–</b> µm</li>
+      </ul>
+      <p class="muted" style="font-size:13px;margin:8px 0 0">Yüksek büyütmede hücre çekirdeği daha belirgin görünür. Okuler sabit 10× alınmıştır.</p>
+    </div>
+    <canvas class="lab-canvas" data-canvas="mikroskop" aria-label="Mikroskop görüntüsü: hücreler"></canvas>
+  </div>`;
+}
+
+function setupMicroscope() {
+  const box = document.querySelector('[data-lab=mikroskop]');
+  if (!box) return;
+  const update = () => {
+    const objective = Number(box.querySelector('[data-micro=objective]').value);
+    const { total, fieldUm, cells } = microscopeField({ objective, seed: 11 });
+    box.querySelector('[data-res=total]').textContent = `${total}×`;
+    box.querySelector('[data-res=field]').textContent = String(fieldUm);
+    const canvas = document.querySelector('[data-canvas=mikroskop]');
+    const { ctx, w, h } = fitCanvas(canvas);
+    // Açık pembe-mor arka plan (mikroskop lamı)
+    const bg = ctx.createRadialGradient(w / 2, h / 2, 10, w / 2, h / 2, Math.max(w, h) / 1.2);
+    bg.addColorStop(0, '#fbf3fb');
+    bg.addColorStop(1, '#eadcea');
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, w, h);
+    const scale = objective / 40;
+    cells.forEach(c => {
+      const cx = c.x * w;
+      const cy = c.y * h;
+      const rad = c.r * Math.min(w, h) * scale;
+      ctx.fillStyle = `rgba(${200 + Math.round(c.tone * 40)}, ${150 + Math.round(c.tone * 60)}, ${200}, 0.55)`;
+      ctx.beginPath(); ctx.arc(cx, cy, rad, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = 'rgba(120,60,120,0.5)';
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+      if (c.nucleus) {
+        ctx.fillStyle = 'rgba(90,40,120,0.75)';
+        ctx.beginPath(); ctx.arc(cx + rad * 0.15, cy - rad * 0.1, rad * 0.38, 0, Math.PI * 2); ctx.fill();
+      }
+    });
+  };
+  box.addEventListener('input', update);
+  box.addEventListener('change', update);
+  update();
+}
+
 async function pageGeogebra() {
   const { materials } = await api('/geogebra/materials');
   const staff = state.me.role === 'teacher' || state.me.role === 'principal';
@@ -5271,6 +5909,8 @@ async function pageGeogebra() {
     html: `${head('Matematik Laboratuvarı', 'Fonksiyon, nokta, doğru ve çember çizin; sınıf çalışmalarını kaydedin. Öğrenciler çalışmayı açıp kendi denemelerini yapabilir.', saveButton)}
       ${panel('Grafik', '', '<div class="pad"><div id="graphHost" class="gx-host"></div></div>')}
       ${panel('Hesap panosu', 'Denklem, sistem, üçgen, istatistik, yüzde, faiz ve sayı kuramı hesaplarını adım adım yapın.', labCalcGrid(MATH_CALCS, 'matematik'))}
+      ${panel('Adım adım çözüm', 'İkinci dereceden bir denklemin çözümünü adım adım, Türkçe açıklamalarla görün.', labStepsHtml())}
+      ${panel('Polinom çizici', 'Üçüncü dereceye kadar bir polinomun grafiğini çizin; gerçek kökler grafikte işaretlenir.', labPolyHtml())}
       ${panel('Sınıf çalışmaları', `${materials.length} kayıt`, materials.length
         ? `<ul class="list">${list}</ul>`
         : empty('Çalışma yok', 'Öğretmeniniz çalışma kaydettiğinde burada görünür.'))}`,
@@ -5278,6 +5918,8 @@ async function pageGeogebra() {
       const host = document.querySelector('#graphHost');
       if (host) ggbCurrent = mountGraph(host, { lines: [] }, {});
       mountCalcs(document.querySelector('[data-calcgrid=matematik]'), MATH_CALCS);
+      setupPolyPlot();
+      setupQuadraticSteps();
     },
   };
 }

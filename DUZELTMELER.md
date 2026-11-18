@@ -103,3 +103,55 @@ Render'da gerekli ortam değişkenleri: DATABASE_URL (ayarlı). Üretimde SUPABA
 - Raftaki aletler (üçayak, cımbız, termometre, kibrit vb.) gerçek şekilleriyle görünür.
 - Dijital tartı masada: elinizdeki maddeye tıklayın ya da tartıya bakın; kütle ekranda görünür.
 - Buharlaşma hızlandırıldı: su yaklaşık yarım dakikada buharlaşır; su bitince tüp 100 °C'nin üstüne çıkar.
+
+## Laboratuvar arayüzü v8
+- Sonuç listeleri ve hata mesajları daha okunur; sayılar tabular rakamlarla hizalı.
+- Kaydırıcılar ana renkle uyumlu; biyoloji yapı düğmeleri hap şeklinde.
+- Azaltılmış hareket tercihinde yeni geçişler kapanır.
+
+## Kimya 3D arayüzü v9
+- Üst başlık: ortam sıcaklığı, elindeki eşya ve ocak durumu rozetleri; Ocağı aç/Sıfırla/Yardım düğmeleri.
+- Mesaj çubuğu her zaman görünür (uyarı ve başarılar).
+- Kenar çubuğu üç sekme: Raf (arama kutulu), Ekipman, Durum (tüp bilgisi ve günlük). Sekmeler ok tuşlarıyla da gezilir.
+- Yardım paneli: gezinme, etkileşim, güvenlik ve ısınma notları.
+- Arama kutusuna yazarken WASD karakteri yürütmez.
+
+## Veli hesapları (otomatik) ve deney günlüğü dışa aktarma
+- Yeni öğrenci hesabı oluşturulunca, aynı parolayla "veli_<öğrenci kullanıcı adı>" adlı bir veli hesabı da oluşur ve öğrenciye bağlanır. Örnek: öğrenci "ali" → veli "veli_ali". Veli hesabına aynı şifreyle girilir ve Ali'nin bilgilerini görür.
+- Öğrenci parolasını değiştirince ya da müdür sıfırlayınca veli parolası da aynı olur. Öğrenci silinince, başka çocuğu kalmamış velisi de silinir.
+- Öğrenci kullanıcı adı en fazla 27 karakter olabilir (veli_ öneki için). Veli adı zaten varsa 409 hatası verilir.
+- Mevcut öğrenciler için otomatik veli oluşturulmaz (parolaları bilinmediği için). Müdür, veli hesabını "Kullanıcılar" bölümünden oluşturup parolasını ayarlayabilir.
+- Kimya 3D: deney günlüğü .txt olarak indirilebilir.
+- Yeni testler: test/guardian.test.mjs.
+
+## Site geneli arayüz v10
+- Yükleniyor durumunda düğmede dönen gösterge (aria-busy); metin gizlenir, tıklama engellenir.
+- Uyarı bildirimi için sarı-turuncu ton.
+- Fare ile tıklayınca odak halkası çıkmaz; klavyede görünmeye devam eder.
+
+## Veli ilk girişinde şifre belirleme; bildirim teşhisi
+- Otomatik oluşturulan veli hesapları (must_change_password = true) ilk girişte yeni şifre belirlemek zorundadır. Giriş formunda iki yeni şifre alanı açılır; şifre belirlenmeden oturum açılmaz (migrasyon 0019).
+- Öğrenci şifresi değişince veli şifresi de değişir, ancak yalnızca veli henüz kendi şifresini belirlemediyse.
+- Bildirimler: sunucu logunda bildirim gönderme hatası görünmüyor. Olası nedenler: kullanıcının bildirimleri açmamış olması (Ayarlar), tarayıcı izninin verilmemesi, iOS'ta uygulamanın ana ekrana eklenmemiş olması. Ayarlardaki "Bildirim testi" düğmesi aboneliği doğrular.
+- Bilinen teknik borç: src/api.js içinde /api/push/key ve /api/push/subscribe rotaları iki kez tanımlı. Biri kaldırılmalı (işlevsel fark küçük).
+
+## Büyük güncelleme: fizik, kimya 3D, biyoloji, matematik
+- Fizik: serbest düşme, eğik düzlemde sürtünmeli kayma (blok animasyonu), bir boyutta çarpışma (momentum ve enerji kaybı). Hesaplar public/physics.js, testler test/physics.test.mjs.
+- Kimya 3D: ekipman çıkarma (sekmedeki giyili düğmeye tekrar tıkla); radyoaktif örnek cımbızla masaya bırakılır ve geri alınır; klavye ile bakış (I/J/K/L) ve Enter ile etkileşim.
+- Kimya genel kuralları: asitle hidrojen veren metaller (Zn, Fe, Al, Mg, Ca...) ve suyla tepkime veren alkali/toprak alkali metaller (K, Rb, Cs patlar). Soy metaller (Cu, Au, Ag, Pt) tepkime vermez. Kurallar public/chemistry.js, testler test/chem-elements.test.mjs.
+- Biyoloji: etkileşimli mikroskop (4×, 10×, 40×, 100×), hücre ve çekirdek görüntüsü, görüş alanı. Üretim public/biology.js.
+- Matematik: polinom çizici (üçüncü derece), gerçek kökler grafikte işaretlenir. Kökler public/math-tools.js içinde.
+- Kod yapısı: ilk adım olarak saf mantık modülleri ayrıldı (chemistry, physics, math-tools, biology, guardian). chem3d.js ve views.js henüz bölünmedi.
+
+## Yeni özellikler (ikinci tur)
+- Fizik: basit sarkaç (periyot, frekans, hız ve açının zamana göre grafiği); etkileşimli sürtünmeli itme (blok kütlesi, itme kuvveti, sürtünme yüzeyi seçimi; kayıp kaymadığı gösterilir). Hesaplar public/physics.js.
+- Matematik: ikinci derece denklemin adım adım çözümü (Türkçe açıklamalı). Sayfada "Adım adım çözüm" paneli.
+- Kimya: tepkime ürünleri (tuz ve su, hidrojen ve metal klorür, karbondioksit, hidroksit, şeker çözeltisi). 3D sahnede tepkime mesajına eklenir.
+- Biyoloji: enzim etkinliğinin sıcaklıkla ve fotosentez hızının ışıkla değişimi grafikleri.
+
+## Öğrenci deney raporu ve ilerleme (veritabanı + sunucu)
+- Yeni tablolar (migrasyon 0020): lab_reports (öğrenci raporları) ve lab_progress (deney bazında tamamlama sayısı). Migrasyon tüm okul şemalarına otomatik uygulanır.
+- API: POST /api/lab/reports (öğrenci kaydeder), GET /api/lab/reports (öğrenci kendi son 20; müdür son 100), GET /api/lab/progress (öğrenci).
+- Doğrulama src/labreport.js içinde (deney kodu, başlık, en fazla 200 satır, satır başına 300 karakter). Testler test/labreport.test.mjs.
+- İstemci: Fizik ve Kimya 3D sayfalarında "Deney raporu" kartı; ölçüm satırlarını kaydeder, son raporları ve toplam tamamlanmayı gösterir.
+- Henüz yok: öğretmenin sınıf raporlarını görmesi.

@@ -208,11 +208,43 @@ document.addEventListener('input', event => {
 
 // Giriş ve kurulum formları. Başarılıysa uygulama kabuğuna geçilmesi için olay yayınlanır.
 FORMS.login = async form => {
+  // Veli ilk girişi: önce yeni şifre belirlenir, sonra oturum açılır
+  if (form.dataset.changePassword === 'yes') {
+    const next = val(form, 'next');
+    const again = val(form, 'next2');
+    if (next !== again) { toast('Yeni şifreler aynı değil.', 'error'); return; }
+    await api('/login/change-password', { method: 'POST', body: {
+      username: val(form, 'username'), password: val(form, 'password'), next,
+    } });
+    toast('Şifreniz belirlendi. Hoş geldiniz.');
+    await playUnlockTransition();
+    window.dispatchEvent(new Event('okulum:login'));
+    return;
+  }
   const totpField = form.querySelector('[name=totp]');
   const res = await api('/login', { method: 'POST', body: {
     username: val(form, 'username'), password: val(form, 'password'), portal: form.dataset.portal,
     totp: totpField ? val(form, 'totp').trim() : undefined,
   } });
+  if (res.mustChangePassword) {
+    form.dataset.changePassword = 'yes';
+    if (!form.querySelector('[name=next]')) {
+      const note = document.createElement('p');
+      note.className = 'field-note';
+      note.textContent = 'Veli hesabınızın şifresi öğrencinizle aynıdır. Lütfen şimdi kendinize yeni bir şifre belirleyin (en az 8 karakter).';
+      form.prepend(note);
+      const fields = [['next', 'Yeni şifre'], ['next2', 'Yeni şifre (tekrar)']].map(([name, label]) => {
+        const f = document.createElement('label');
+        f.className = 'field';
+        f.innerHTML = `<span>${label}</span><input name="${name}" type="password" autocomplete="new-password" required>`;
+        return f;
+      });
+      form.querySelector('[data-error]').before(...fields);
+    }
+    form.querySelector('[name=next]').focus();
+    toast('Lütfen yeni şifrenizi belirleyin');
+    return;
+  }
   if (res.mfaRequired) {
     if (!totpField) {
       const field = document.createElement('label');

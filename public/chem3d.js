@@ -12,7 +12,7 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import {
   SUBSTANCES, ELEMENTS, elementLayout, elementBySymbol, elementItemKey, ensureElementSubstance,
-  applicableReactions, mixtureProps, stepTemperature, doseRate, requiredPpe, missingPpe, elementInfo, itemMass,
+  applicableReactions, mixtureProps, stepTemperature, doseRate, requiredPpe, missingPpe, elementInfo, itemMass, productsFor,
 } from './chemistry.js';
 
 const SHELF_KEYS = ['su', 'asit', 'baz', 'fenolftalein', 'toz', 'tuz', 'efervesan', 'kagit', 'kibrit', 'tripod', 'termometre', 'tup', 'cimbiz', 'radyasyon', 'etanol', 'yag', 'permanganat', 'bakir_sulfat', 'cinko_toz', 'kalsiyum_karbonat'];
@@ -392,6 +392,20 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
   let boxOpen = false;
   let boxItems = [...BOX_ITEMS];
   const boxPos = () => new THREE.Vector3(BOX_POS[0], TOP + 0.1, BOX_POS[1]);
+  const tableSamples = [];
+  const placeSample = (sym, p) => {
+    const mesh = addMesh(roundedBox(0.05, 0.05, 0.05), std(0xffd600, { emissive: 0x332b00 }), p.x, TOP + 0.03, p.z);
+    mesh.userData = { kind: 'rsample', sym };
+    tableSamples.push({ sym, mesh });
+  };
+  const takeSample = mesh => {
+    const i = tableSamples.findIndex(s => s.mesh === mesh);
+    if (i < 0) return null;
+    const [s] = tableSamples.splice(i, 1);
+    scene.remove(s.mesh);
+    s.mesh.geometry.dispose();
+    return s.sym;
+  };
 
   // ---------- Tüpler ----------
   const TUBE_GLASS = [[0, -0.2], [0.1, -0.2], [0.126, -0.19], [0.13, -0.17], [0.13, 0.19], [0.136, 0.2], [0.138, 0.21]];
@@ -551,7 +565,7 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
   // ---------- Oyuncu ----------
   const player = { x: 0, z: 2.6, yaw: 0, pitch: -0.12 };
   const keys = new Set();
-  const pickables = () => [...bottles, ...tubes, burner, tripod, board, box, balance, ...ppeHitList()];
+  const pickables = () => [...bottles, ...tubes, burner, tripod, board, box, balance, ...ppeHitList(), ...tableSamples.map(s => s.mesh)];
 
   // ---------- Durum ----------
   let heldKey = null;       // elde tutulan malzeme veya alet
@@ -618,7 +632,8 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
       if (r.heat) d.temp += r.heat;
       if (r.fx && !d.fx.some(f => f.type === r.fx.type)) d.fx.push(r.fx);
       if (r.explosion) { blast(tube); shake = 1; blastLight.intensity = 6; }
-      say(`${r.name}: ${r.desc}`, r.tone);
+      const products = productsFor(d.contents);
+      say(`${r.name}: ${r.desc}${products.length ? ` Ürünler: ${products.join(', ')}.` : ''}`, r.tone);
     }
   };
   const pour = (tube, key) => {
@@ -639,8 +654,18 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
   };
 
   // ---------- Giyme animasyonu ----------
+  const unequip = key => {
+    if (!worn.has(key)) return say(`${itemName(key)} zaten çıkarılmış.`, 'info');
+    worn.delete(key);
+    if (key === 'eldiven') [rightHand, leftHand].forEach(h => h.traverse(o => { if (o.isMesh && o.material === gloveMat) o.material = skinMat; }));
+    if (key === 'onluk') coatOverlay.visible = false;
+    if (key === 'gozluk') goggleView.visible = false;
+    // Çıkarılan ekipman askıya geri döner
+    ppeItems[key].visible = true;
+    return say(`${itemName(key)} çıkarıldı ve askıya asıldı.`, 'info');
+  };
   const equip = key => {
-    if (worn.has(key)) return say(`${itemName(key)} zaten giyili.`, 'info');
+    if (worn.has(key)) return say(`${itemName(key)} zaten giyili. Çıkarmak için sekmedeki düğmeye tekrar tıklayın.`, 'info');
     const mesh = ppeItems[key];
     const from = mesh.getWorldPosition(new THREE.Vector3());
     equipTweens.push({ key, mesh, from, t: 0 });
@@ -688,8 +713,11 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
 
   // ---------- Girdi ----------
   const onKeyDown = e => {
+    // Arama kutusu ve diğer form alanlarında yazarken sahne tuşlarını yok say
+    if (e.target?.closest?.('input, textarea, select, [contenteditable="true"]')) return;
     if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(e.key)) e.preventDefault();
     if (e.key.toLowerCase() === 'q' && !e.repeat) { dropAll(); return; }
+    if (e.key === 'Enter' && !e.repeat && !e.target?.closest?.('button, a, [role=tab]')) { reachT = 1; interact(); return; }
     keys.add(e.key.toLowerCase());
   };
   const onKeyUp = e => keys.delete(e.key.toLowerCase());
@@ -740,7 +768,11 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
   };
   const dropAll = () => {
     if (dropCarried()) return say('Tüpü bıraktınız.', 'info');
-    if (heldKey === 'cimbiz' && tongsSample) return say('Radyoaktif örneği önce kutuya geri koyun.', 'warn');
+    if (heldKey === 'cimbiz' && tongsSample) {
+      const p = tableTarget();
+      if (p) { const sym = tongsSample; placeSample(sym, p); tongsSample = null; return say(`${sym} örneği masaya bırakıldı.`, 'warn'); }
+      return say('Örneği bırakmak için masaya bakın ya da kutuya tıklayın.', 'warn');
+    }
     if (heldKey) { heldKey = null; return say('Elinizdekini bıraktınız.', 'info'); }
     return say('Elinizde bir şey yok.', 'info');
   };
@@ -753,6 +785,7 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
       boxItems.forEach(sym => sources.push({ symbol: sym, distance: d }));
     }
     if (tongsSample) sources.push({ symbol: tongsSample, distance: 0.6 });
+    tableSamples.forEach(s => sources.push({ symbol: s.sym, distance: eye.distanceTo(s.mesh.position) }));
     return sources;
   };
 
@@ -764,7 +797,7 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
     if (carried) { dropCarried(); return say('Tüp bırakıldı.', 'info'); }
 
     // Koruyucu ekipman: giy (elde bir şey olsa da)
-    if (target?.userData.kind === 'ppe') return equip(target.userData.key);
+    if (target?.userData.kind === 'ppe') return worn.has(target.userData.key) ? unequip(target.userData.key) : equip(target.userData.key);
 
     // Kutu: aç/kapat; cımbızla örnek al ya da geri koy
     if (target?.userData.kind === 'box') {
@@ -788,10 +821,27 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
       return say('Kutu kapatıldı.', 'info');
     }
 
-    // Cımbızdayken her şeyi cımbızla yapın
+    // Masadaki radyoaktif örneği cımbızla al
+    if (target?.userData.kind === 'rsample') {
+      if (heldKey !== 'cimbiz') return say('Radyoaktif örneği yalnızca cımbızla alabilirsiniz.', 'warn');
+      if (!requirePpe('radioactive', 'Radyoaktif madde')) return null;
+      if (tongsSample) return say('Cımbızda zaten bir örnek var.', 'warn');
+      tongsSample = takeSample(target);
+      return say(`${tongsSample} örneği masadan cımbızla alındı.`, 'warn');
+    }
+
+    // Cımbızdayken: örneği masaya bırak (tüp ya da başka hedef değil)
     if (heldKey === 'cimbiz') {
-      if (tongsSample && target?.userData.kind === 'tube') return say('Radyoaktif örnek tüpe konmaz; önce kutuya koyun.', 'warn');
-      if (tongsSample && target?.userData.kind !== 'box') return say('Radyoaktif örneği kutuya geri koyun.', 'warn');
+      if (tongsSample) {
+        if (!requirePpe('radioactive', 'Radyoaktif madde')) return null;
+        if (target?.userData.kind === 'tube') return say('Radyoaktif örnek tüpe konmaz; masaya bırakın.', 'warn');
+        const p = tableTarget();
+        if (!p) return say('Örneği bırakmak için masaya bakın (ya da kutuya tıklayın).', 'warn');
+        placeSample(tongsSample, p);
+        const sym = tongsSample;
+        tongsSample = null;
+        return say(`${sym} örneği masaya bırakıldı. Radyasyon ölçerle doza bakın.`, 'warn');
+      }
       heldKey = null;
       return say('Cımbızı bıraktınız.', 'info');
     }
@@ -910,7 +960,14 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
 
   // ---------- Her karede ----------
   const collidesTable = (x, z) => Math.abs(x) < TABLE.hx + 0.2 && Math.abs(z) < TABLE.hz + 0.2;
+  const lookWithKeys = dt => {
+    const turn = (keys.has('l') ? 1 : 0) - (keys.has('j') ? 1 : 0);
+    const tilt = (keys.has('i') ? 1 : 0) - (keys.has('k') ? 1 : 0);
+    if (turn) player.yaw -= turn * 1.8 * dt;
+    if (tilt) player.pitch = THREE.MathUtils.clamp(player.pitch + tilt * 1.2 * dt, -1.2, 1.2);
+  };
   const movePlayer = dt => {
+    lookWithKeys(dt);
     const forward = (keys.has('w') || keys.has('arrowup') ? 1 : 0) - (keys.has('s') || keys.has('arrowdown') ? 1 : 0);
     const strafe = (keys.has('d') || keys.has('arrowright') ? 1 : 0) - (keys.has('a') || keys.has('arrowleft') ? 1 : 0);
     moving = Boolean(forward || strafe);
@@ -1138,7 +1195,7 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
     isAlive: () => !disposed && container.isConnected,
     dispose,
     select(key) {
-      if (PPE_KEYS.includes(key)) return equip(key);
+      if (PPE_KEYS.includes(key)) return worn.has(key) ? unequip(key) : equip(key);
       if (carried) dropCarried();
       heldKey = heldKey === key ? null : key;
       say(heldKey ? `${itemName(heldKey)} elinizde. Bir tüpe ya da ocağa tıklayın.` : 'Malzeme bırakıldı.', 'info');

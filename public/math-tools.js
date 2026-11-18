@@ -119,3 +119,59 @@ export function combinatorics(n0, r0) {
   for (let i = 2; i <= r; i += 1) fact *= i;
   return { permutations: round(perm, 0), combinations: round(perm / fact, 0) };
 }
+
+// Polinom: katsayılar en yüksekten başlar. [1, 0, -4] → x² − 4
+export function evaluatePolynomial(coeffs, x) {
+  return coeffs.reduce((acc, c) => acc * x + c, 0);
+}
+
+// Aralıkta işaret değişimlerine göre gerçek kökler (ikiye bölme ile hassas)
+export function polynomialRoots(coeffs, xMin, xMax, steps = 400) {
+  const roots = [];
+  const f = x => evaluatePolynomial(coeffs, x);
+  let prevX = xMin;
+  let prevY = f(prevX);
+  for (let i = 1; i <= steps; i += 1) {
+    const x = xMin + ((xMax - xMin) * i) / steps;
+    const y = f(x);
+    if (prevY === 0) roots.push(round(prevX));
+    else if (prevY * y < 0) {
+      let a = prevX, b = x, fa = prevY;
+      for (let k = 0; k < 60; k += 1) {
+        const m = (a + b) / 2;
+        const fm = f(m);
+        if (fa * fm <= 0) b = m; else { a = m; fa = fm; }
+      }
+      roots.push(round((a + b) / 2));
+    }
+    prevX = x;
+    prevY = y;
+  }
+  return [...new Set(roots)];
+}
+
+// İkinci dereceden denklemin adım adım çözümü (metin olarak)
+export function quadraticSteps(a0, b0, c0) {
+  const a = finite(a0, 'a'), b = finite(b0, 'b'), c = finite(c0, 'c');
+  if (a === 0) throw new Error('a sıfır olamaz; denklem ikinci dereceden değil.');
+  const f = v => (Number.isInteger(v) ? String(v) : String(round(v)));
+  const steps = [
+    `Denklem: ${f(a)}x² ${b < 0 ? '−' : '+'} ${f(Math.abs(b))}x ${c < 0 ? '−' : '+'} ${f(Math.abs(c))} = 0`,
+    `1. Diskriminant: Δ = b² − 4ac = (${f(b)})² − 4·(${f(a)})·(${f(c)}) = ${f(b * b - 4 * a * c)}`,
+  ];
+  const d = b * b - 4 * a * c;
+  if (d > 0) {
+    steps.push(`2. Δ > 0: iki farklı gerçek kök var.`);
+    steps.push(`3. x = (−b ± √Δ) / 2a = (${f(-b)} ± √${f(d)}) / ${f(2 * a)}`);
+    steps.push(`4. x₁ = ${f(round((-b + Math.sqrt(d)) / (2 * a)))}, x₂ = ${f(round((-b - Math.sqrt(d)) / (2 * a)))}`);
+  } else if (d === 0) {
+    steps.push('2. Δ = 0: tek (çakışık) kök var.');
+    steps.push(`3. x = −b / 2a = ${f(-b)} / ${f(2 * a)}`);
+    steps.push(`4. x = ${f(round(-b / (2 * a)))}`);
+  } else {
+    steps.push('2. Δ < 0: gerçek kök yok; karmaşık kökler var.');
+    steps.push(`3. x = (−b ± i√(−Δ)) / 2a`);
+    steps.push(`4. Gerçek kısım: ${f(round(-b / (2 * a)))}, sanal kısım: ±${f(round(Math.sqrt(-d) / (2 * Math.abs(a))))}i`);
+  }
+  return steps;
+}

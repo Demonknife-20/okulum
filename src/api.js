@@ -2,6 +2,8 @@ const crypto = require('node:crypto');
 const { q, tx, currentTenantSchema } = require('./db');
 const { syncTenantSchool, forEachTenant } = require('./tenancy');
 const sec = require('./security');
+const guardian = require('./guardian');
+const labreport = require('./labreport');
 const storage = require('./storage');
 const ai = require('./ai');
 const push = require('./push');
@@ -268,7 +270,7 @@ on('POST', '/api/login', async ({ req, res, body }) => {
   // Başarılı girişleri de sayan ikinci bir katman: credential-stuffing botlarını dizginler.
   guardIp(AUTH_MIN, `log:${clientIp(req)}`);
   guardIp(AUTH_DAY, `logD:${clientIp(req)}`, 'Bugün bu cihazdan çok fazla giriş denemesi. Yarın tekrar dene.');
-  const { rows: [user] } = await q('select id, username, name, role, student_no, password_hash, session_version, totp_enabled, totp_secret, totp_last_step from users where username = $1', [username]);
+  const { rows: [user] } = await q('select id, username, name, role, student_no, password_hash, session_version, totp_enabled, totp_secret, totp_last_step, must_change_password from users where username = $1', [username]);
   let valid = false;
   if (user) valid = await sec.verifyPasswordAsync(pass, user.password_hash);
   else await sec.burnTimeAsync(pass);
@@ -279,6 +281,7 @@ on('POST', '/api/login', async ({ req, res, body }) => {
     fail(401, 'Kullanıcı adı veya şifre hatalı.');
   }
   sec.clearFailures(userKey);
+  if (user.role === 'parent' && user.must_change_password) return ok({ mustChangePassword: true });
   const portal = body.portal === 'principal' ? 'principal' : 'member';
   if (portal === 'principal' && user.role !== 'principal') {
     fail(403, 'Bu hesap öğretmen veya öğrenci hesabı. Lütfen "Öğretmen / Öğrenci girişi" sayfasını kullan.');
@@ -303,6 +306,29 @@ on('POST', '/api/login', async ({ req, res, body }) => {
   if (user.role === 'principal') await audit({ id: user.id, name: user.name, role: 'principal' }, 'login_success', user.username, { ip: clientIp(req) });
   sec.setSessionCookie(res, user);
   return ok({ user: publicUser(user), portal });
+}, { auth: false });
+
+on('POST', '/api/login/change-password', async ({ req, res, body }) => {
+  const username = str(body.username, 40).toLowerCase();
+  const pass = typeof body.password === 'string' ? body.password : '';
+  const ipKey = `ip:${clientIp(req)}`, userKey = `user:${username}`;
+  if (sec.isLimited(ipKey) || sec.isLimited(userKey)) fail(429, 'Çok fazla deneme yaptın. 15 dakika sonra tekrar dene.');
+  const { rows: [user] } = await q('select id, username, name, role, password_hash, session_version, must_change_password from users where username = $1', [username]);
+  let valid = false;
+  if (user) valid = await sec.verifyPasswordAsync(pass, user.password_hash);
+  else await sec.burnTimeAsync(pass);
+  if (!valid || user.role !== 'parent' || !user.must_change_password) {
+    sec.recordFailure(ipKey);
+    sec.recordFailure(userKey);
+    fail(401, 'Kullanıcı adı veya şifre hatalı.');
+  }
+  const next = checkPassword(body.next);
+  const hash = sec.hashPassword(next);
+  const { rows: [updated] } = await q(`update users set password_hash = $2, must_change_password = false, session_version = session_version + 1
+    where id = $1 returning id, username, name, role, password_hash, session_version`, [user.id, hash]);
+  sec.clearFailures(userKey);
+  sec.setSessionCookie(res, updated);
+  return ok({ user: publicUser(updated), portal: 'member' });
 }, { auth: false });
 
 on('POST', '/api/logout', async ({ res }) => {
@@ -337,6 +363,7 @@ on('PUT', '/api/me/password', async ({ res, body, user }) => {
   if (!(await sec.verifyPasswordAsync(typeof body.current === 'string' ? body.current : '', row.password_hash))) fail(401, 'Mevcut şifre hatalı.');
   const hash = sec.hashPassword(checkPassword(body.next));
   await q('update users set password_hash = $2 where id = $1', [user.id, hash]);
+  await q(`update users set password_hash = $2 where role = 'parent' and must_change_password = true and username = 'veli_' || (select username from users where id = $1 and role = 'student')`, [user.id, hash]);
   await audit(user, 'password_changed', user.name);
   sec.setSessionCookie(res, { id: user.id, password_hash: hash, session_version: row.session_version }); // bu oturum açık kalır, diğerleri düşer
   return ok({ changed: true });
@@ -480,19 +507,32 @@ on('POST', '/api/users', async ({ body, user }) => {
   await assertEmailFree(email);
   const studentNo = role === 'student' ? str(body.studentNo, 20) : null;
   if (role === 'student' && !studentNo) fail(400, 'Öğrenci için okul numarası zorunlu.');
+  if (role === 'student' && !guardian.canHaveGuardian(username)) fail(400, `Öğrenci kullanıcı adı en fazla ${guardian.MAX_USERNAME - guardian.PARENT_PREFIX.length} karakter olabilir (veli hesabı için "veli_" eklenir).`);
+  const parentUsername = role === 'student' ? guardian.parentUsernameFor(username) : null;
+  if (parentUsername) {
+    const { rowCount: parentTaken } = await q('select 1 from users where username = $1', [parentUsername]);
+    if (parentTaken) fail(409, `${parentUsername} kullanıcı adı zaten kullanılıyor; öğrenci için başka bir kullanıcı adı seçin.`);
+  }
   const classId = role === 'student' && body.classId ? requireId(body.classId, 'sınıf') : null;
   const teaching = role === 'teacher' ? pairs(body.teaching) : [];
   const childIds = role === 'parent' ? await studentIdsOf(body.childIds, false) : [];
+  const passHash = sec.hashPassword(pass);
   const result = await tx(async client => {
     const { rows: [u] } = await client.query(`insert into users (username, password_hash, name, role, student_no, email)
-      values ($1, $2, $3, $4, $5, $6) returning id, username, name, role, student_no`, [username, sec.hashPassword(pass), name, role, studentNo, email]);
+      values ($1, $2, $3, $4, $5, $6) returning id, username, name, role, student_no`, [username, passHash, name, role, studentNo, email]);
+    if (parentUsername) {
+      // Veli: aynı parola özeti, öğrenciyle bağlı; e-posta bağlanmaz (benzersiz olmalı)
+      const { rows: [pu] } = await client.query(`insert into users (username, password_hash, name, role, must_change_password) values ($1, $2, $3, 'parent', true) returning id`,
+        [parentUsername, passHash, guardian.guardianNameFor(name)]);
+      await client.query('insert into parent_links (parent_id, student_id) values ($1, $2)', [pu.id, u.id]);
+    }
     if (classId) await client.query('insert into enrollments (student_id, class_id) values ($1, $2)', [u.id, classId]);
     for (const p of teaching) await client.query('insert into teaching (teacher_id, class_id, subject_id) values ($1, $2, $3)', [u.id, p.classId, p.subjectId]);
     for (const childId of childIds) await client.query('insert into parent_links (parent_id, student_id) values ($1, $2)', [u.id, childId]);
     return u;
   });
-  await audit(user, 'user_created', result.name, { role, username, className: classId ? 'atandı' : null, teachingPairs: role === 'teacher' ? teaching.length : undefined });
-  return created({ user: { ...result, studentNo: result.student_no ?? null } });
+  await audit(user, 'user_created', result.name, { role, username, className: classId ? 'atandı' : null, teachingPairs: role === 'teacher' ? teaching.length : undefined, guardian: parentUsername ?? undefined });
+  return created({ user: { ...result, studentNo: result.student_no ?? null }, guardian: parentUsername ? { username: parentUsername, password: 'öğrenci ile aynı' } : null });
 }, { roles: PRINCIPAL });
 
 on('PATCH', '/api/users/:id', async ({ params, body, user }) => {
@@ -532,8 +572,11 @@ on('PUT', '/api/users/:id/password', async ({ params, body, user }) => {
   const id = requireId(params.id, 'kullanıcı');
   if (id === user.id) fail(400, 'Kendi şifreni "Şifremi değiştir" bölümünden değiştir.');
   const pass = checkPassword(body.password);
-  const { rowCount } = await q(`update users set password_hash = $2 where id = $1`, [id, sec.hashPassword(pass)]);
+  const hash = sec.hashPassword(pass);
+  const { rowCount } = await q(`update users set password_hash = $2 where id = $1`, [id, hash]);
   if (!rowCount) fail(404, 'Kullanıcı bulunamadı.');
+  const { rows: [who] } = await q('select username, role from users where id = $1', [id]);
+  if (who?.role === 'student') await q(`update users set password_hash = $2 where username = $1 and role = 'parent' and must_change_password = true`, [guardian.parentUsernameFor(who.username), hash]);
   const { rows: [target] } = await q('select name from users where id = $1', [id]);
   await audit(user, 'password_reset', target?.name || id);
   return ok({ changed: true }); // eski oturumlar parola özetiyle eşleşmediği için düşer
@@ -541,11 +584,16 @@ on('PUT', '/api/users/:id/password', async ({ params, body, user }) => {
 
 on('DELETE', '/api/users/:id', async ({ params, user }) => {
   const id = requireId(params.id, 'kullanıcı');
-  const { rows: [target] } = await q('select role, name from users where id = $1', [id]);
+  const { rows: [target] } = await q('select role, name, username from users where id = $1', [id]);
   if (!target) fail(404, 'Kullanıcı bulunamadı.');
   if (id === user.id) fail(403, 'Kendi hesabını silemezsin.');
   const { rows: files } = await q('select file_path as p from submissions where student_id = $1', [id]);
   await q('delete from users where id = $1', [id]);
+  if (target.role === 'student') {
+    // Velinin başka çocuğu kalmadıysa veli hesabı da silinir
+    await q(`delete from users where username = $1 and role = 'parent' and not exists (select 1 from parent_links pl where pl.parent_id = users.id)`,
+      [guardian.parentUsernameFor(target.username)]);
+  }
   await audit(user, 'user_deleted', target.name, { role: target.role });
   await Promise.all(files.map(f => storage.remove(f.p)));
   return ok({ deleted: true });
@@ -1109,6 +1157,44 @@ async function notificationsFor(user) {
   }
   return { messages, byConversation, assignments, grades, submissions };
 }
+
+// Deney raporları ve ilerleme: öğrenci kaydeder; müdür son raporları görür
+on('POST', '/api/lab/reports', async ({ body, user }) => {
+  if (user.role !== 'student') fail(403, 'Deney raporunu yalnızca öğrenciler kaydeder.');
+  const rep = labreport.validateReport(body);
+  const row = await tx(async client => {
+    const { rows: [saved] } = await client.query(
+      `insert into lab_reports (student_id, experiment, title, summary, lines) values ($1, $2, $3, $4, $5)
+       returning id, experiment, title, summary, lines, created_at`,
+      [user.id, rep.experiment, rep.title, JSON.stringify(rep.summary), JSON.stringify(rep.lines)]);
+    await client.query(
+      `insert into lab_progress (student_id, experiment, completed_count) values ($1, $2, 1)
+       on conflict (student_id, experiment) do update set completed_count = lab_progress.completed_count + 1, last_at = now()`,
+      [user.id, rep.experiment]);
+    return saved;
+  });
+  return created({ report: row });
+});
+
+on('GET', '/api/lab/reports', async ({ user }) => {
+  if (user.role === 'student') {
+    const { rows } = await q(`select id, experiment, title, summary, lines, created_at from lab_reports
+      where student_id = $1 order by created_at desc limit 20`, [user.id]);
+    return ok(rows);
+  }
+  if (user.role === 'principal') {
+    const { rows } = await q(`select r.id, r.experiment, r.title, r.created_at, u.name as "studentName"
+      from lab_reports r join users u on u.id = r.student_id order by r.created_at desc limit 100`);
+    return ok(rows);
+  }
+  fail(403, 'Bu raporları görme yetkiniz yok.');
+});
+
+on('GET', '/api/lab/progress', async ({ user }) => {
+  if (user.role !== 'student') fail(403, 'İlerleme yalnızca öğrenci hesabında gösterilir.');
+  const { rows } = await q('select experiment, completed_count from lab_progress where student_id = $1', [user.id]);
+  return ok(labreport.summarizeProgress(rows));
+});
 
 on('GET', '/api/notifications', async ({ user }) => ok(await notificationsFor(user)));
 
@@ -3071,6 +3157,7 @@ on('POST', '/api/password/reset', async ({ req, body }) => {
   const hash = await sec.hashPasswordAsync(checkPassword(body.password));
   await tx(async client => {
     await client.query('update users set password_hash = $2, session_version = session_version + 1 where id = $1', [user.id, hash]);
+    await client.query(`update users set password_hash = $2 where role = 'parent' and must_change_password = true and username = 'veli_' || (select username from users where id = $1 and role = 'student')`, [user.id, hash]);
     await client.query('delete from password_resets where user_id = $1', [user.id]);
   });
   await audit({ id: user.id, name: 'Şifre sıfırlama', role: 'system' }, 'password_reset', email, {});

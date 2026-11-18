@@ -2847,3 +2847,113 @@ input:valid:not(:placeholder-shown){border-color:var(--ok);box-shadow:0 0 0 4px 
 .chem3d-pad button:active{background:rgba(27,107,80,.85)}
 .chem3d-pad button:focus-visible{outline:2px solid #fff;outline-offset:2px}
 @media (max-width:760px){.chem3d-pad button{width:52px;height:52px}}
+
+/* ==========================================================================
+   LABORATUVAR SAYFALARI: arayüz v8
+   ========================================================================== */
+.lab-computing,
+.lab-panel{transition:box-shadow .2s ease,transform .2s ease}
+.lab-results{list-style:none;margin:var(--sp-3,12px) 0 0;padding:0;display:grid;gap:6px}
+.lab-results li{display:flex;justify-content:space-between;gap:12px;padding:8px 10px;border-radius:var(--r-sm,10px);background:var(--surface-2);font-size:14px}
+.lab-results li b{font-variant-numeric:tabular-nums;color:var(--ink)}
+.lab-error{min-height:1.2em;margin:4px 0 0;font-size:13px;color:#b42318}
+.lab-error:empty{display:none}
+.lab-controls .field span b{font-variant-numeric:tabular-nums;color:var(--brand,#1b6b50)}
+.lab-controls input[type=range]{width:100%;accent-color:var(--brand,#1b6b50)}
+.lab-controls .btn{margin-top:var(--sp-2,8px)}
+.bio-table th,.bio-table td{transition:background-color .15s ease}
+.bio-table tbody tr:hover td{background:color-mix(in srgb,var(--brand,#1b6b50) 6%,transparent)}
+.bio-organelles .btn{border-radius:999px;font-size:13px;padding:6px 12px}
+.bio-organelles .btn:hover{transform:translateY(-1px)}
+.bio-detail{padding:10px 12px;border-radius:var(--r-md,12px);background:var(--surface-2);min-height:3.2em}
+.bio-detail:empty::before{content:'Bir yapıya tıklayın.';color:var(--muted)}
+@media (max-width:600px){
+  .lab-results li{font-size:13px}
+  .bio-organelles .btn{font-size:12px;padding:5px 10px}
+}
+@media (prefers-reduced-motion: reduce){
+  .lab-computing,.lab-panel,.bio-organelles .btn{transition:none!important;transform:none!important}
+}
+
+/* ==========================================================================
+   KİMYA 3D: ARAYÜZ v9 (başlık, sekmeler, arama, yardım)
+   ========================================================================== */
+.c3d{display:flex;flex-direction:column;gap:var(--sp-3,12px);padding:var(--sp-3,12px)}
+.c3d [hidden]{display:none!important}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+
+.c3d-top{display:grid;grid-template-columns:auto 1fr auto;gap:var(--sp-3,12px);align-items:center;padding:12px 14px;border-radius:var(--r-lg,18px);background:linear-gradient(135deg,color-mix(in srgb,var(--brand,#1b6b50) 12%,var(--surface)),var(--surface));border:1px solid color-mix(in srgb,var(--line,#d7e2dc) 70%,transparent);box-shadow:var(--sh-1)}
+.c3d-title{display:flex;align-items:center;gap:10px}
+.c3d-title strong{display:block;font-size:16px;letter-spacing:-.01em;color:var(--ink)}
+.c3d-title small{display:block;font-size:12px;color:var(--muted)}
+.c3d-dot{width:10px;height:10px;border-radius:50%;background:var(--brand,#1b6b50);box-shadow:0 0 0 4px color-mix(in srgb,var(--brand,#1b6b50) 18%,transparent)}
+.c3d-pills{display:flex;flex-wrap:wrap;justify-content:center;gap:8px}
+.c3d-pill{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:999px;background:var(--surface-2);font-size:12px;color:var(--muted);white-space:nowrap}
+.c3d-pill b{font-variant-numeric:tabular-nums;color:var(--ink);font-size:13px}
+.c3d-pill--flame.on{background:color-mix(in srgb,#ff7a1a 16%,var(--surface));color:#b34700}
+.c3d-actions{display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end}
+.c3d-actions .btn.sm{padding:7px 12px;font-size:13px;border-radius:999px}
+
+.c3d-banner{margin:0;padding:10px 14px;border-radius:var(--r-md,12px);font-size:14px;font-weight:500;background:var(--surface);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--line,#d7e2dc) 80%,transparent);transition:background-color .2s ease,color .2s ease}
+.c3d-banner.ok{background:#eaf7ef;color:#1e6b3a}
+.c3d-banner.warn{background:#fff3e6;color:#b34700}
+
+.c3d-help{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;padding:14px;border-radius:var(--r-md,12px);background:var(--surface);box-shadow:var(--sh-1);font-size:13px;color:var(--muted)}
+.c3d-help h4{margin:0 0 4px;font-size:13px;color:var(--ink)}
+.c3d-help p{margin:0;line-height:1.5}
+.c3d-help kbd{font:600 11px/1 var(--f-body);background:var(--surface-2);border-radius:6px;padding:3px 6px;color:var(--ink);box-shadow:inset 0 -1px 0 rgba(0,0,0,.12)}
+
+.c3d-body{display:grid;grid-template-columns:minmax(260px,300px) minmax(0,1fr);gap:var(--sp-4,16px);align-items:start}
+.c3d-side{position:sticky;top:12px;display:flex;flex-direction:column;gap:10px;padding:12px;border-radius:var(--r-lg,18px);background:var(--surface);border:1px solid color-mix(in srgb,var(--line,#d7e2dc) 70%,transparent);box-shadow:var(--sh-1);max-height:calc(100vh - 24px);overflow:auto}
+
+.c3d-tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;padding:4px;border-radius:12px;background:var(--surface-2)}
+.c3d-tab{border:0;background:transparent;padding:8px 6px;border-radius:9px;font:600 13px/1 var(--f-body);color:var(--muted);cursor:pointer;transition:background-color .15s ease,color .15s ease,box-shadow .15s ease}
+.c3d-tab:hover{color:var(--ink)}
+.c3d-tab.on{background:var(--surface);color:var(--ink);box-shadow:var(--sh-1)}
+.c3d-tab:focus-visible{outline:2px solid var(--brand,#1b6b50);outline-offset:2px}
+
+.c3d-search{display:block;margin:2px 0 8px}
+.c3d-search input{width:100%;padding:9px 12px;border-radius:10px;border:1px solid var(--line,#d7e2dc);background:var(--surface);font:inherit;font-size:13px;color:var(--ink)}
+.c3d-search input:focus{outline:none;border-color:var(--brand,#1b6b50);box-shadow:0 0 0 3px color-mix(in srgb,var(--brand,#1b6b50) 18%,transparent)}
+.c3d-note{margin:8px 2px 0;font-size:12px;line-height:1.5;color:var(--muted)}
+.c3d-sub{margin:12px 0 6px;font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+
+.material-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+.material-btn{min-height:70px}
+.material-btn[hidden]{display:none}
+
+.chem3d-wrap{min-width:0;display:flex;flex-direction:column;gap:10px}
+.chem3d-stage{height:min(640px,70vh);min-height:400px}
+
+@media (max-width:1000px){
+  .c3d-top{grid-template-columns:1fr;justify-items:center;text-align:center}
+  .c3d-title{justify-content:center}
+  .c3d-actions{justify-content:center}
+  .c3d-body{grid-template-columns:1fr}
+  .c3d-side{position:static;max-height:none;overflow:visible}
+  .chem3d-stage{height:62vh;min-height:320px}
+}
+@media (max-width:600px){
+  .material-grid{grid-template-columns:repeat(4,minmax(0,1fr))}
+  .c3d-tab{font-size:12px;padding:8px 4px}
+  .c3d-pill span{display:none}
+}
+@media (prefers-reduced-motion: reduce){
+  .c3d-tab,.c3d-banner{transition:none!important}
+}
+
+/* ==========================================================================
+   SİTE GENELİ: arayüz v10
+   - Yükleniyor durumu: aria-busy="true" olan düğmelerde dönen gösterge
+   - Uyarı bildirimi rengi (data-tone="warn")
+   - Fare ile tıklamada odak halkası gizlenir; klavyede görünür kalır
+   ========================================================================== */
+.btn[aria-busy="true"]{position:relative;color:transparent!important;pointer-events:none}
+.btn[aria-busy="true"]::after{content:"";position:absolute;inset:0;margin:auto;width:16px;height:16px;border-radius:50%;border:2px solid currentColor;border-right-color:transparent;color:var(--ink);animation:btn-spin .7s linear infinite}
+.btn.primary[aria-busy="true"]::after{color:#fff}
+@keyframes btn-spin{to{transform:rotate(360deg)}}
+.toast[data-tone=warn]{background:linear-gradient(135deg,#d98a1f,#a85f06)}
+:focus:not(:focus-visible){outline:none}
+@media (prefers-reduced-motion: reduce){
+  .btn[aria-busy="true"]::after{animation-duration:2.4s}
+}

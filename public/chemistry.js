@@ -183,11 +183,45 @@ export const REACTIONS = [
   { id: 'yanma', needs: ['kagit'], minTemp: 200, name: 'Yanma', tone: 'warn', desc: 'Kağıt yüksek sıcaklıkta yanıp kömürleşti.', color: 0x3e2a1e, fx: { type: 'smoke', minTemp: 150 } },
 ];
 
+// ---- Genel element kuralları (118 elementin tamamı için) ----
+// Asitle hidrojen veren metaller (aktivite serisi; Cu, Ag, Au, Pt gibi soy metaller tepkime vermez).
+const ACID_REACTIVE = new Set(['Li', 'Na', 'K', 'Rb', 'Cs', 'Be', 'Mg', 'Ca', 'Sr', 'Ba', 'Al', 'Mn', 'Zn', 'Cr', 'Fe', 'Co', 'Ni', 'Sn', 'Pb', 'Ti', 'V', 'Zr']);
+// Suyla tepkime: alkali ve toprak alkali metaller. "explosive" olanlar patlar.
+const WATER_REACTIVE = { Li: 'mild', Ca: 'mild', Sr: 'mild', Ba: 'mild', K: 'explosive', Rb: 'explosive', Cs: 'explosive' };
+// Bu metaller için özel tepkimeler zaten REACTIONS içinde; genel kuralda tekrar edilmez.
+const SPECIAL_METALS = new Set(['Na', 'Mg']);
+
+export function elementSymbolOf(key) {
+  if (key === 'sodyum') return 'Na';
+  if (key === 'magnezyum') return 'Mg';
+  if (key === 'cinko_toz') return 'Zn';
+  if (key.startsWith('el_')) return key.slice(3);
+  return SUBSTANCES[key]?.element ?? null;
+}
+
+// Element maddelerine dayalı genel tepkimeler (her element için bir kez)
+export function elementReactions(contents) {
+  const out = [];
+  for (const key of contents) {
+    const sym = elementSymbolOf(key);
+    if (!sym || SPECIAL_METALS.has(sym)) continue;
+    const name = elementBySymbol(sym)?.name ?? sym;
+    if (contents.includes('asit') && ACID_REACTIVE.has(sym)) {
+      out.push({ id: `asit_${sym}`, needs: [key, 'asit'], name: `${name} asitte çözündü`, tone: 'ok', desc: `${name} asitle tepkimeye girdi; hidrojen gazı çıktı ve ısı açığa çıktı.`, color: 0xdbeeea, heat: 12, fx: { type: 'bubbles', minTemp: 0 } });
+    }
+    if (contents.includes('su') && sym in WATER_REACTIVE) {
+      const explosive = WATER_REACTIVE[sym] === 'explosive';
+      out.push({ id: `su_${sym}`, needs: [key, 'su'], name: explosive ? `TEHLİKE: ${name} suda patlar!` : `${name} suyla tepkimeye girdi`, tone: explosive ? 'warn' : 'ok', desc: explosive ? `${name} suyla şiddetle tepkimeye girdi; hidrojen gazı çıktı ve patladı.` : `${name} suyla tepkimeye girdi; hidroksit oluştu ve hidrojen çıktı.`, color: 0xfff0c0, heat: explosive ? 110 : 45, explosion: explosive, fx: { type: 'bubbles', minTemp: 0 } });
+    }
+  }
+  return out;
+}
+
 // Tüpün durumuna göre yeni gerçekleşecek tepkimeler (her tepkime bir kez)
 export function applicableReactions(state) {
   const { contents, temp, lastAdded, reacted } = state;
   const out = [];
-  for (const r of REACTIONS) {
+  for (const r of [...REACTIONS, ...elementReactions(contents)]) {
     if (reacted.has(r.id)) continue;
     if (!r.needs.every(k => contents.includes(k))) continue;
     if (r.requiresLast && lastAdded !== r.requiresLast) continue;
@@ -239,4 +273,32 @@ export function elementInfo(symbol) {
   if (!e) return null;
   const categoryNames = { a: 'Alkali metal', e: 'Toprak alkali metal', t: 'Geçiş metali', p: 'Diğer metal', m: 'Yarı metal', n: 'Ametal', h: 'Halojen', g: 'Soygaz', l: 'Lantanit', c: 'Aktinit' };
   return { symbol: e.symbol, name: e.name, z: e.z, mass: e.mass, category: categoryNames[e.cat], radioactive: e.radioactive, item: elementItemKey(e.symbol) };
+}
+
+// Ürün bilgisi: tüpteki maddelerin tepkimesinden oluşanlar (metin olarak)
+const VALENCE = { Li: 1, Na: 1, K: 1, Rb: 1, Cs: 1, Al: 3 };
+export function productsFor(contents) {
+  const has = k => contents.includes(k);
+  const out = [];
+  if (has('asit') && has('baz')) out.push('tuz (NaCl)', 'su (H₂O)');
+  if (has('asit') && has('kalsiyum_karbonat')) out.push('kalsiyum klorür (CaCl₂)', 'karbondioksit gazı (CO₂)', 'su (H₂O)');
+  if (has('asit')) {
+    for (const key of contents) {
+      const sym = elementSymbolOf(key);
+      if (!sym || sym === 'Cu' || !ACID_REACTIVE.has(sym)) continue;
+      const n = VALENCE[sym] ?? 2;
+      out.push(`${sym}Cl${n > 1 ? `₍${n}₎` : ''} (metal klorür)`, 'hidrojen gazı (H₂)');
+    }
+  }
+  if (has('su') && (has('tuz'))) out.push('tuzlu su');
+  if (has('su') && has('toz')) out.push('şeker çözeltisi');
+  if (has('su')) {
+    for (const key of contents) {
+      const sym = elementSymbolOf(key);
+      if (sym && sym in WATER_REACTIVE) out.push(`${sym}OH (hidroksit)`, 'hidrojen gazı (H₂)');
+    }
+  }
+  if (has('etanol') && has('su') === false && has('kagit') === false) out.push('karbondioksit (CO₂) ve su (H₂O) (yanma)');
+  if (has('kagit')) out.push('karbondioksit ve su buharı', 'kül');
+  return [...new Set(out)];
 }

@@ -53,3 +53,18 @@ test('asal çarpanlar, EBOB ve EKOK, kombinasyon', () => {
   assert.equal(c.combinations, 10);
   assert.throws(() => combinatorics(3, 5), /büyük/);
 });
+
+import { quadraticSteps } from '../public/math-tools.js';
+
+test('adım adım çözüm: iki gerçek kök adımları', () => {
+  const s = quadraticSteps(1, -3, 2);
+  assert.equal(s.length, 5);
+  assert.ok(s.some(l => l.includes('= 1')));
+  assert.ok(s.at(-1).includes('x₁ = 2') || s.at(-1).includes('x₁ = 1'));
+});
+
+test('adım adım çözüm: çakışık ve karmaşık durumlar', () => {
+  assert.ok(quadraticSteps(1, -2, 1).some(l => l.includes('tek')));
+  assert.ok(quadraticSteps(1, 0, 1).some(l => l.includes('karmaşık')));
+  assert.throws(() => quadraticSteps(0, 1, 1), /ikinci/);
+});
