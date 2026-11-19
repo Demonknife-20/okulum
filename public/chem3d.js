@@ -631,7 +631,7 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
     heldEl.textContent = heldLabel();
     onStatus({
       hottest: hottest(), selected: heldKey, carrying: Boolean(carried), burnerOn: lit, message, tone, info, worn: [...worn],
-      snapshot: { worn: [...worn], lit, tripodOn, evaporated: evaporatedOnce, tubes: tubes.map(t => ({ contents: [...t.userData.contents], temp: t.userData.temp })) },
+      snapshot: { worn: [...worn], lit, tripodOn, evaporated: evaporatedOnce, tubes: tubes.map(t => ({ contents: [...t.userData.contents], amounts: { ...t.userData.amounts }, temp: t.userData.temp })) },
     });
   };
   const say = (message, tone = 'info') => {

@@ -235,3 +235,8 @@ Render'da gerekli ortam değişkenleri: DATABASE_URL (ayarlı). Üretimde SUPABA
 - Kapsam: 300 karelik döngü, malzeme dökme ve mL kaydı, nötrleşme ve ürün mesajı, ocak ve üçayak uyarısı, tartı, periyodik tablo, pipet dolum ve 5 mL dökme, cam balon.
 - Sonuç: tanımlı yollarda çalışma zamanı hatası yok.
 - Sınır: GPU, gerçek görünüm (renkler, gölgeler, yerleşim) ve dokunmatik davranış bu testte kapsanmaz; bunlar gerçek cihazda denenmelidir.
+
+## Kimya 3D: örnek deneyler (rehberli kılavuz)
+- Yeni kılavuzlar: titrasyon (dönüm noktası), kireç taşı ile asit, çinko ile bakır sülfat, magnezyumun yanması, yağ ve su. Önceki üç deneyle birlikte toplam sekiz örnek deney.
+- Her deney adımları sahneden otomatik işaretler; sahne anlık durumuna tüp miktarları (mL/g) eklendi.
+- Testler: test/chem-guide.test.mjs.

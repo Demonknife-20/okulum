@@ -47,3 +47,29 @@ test('kılavuz: bilinmeyen deney hata verir; tüm kılavuzların adım kimlikler
     assert.equal(new Set(ids).size, ids.length, key);
   }
 });
+
+test('örnek deney titrasyon: 20 mL baz ve fenolftalein ile pembe adımı tamamlanır', () => {
+  const full = { ...empty, worn: ['gozluk', 'eldiven', 'onluk'], tubes: [{ contents: ['asit', 'baz', 'fenolftalein'], amounts: { asit: 20, baz: 21, fenolftalein: 2 }, temp: 25 }] };
+  const p = guideProgress(full, 'titrasyon');
+  assert.equal(p.complete, true);
+  const partial = { ...empty, worn: ['gozluk', 'eldiven', 'onluk'], tubes: [{ contents: ['asit'], amounts: { asit: 20 }, temp: 20 }] };
+  assert.equal(guideProgress(partial, 'titrasyon').next, 'indikator');
+});
+
+test('örnek deney karbonat: kireç ve asit köpürmesi', () => {
+  const s = { ...empty, worn: ['gozluk', 'eldiven'], tubes: [{ contents: ['asit', 'kalsiyum_karbonat'], amounts: {}, temp: 22 }] };
+  assert.equal(guideProgress(s, 'karbonat').complete, true);
+});
+
+test('örnek deney magnezyum: 470 °C\'ye kadar tamamlanmaz', () => {
+  const base = { ...empty, worn: ['gozluk'], tripodOn: true, lit: true, tubes: [{ contents: ['magnezyum'], amounts: {}, temp: 300 }] };
+  assert.equal(guideProgress(base, 'magnezyum').complete, false);
+  assert.equal(guideProgress({ ...base, tubes: [{ contents: ['magnezyum'], amounts: {}, temp: 480 }] }, 'magnezyum').complete, true);
+});
+
+test('örnek deney yağ-su ve bakır: ilgili maddeler gerekir', () => {
+  const yag = { ...empty, worn: ['gozluk', 'onluk'], tubes: [{ contents: ['su', 'yag'], amounts: {}, temp: 20 }] };
+  assert.equal(guideProgress(yag, 'yag').complete, true);
+  const bakir = { ...empty, worn: ['gozluk', 'eldiven'], tubes: [{ contents: ['bakir_sulfat', 'cinko_toz'], amounts: {}, temp: 21 }] };
+  assert.equal(guideProgress(bakir, 'bakir').complete, true);
+});

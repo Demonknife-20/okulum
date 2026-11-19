@@ -4556,7 +4556,7 @@ function chem3dHtml() {
             </div>
             <p class="chem3d-info" id="chem3d-info"></p>
             <h4 class="c3d-sub">Rehberli deney</h4>
-            <label class="field"><span>Kılavuz seçin</span><select id="chem3d-guide"><option value="">Kılavuz kapalı</option><option value="notr">Asit–baz nötrleşmesi</option><option value="kaynama">Suyun kaynaması</option><option value="metal">Metal ile asit</option></select></label>
+            <label class="field"><span>Kılavuz seçin</span><select id="chem3d-guide"><option value="">Kılavuz kapalı</option><option value="notr">Asit–baz nötrleşmesi</option><option value="kaynama">Suyun kaynaması</option><option value="metal">Metal ile asit</option><option value="titrasyon">Titrasyon (dönüm noktası)</option><option value="karbonat">Kireç taşı ile asit</option><option value="bakir">Çinko ile bakır sülfat</option><option value="magnezyum">Magnezyum yanması</option><option value="yag">Yağ ve su</option></select></label>
             <p class="chem3d-guide-title" id="chem3d-guide-title"></p>
             <ol class="chem3d-checklist" id="chem3d-checklist"></ol>
             <h4 class="c3d-sub">Deney günlüğü</h4>
