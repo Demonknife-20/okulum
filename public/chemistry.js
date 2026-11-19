@@ -23,6 +23,9 @@ export const SUBSTANCES = {
   tripod: { name: 'Üç ayaklı + amyant teli', formula: '—', tool: true, color: 0x7a7a7a },
   termometre: { name: 'Lazerli termometre', formula: '—', tool: true, color: 0xe53935 },
   tup: { name: 'Yeni deney tüpü', formula: '—', tool: true, color: 0xdfe9ef },
+  pipet: { name: 'Pipet (5 mL)', formula: '—', tool: true, color: 0xe3f2fd, dispense: 5 },
+  buret: { name: 'Büret (1 mL damla)', formula: '—', tool: true, color: 0x90a4ae, dispense: 1 },
+  balon: { name: 'Cam balon', formula: '—', tool: true, color: 0xe8f5e9 },
   cimbiz: { name: 'Cımbız', formula: '—', tool: true, color: 0xb0bec5 },
   tarti: { name: 'Dijital tartı', formula: '—', tool: true, color: 0x607d8b },
   radyasyon: { name: 'Radyasyon ölçer', formula: '—', tool: true, color: 0x424242 },
@@ -140,16 +143,16 @@ export const EVAP_SPEEDUP = 25;   // oyun hızlandırması: su gerçekte dakikal
 // Bir tüpün sıcaklığını dt saniye ilerletir. Su varsa 100 °C'de kaynama plato yapar.
 // Döner: { temp, evaporatedMl } — buharlaşan su miktarı (mL).
 export function stepTemperature(temp, contents, dt, heating) {
-  const C = heatCapacity(contents) + GLASS_HEAT;
+  const C = amountsHeatCapacity(contents) + GLASS_HEAT;
   let t = temp;
   let evaporatedMl = 0;
-  const hasWater = contents.includes('su');
+  const hasWater = Array.isArray(contents) ? contents.includes('su') : Boolean(contents && contents.su > 0);
   if (heating) {
     const power = BURNER_POWER;
     if (hasWater && t >= 100) {
       // Enerji buharlaşmaya gider; sıcaklık 100 °C'de sabit kalır
       const grams = (power * dt) / WATER_LATENT * EVAP_SPEEDUP;
-      evaporatedMl = grams / 1.0;
+      evaporatedMl = grams / SUBSTANCES.su.density;
       t = 100;
     } else {
       t += (power / C) * dt;
@@ -183,13 +186,38 @@ export const REACTIONS = [
   { id: 'yanma', needs: ['kagit'], minTemp: 200, name: 'Yanma', tone: 'warn', desc: 'Kağıt yüksek sıcaklıkta yanıp kömürleşti.', color: 0x3e2a1e, fx: { type: 'smoke', minTemp: 150 } },
 ];
 
-// ---- Genel element kuralları (118 elementin tamamı için) ----
-// Asitle hidrojen veren metaller (aktivite serisi; Cu, Ag, Au, Pt gibi soy metaller tepkime vermez).
-const ACID_REACTIVE = new Set(['Li', 'Na', 'K', 'Rb', 'Cs', 'Be', 'Mg', 'Ca', 'Sr', 'Ba', 'Al', 'Mn', 'Zn', 'Cr', 'Fe', 'Co', 'Ni', 'Sn', 'Pb', 'Ti', 'V', 'Zr']);
+// ---- Genel element kuralları: veri tablosundan üretilir (kolay genişletme) ----
+// Aktivite serisi (en etkin → en az etkin). H, asitle hidrojen çıkışının eşiğidir.
+export const ACTIVITY_SERIES = ['K', 'Ca', 'Na', 'Mg', 'Al', 'Zn', 'Cr', 'Fe', 'Co', 'Ni', 'Sn', 'Pb', 'H', 'Cu', 'Hg', 'Ag', 'Pt', 'Au'];
+const rank = sym => ACTIVITY_SERIES.indexOf(sym);
+// Seride olmayan ama asitle tepkime veren metaller
+const EXTRA_ACID = new Set(['Be', 'Mn', 'Ti', 'V', 'Zr']);
 // Suyla tepkime: alkali ve toprak alkali metaller. "explosive" olanlar patlar.
 const WATER_REACTIVE = { Li: 'mild', Ca: 'mild', Sr: 'mild', Ba: 'mild', K: 'explosive', Rb: 'explosive', Cs: 'explosive' };
-// Bu metaller için özel tepkimeler zaten REACTIONS içinde; genel kuralda tekrar edilmez.
-const SPECIAL_METALS = new Set(['Na', 'Mg']);
+// Bazla hidrojen veren amfoter metaller
+const BASE_REACTIVE = new Set(['Al', 'Zn']);
+// Isıtılınca havada yanan elementler
+const BURNS = {
+  Mg: { minTemp: 470, name: 'Magnezyum yanıyor', desc: 'Magnezyum ısıtılınca parlak beyaz bir alevle yandı. Gözünüzü alevden koruyun.', product: 'magnezyum oksit (MgO)', heat: 60 },
+  Al: { minTemp: 600, name: 'Alüminyum yanıyor', desc: 'Alüminyum tozu yüksek sıcaklıkta parlak bir alevle yandı; alüminyum oksit oluştu.', product: 'alüminyum oksit (Al₂O₃)', heat: 60 },
+  Fe: { minTemp: 500, name: 'Demir yanıyor', desc: 'İnce demir tozu ısıtılınca kıvılcım saçarak yandı; demir oksit oluştu.', product: 'demir oksit', heat: 40 },
+  C: { minTemp: 400, name: 'Karbon yanıyor', desc: 'Kömür ısıtılınca yandı; karbondioksit (CO₂) gazı çıktı.', product: 'karbondioksit (CO₂)', heat: 35 },
+  P: { minTemp: 30, name: 'Fosfor kendiliğinden alev alıyor', desc: 'Beyaz fosfor havada alev aldı; fosfor pentoksit (P₄O₁₀) dumanı oluştu. Çok tehlikeli.', product: 'fosfor pentoksit (P₄O₁₀)', heat: 60 },
+  S: { minTemp: 232, name: 'Kükürt yanıyor', desc: 'Kükürt erip mavi alevle yandı; keskin kokulu kükürt dioksit (SO₂) çıktı.', product: 'kükürt dioksit (SO₂)', heat: 30 },
+};
+// Soy ve kararlı elementler: bu deney koşullarında belirgin tepkime vermez
+const INERT = new Set(['He', 'Ne', 'Ar', 'Kr', 'Xe', 'Rn', 'Au', 'Pt', 'Hg', 'Ag', 'Cu']);
+const SPECIAL_KEYS = new Set(['sodyum', 'magnezyum', 'cinko_toz']); // özel kuralları olan madde anahtarları
+
+function acidReactive(sym) {
+  if (EXTRA_ACID.has(sym)) return true;
+  const r = rank(sym);
+  return r >= 0 && r < rank('H');
+}
+function displacesCopper(sym) {
+  const r = rank(sym);
+  return r >= 0 && r < rank('Cu');
+}
 
 export function elementSymbolOf(key) {
   if (key === 'sodyum') return 'Na';
@@ -199,22 +227,56 @@ export function elementSymbolOf(key) {
   return SUBSTANCES[key]?.element ?? null;
 }
 
-// Element maddelerine dayalı genel tepkimeler (her element için bir kez)
+// Element maddelerine dayalı genel tepkimeler (veri tablosundan)
 export function elementReactions(contents) {
   const out = [];
   for (const key of contents) {
     const sym = elementSymbolOf(key);
-    if (!sym || SPECIAL_METALS.has(sym)) continue;
+    if (!sym || INERT.has(sym)) continue;
     const name = elementBySymbol(sym)?.name ?? sym;
-    if (contents.includes('asit') && ACID_REACTIVE.has(sym)) {
+    const special = SPECIAL_KEYS.has(key); // sodyum, magnezyum, çinko tozu: özel kurallar aşağıda
+    // Asit: aktivite serisinde H'tan önce olan metaller hidrojen verir
+    if (!special && contents.includes('asit') && acidReactive(sym)) {
       out.push({ id: `asit_${sym}`, needs: [key, 'asit'], name: `${name} asitte çözündü`, tone: 'ok', desc: `${name} asitle tepkimeye girdi; hidrojen gazı çıktı ve ısı açığa çıktı.`, color: 0xdbeeea, heat: 12, fx: { type: 'bubbles', minTemp: 0 } });
     }
-    if (contents.includes('su') && sym in WATER_REACTIVE) {
+    // Su: alkali ve toprak alkali metaller
+    if (!special && contents.includes('su') && sym in WATER_REACTIVE) {
       const explosive = WATER_REACTIVE[sym] === 'explosive';
       out.push({ id: `su_${sym}`, needs: [key, 'su'], name: explosive ? `TEHLİKE: ${name} suda patlar!` : `${name} suyla tepkimeye girdi`, tone: explosive ? 'warn' : 'ok', desc: explosive ? `${name} suyla şiddetle tepkimeye girdi; hidrojen gazı çıktı ve patladı.` : `${name} suyla tepkimeye girdi; hidroksit oluştu ve hidrojen çıktı.`, color: 0xfff0c0, heat: explosive ? 110 : 45, explosion: explosive, fx: { type: 'bubbles', minTemp: 0 } });
     }
+    // Bakır(II) sülfat: bakırdan etkin metaller bakırı yerinden eder (çinko tozu ayrı kuralda)
+    if (key !== 'cinko_toz' && contents.includes('bakir_sulfat') && displacesCopper(sym)) {
+      out.push({ id: `yerinden_${sym}`, needs: [key, 'bakir_sulfat'], name: `${name} bakırı yerinden etti`, tone: 'ok', desc: `${name}, bakır(II) sülfattaki bakırın yerini aldı; metalik bakır çöktü.`, color: 0xb87333, heat: 5 });
+    }
+    // Baz: amfoter metaller hidrojen verir
+    if (contents.includes('baz') && BASE_REACTIVE.has(sym)) {
+      out.push({ id: `baz_${sym}`, needs: [key, 'baz'], name: `${name} bazda çözündü`, tone: 'ok', desc: `${name} sodyum hidroksitle tepkimeye girdi; hidrojen gazı çıktı.`, color: 0xe6f0ff, heat: 10, fx: { type: 'bubbles', minTemp: 0 } });
+    }
+    // Isıtınca yanma (veri tablosundan)
+    if (BURNS[sym] && !(sym === 'Mg' && key === 'magnezyum' && false)) {
+      const b = BURNS[sym];
+      out.push({ id: `yanma_${sym}`, needs: [key], minTemp: b.minTemp, name: b.name, tone: 'warn', desc: `${b.desc} Ürün: ${b.product}.`, color: 0xf4f4f0, heat: b.heat, fx: { type: 'smoke', minTemp: b.minTemp - 100 } });
+    }
+    // Sıcak suda magnezyum
+    if (sym === 'Mg' && contents.includes('su')) {
+      out.push({ id: 'sicak_su_Mg', needs: [key, 'su'], minTemp: 80, name: 'Magnezyum sıcak suda tepkimeye girdi', tone: 'ok', desc: 'Sıcak suyla magnezyum hidroksit oluştu ve hidrojen çıktı.', color: 0xeaf6f0, heat: 5, fx: { type: 'bubbles', minTemp: 0 } });
+    }
+    // İyot: süblimleşme (kimyasal tepkime değil, hâl değişimi)
+    if (sym === 'I') {
+      out.push({ id: 'subl_I', needs: [key], minTemp: 114, name: 'İyot süblimleşti', tone: 'info', desc: 'İyot katı halden doğrudan mor buhara dönüştü (süblimleşme).', color: 0x7b3fa0 });
+    }
+  }
+  // Demir + kükürt: ısıtılınca demir(II) sülfür
+  if (contents.includes('el_Fe') && contents.includes('el_S')) {
+    out.push({ id: 'fe_s', needs: ['el_Fe', 'el_S'], minTemp: 300, name: 'Demir(II) sülfür oluştu', tone: 'ok', desc: 'Demir ve kükürt ısıtılınca birleşerek siyah demir(II) sülfür (FeS) oluşturdu.', color: 0x2e2a25, heat: 40 });
   }
   return out;
+}
+
+export function elementReactivity(sym) {
+  if (INERT.has(sym)) return 'inert';
+  if (acidReactive(sym) || sym in WATER_REACTIVE || displacesCopper(sym) || BASE_REACTIVE.has(sym) || BURNS[sym] || sym === 'I') return 'reactive';
+  return 'stable';
 }
 
 // Tüpün durumuna göre yeni gerçekleşecek tepkimeler (her tepkime bir kez)
@@ -272,7 +334,8 @@ export function elementInfo(symbol) {
   const e = elementBySymbol(symbol);
   if (!e) return null;
   const categoryNames = { a: 'Alkali metal', e: 'Toprak alkali metal', t: 'Geçiş metali', p: 'Diğer metal', m: 'Yarı metal', n: 'Ametal', h: 'Halojen', g: 'Soygaz', l: 'Lantanit', c: 'Aktinit' };
-  return { symbol: e.symbol, name: e.name, z: e.z, mass: e.mass, category: categoryNames[e.cat], radioactive: e.radioactive, item: elementItemKey(e.symbol) };
+  const kind = elementReactivity(e.symbol);
+  return { symbol: e.symbol, name: e.name, z: e.z, mass: e.mass, category: categoryNames[e.cat], radioactive: e.radioactive, item: elementItemKey(e.symbol), reactivity: kind === 'reactive' ? 'Bu deneyde tepkime verebilir (asit, su, baz, bakır sülfat, ısıtma).' : kind === 'inert' ? 'Soy ya da kararlı element: bu deney koşullarında tepkime vermez.' : 'Bu deney koşullarında belirgin bir tepkime beklenmez.' };
 }
 
 // Ürün bilgisi: tüpteki maddelerin tepkimesinden oluşanlar (metin olarak)
@@ -285,7 +348,7 @@ export function productsFor(contents) {
   if (has('asit')) {
     for (const key of contents) {
       const sym = elementSymbolOf(key);
-      if (!sym || sym === 'Cu' || !ACID_REACTIVE.has(sym)) continue;
+      if (!sym || !acidReactive(sym)) continue;
       const n = VALENCE[sym] ?? 2;
       out.push(`${sym}Cl${n > 1 ? `₍${n}₎` : ''} (metal klorür)`, 'hidrojen gazı (H₂)');
     }
@@ -301,4 +364,57 @@ export function productsFor(contents) {
   if (has('etanol') && has('su') === false && has('kagit') === false) out.push('karbondioksit (CO₂) ve su (H₂O) (yanma)');
   if (has('kagit')) out.push('karbondioksit ve su buharı', 'kül');
   return [...new Set(out)];
+}
+
+// ---- mL / gram miktar modeli ----
+// amounts: { madde: miktar } — sıvılarda mL, katılarda gram. Eski dizi biçimi de kabul edilir.
+export const POUR_AMOUNT = { liquid: 20, solid: 2 };   // standart döküm miktarları (mL / g)
+export const CAPACITY_ML = { tube: 50, flask: 250 };   // kap hacimleri
+
+export function normalizeAmounts(input) {
+  if (!input) return {};
+  if (!Array.isArray(input)) return { ...input };
+  const out = {};
+  for (const key of input) {
+    const s = SUBSTANCES[key];
+    if (!s || s.tool) continue;
+    out[key] = s.kind === 'liquid' ? (s.ml ?? 10) : (s.g ?? 2);
+  }
+  return out;
+}
+
+// Bir maddenin 1 birimindeki kütle (g): sıvıda mL × yoğunluk, katıda gram
+const massPerUnit = (s, amount) => (s.kind === 'liquid' ? amount * s.density : amount);
+const volumePerUnit = (s, amount) => (s.kind === 'liquid' ? amount : amount / s.density);
+
+export function amountsMixture(input) {
+  const a = normalizeAmounts(input);
+  let volume = 0;
+  let mass = 0;
+  for (const [key, amount] of Object.entries(a)) {
+    const s = SUBSTANCES[key];
+    if (!s || s.tool || !(amount > 0)) continue;
+    mass += massPerUnit(s, amount);
+    volume += volumePerUnit(s, amount);
+  }
+  const r = (n, d = 1) => Number(n.toFixed(d));
+  return { volumeMl: r(volume), massG: r(mass), densityGmL: volume > 0 ? r(mass / volume, 2) : 0 };
+}
+
+// Kap doluluk oranı (0–1): sıvı hacmi / kap kapasitesi
+export function fillFraction(input, capacityMl = CAPACITY_ML.tube) {
+  const { volumeMl } = amountsMixture(input);
+  return Math.min(1, volumeMl / capacityMl);
+}
+
+// Isı kapasitesi (J/K) miktarlardan
+export function amountsHeatCapacity(input) {
+  const a = normalizeAmounts(input);
+  let c = 0;
+  for (const [key, amount] of Object.entries(a)) {
+    const s = SUBSTANCES[key];
+    if (!s || s.tool || !(amount > 0)) continue;
+    c += massPerUnit(s, amount) * s.cp;
+  }
+  return c;
 }

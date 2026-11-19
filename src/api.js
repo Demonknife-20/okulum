@@ -1190,6 +1190,27 @@ on('GET', '/api/lab/reports', async ({ user }) => {
   fail(403, 'Bu raporları görme yetkiniz yok.');
 });
 
+// Tek bir deney raporu: öğrenci kendisininkini, müdür her raporu açabilir
+on('GET', '/api/lab/reports/:id', async ({ params, user }) => {
+  const id = str(params.id, 40);
+  if (!/^[0-9a-f-]{36}$/i.test(id)) fail(400, 'Geçersiz rapor kimliği.');
+  if (user.role !== 'student' && user.role !== 'principal') fail(403, 'Bu raporu görme yetkiniz yok.');
+  const { rows: [row] } = await q(`select r.id, r.student_id, r.experiment, r.title, r.summary, r.lines, r.created_at, u.name as "studentName"
+    from lab_reports r join users u on u.id = r.student_id where r.id = $1`, [id]);
+  if (!row) fail(404, 'Rapor bulunamadı.');
+  if (user.role === 'student' && row.student_id !== user.id) fail(404, 'Rapor bulunamadı.');
+  return ok(row);
+});
+
+on('DELETE', '/api/lab/reports/:id', async ({ params, user }) => {
+  const id = str(params.id, 40);
+  if (!/^[0-9a-f-]{36}$/i.test(id)) fail(400, 'Geçersiz rapor kimliği.');
+  if (user.role !== 'student') fail(403, 'Raporu yalnızca kendisi silebilir.');
+  const { rowCount } = await q('delete from lab_reports where id = $1 and student_id = $2', [id, user.id]);
+  if (!rowCount) fail(404, 'Rapor bulunamadı.');
+  return ok({ removed: true });
+});
+
 on('GET', '/api/lab/progress', async ({ user }) => {
   if (user.role !== 'student') fail(403, 'İlerleme yalnızca öğrenci hesabında gösterilir.');
   const { rows } = await q('select experiment, completed_count from lab_progress where student_id = $1', [user.id]);
@@ -3064,24 +3085,6 @@ on('GET', '/api/files/quiz-question/:id', async ({ params, user }) => {
 });
 
 // Bildirim aboneliği (Web Push). Anahtar sunucuda üretilir; abonelik tarayıcının verdiği uçtur.
-on('GET', '/api/push/key', async () => ok({ publicKey: push.publicKey() }));
-
-on('POST', '/api/push/subscribe', async ({ body, user }) => {
-  const sub = body.subscription && typeof body.subscription === 'object' ? body.subscription : {};
-  const endpoint = str(sub.endpoint, 500);
-  const p256dh = str(sub.keys?.p256dh, 200);
-  const auth = str(sub.keys?.auth, 100);
-  if (!endpoint.startsWith('https://') || !p256dh || !auth) fail(400, 'Bildirim aboneliği geçersiz.');
-  await q(`insert into push_subscriptions (user_id, endpoint, p256dh, auth) values ($1, $2, $3, $4)
-    on conflict (endpoint) do update set user_id = excluded.user_id, p256dh = excluded.p256dh, auth = excluded.auth`, [user.id, endpoint, p256dh, auth]);
-  return created({ subscribed: true });
-});
-
-on('POST', '/api/push/unsubscribe', async ({ body, user }) => {
-  await q('delete from push_subscriptions where endpoint = $1 and user_id = $2', [str(body.endpoint, 500), user.id]);
-  return ok({ removed: true });
-});
-
 on('POST', '/api/push/test', async ({ user }) => {
   await push.notify([user.id], { title: 'Okulum', body: 'Bildirimler çalışıyor.', url: '/#/overview', tag: 'test' });
   return ok({ sent: true });
@@ -3756,6 +3759,7 @@ on('GET', '/api/push/key', async () => {
 on('POST', '/api/push/subscribe', async ({ user, body }) => {
   const sub = body?.subscription;
   if (!sub || !sub.endpoint || !sub.keys?.p256dh || !sub.keys?.auth) fail(400, 'Geçersiz abonelik.');
+  if (!String(sub.endpoint).startsWith('https://')) fail(400, 'Bildirim aboneliği geçersiz.');
   await q(`insert into push_subscriptions (user_id, endpoint, p256dh, auth)
     values ($1, $2, $3, $4)
     on conflict (endpoint) do update set user_id = excluded.user_id, p256dh = excluded.p256dh, auth = excluded.auth`,

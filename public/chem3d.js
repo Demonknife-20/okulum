@@ -8,16 +8,18 @@
 // ============================================================================
 
 import * as THREE from 'three';
+import { titrationState } from './titration.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import {
   SUBSTANCES, ELEMENTS, elementLayout, elementBySymbol, elementItemKey, ensureElementSubstance,
   applicableReactions, mixtureProps, stepTemperature, doseRate, requiredPpe, missingPpe, elementInfo, itemMass, productsFor,
+  POUR_AMOUNT, CAPACITY_ML, fillFraction, amountsMixture,
 } from './chemistry.js';
 
-const SHELF_KEYS = ['su', 'asit', 'baz', 'fenolftalein', 'toz', 'tuz', 'efervesan', 'kagit', 'kibrit', 'tripod', 'termometre', 'tup', 'cimbiz', 'radyasyon', 'etanol', 'yag', 'permanganat', 'bakir_sulfat', 'cinko_toz', 'kalsiyum_karbonat'];
+const SHELF_KEYS = ['su', 'asit', 'baz', 'fenolftalein', 'toz', 'tuz', 'efervesan', 'kagit', 'kibrit', 'tripod', 'termometre', 'tup', 'cimbiz', 'radyasyon', 'etanol', 'yag', 'permanganat', 'bakir_sulfat', 'cinko_toz', 'kalsiyum_karbonat', 'pipet', 'buret', 'balon'];
 const PPE_KEYS = ['eldiven', 'gozluk', 'onluk'];
-const ICONS = { etanol: '🍶', yag: '🫒', permanganat: '🟣', bakir_sulfat: '🔵', cinko_toz: '⚙️', kalsiyum_karbonat: '🦴', su: '💧', asit: '🧪', baz: '🧫', fenolftalein: '🩷', toz: '⚪', tuz: '🧂', efervesan: '💊', kagit: '📄', kibrit: '🔥', tripod: '🔺', termometre: '🌡️', tup: '🧪', cimbiz: '🥢', radyasyon: '☢️', eldiven: '🧤', gozluk: '🥽', onluk: '🥼' };
+const ICONS = { pipet: '💉', buret: '🧪', balon: '⚗️', etanol: '🍶', yag: '🫒', permanganat: '🟣', bakir_sulfat: '🔵', cinko_toz: '⚙️', kalsiyum_karbonat: '🦴', su: '💧', asit: '🧪', baz: '🧫', fenolftalein: '🩷', toz: '⚪', tuz: '🧂', efervesan: '💊', kagit: '📄', kibrit: '🔥', tripod: '🔺', termometre: '🌡️', tup: '🧪', cimbiz: '🥢', radyasyon: '☢️', eldiven: '🧤', gozluk: '🥽', onluk: '🥼' };
 export const CHEM3D_MATERIALS = [...SHELF_KEYS, ...PPE_KEYS].map(key => ({ key, name: SUBSTANCES[key].name, icon: ICONS[key], color: SUBSTANCES[key].color, tool: Boolean(SUBSTANCES[key].tool) }));
 
 const TOP = 0.9;
@@ -30,7 +32,7 @@ const GLASS_H = 0.4;
 const CONTENT_H = 0.36;
 const MAX_PARTICLES = 420;
 const MAX_CONTENTS = 3;
-const SHELF_Y = [0.95, 1.3, 1.65, 2.0];
+const SHELF_Y = [0.95, 1.3, 1.65, 2.0, 2.35];
 const SHELF_X = [-2.4, -1.2, 0, 1.2, 2.4];
 const PLAYER_SPEED = 1.8;
 const ROOM = { minX: -3.5, maxX: 3.5, minZ: -3.1, maxZ: 3.4 };
@@ -42,7 +44,19 @@ const FX = {
   smoke: { color: 0x666666, rate: 14, vy: 0.25, spread: 0.1, life: 1.6, y: 0.42 },
 };
 
+// Cihaza göre kalite: telefon ve zayıf donanımda piksel oranı ve gölge düşürülür
+export function chem3dQuality() {
+  const narrow = typeof window !== 'undefined' && window.matchMedia?.('(max-width: 760px)').matches;
+  const cores = typeof navigator !== 'undefined' ? navigator.hardwareConcurrency || 4 : 4;
+  const memory = typeof navigator !== 'undefined' ? navigator.deviceMemory || 4 : 4;
+  const low = narrow || cores <= 4 || memory <= 2;
+  return low
+    ? { low: true, pixelRatio: 1, shadows: false, shadowSize: 512 }
+    : { low: false, pixelRatio: Math.min(window.devicePixelRatio || 1, 2), shadows: true, shadowSize: 1024 };
+}
+
 export function initChem3d(containerId, { onStatus = () => {} } = {}) {
+  const quality = chem3dQuality();
   const container = document.getElementById(containerId);
   if (!container) return null;
   const width = () => Math.max(container.clientWidth, 1);
@@ -56,9 +70,9 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
   scene.add(camera);
 
   const renderer = new THREE.WebGLRenderer({ antialias: true });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.setPixelRatio(quality.pixelRatio);
   renderer.setSize(width(), height());
-  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.enabled = quality.shadows;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -99,7 +113,7 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
   const sun = new THREE.DirectionalLight(0xffffff, 0.7);
   sun.position.set(2, 5, 3);
   sun.castShadow = true;
-  sun.shadow.mapSize.set(1024, 1024);
+  sun.shadow.mapSize.set(quality.shadowSize, quality.shadowSize);
   scene.add(sun);
   const flameLight = new THREE.PointLight(0xff8a2b, 0, 2);
   scene.add(flameLight);
@@ -219,6 +233,17 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
         break;
       case 'tarti':
         addMesh(roundedBox(0.2, 0.03, 0.2), std(0x607d8b), 0, 0.015, 0, g);
+        break;
+      case 'pipet':
+        addMesh(new THREE.CylinderGeometry(0.008, 0.008, 0.3, 8), std(0xe3f2fd, { roughness: 0.2 }), 0, 0.15, 0, g);
+        addMesh(new THREE.SphereGeometry(0.022, 14, 14), std(0x90caf9, { roughness: 0.3 }), 0, 0.32, 0, g);
+        break;
+      case 'buret':
+        addMesh(new THREE.CylinderGeometry(0.012, 0.012, 0.36, 10), std(0xcfd8dc, { roughness: 0.2 }), 0, 0.18, 0, g);
+        addMesh(new THREE.CylinderGeometry(0.004, 0.004, 0.05, 6), std(0x607d8b), 0, 0.0, 0.02, g);
+        break;
+      case 'balon':
+        g.add(new THREE.Mesh(lathe([[0, -0.2], [0.12, -0.2], [0.16, -0.1], [0.17, 0], [0.08, 0.08], [0.07, 0.2], [0.075, 0.22]]), glassMat));
         break;
       default:
         addMesh(roundedBox(0.12, 0.06, 0.08), std(s.color ?? 0xcccccc), 0, 0.03, 0, g);
@@ -410,9 +435,10 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
   // ---------- Tüpler ----------
   const TUBE_GLASS = [[0, -0.2], [0.1, -0.2], [0.126, -0.19], [0.13, -0.17], [0.13, 0.19], [0.136, 0.2], [0.138, 0.21]];
   const TUBE_INNER = [[0, 0], [0.104, 0], [0.113, 0.012], [0.116, 0.03], [0.116, 1], [0, 1]];
-  const createTube = (x, z) => {
+  const FLASK_GLASS = [[0, -0.2], [0.12, -0.2], [0.16, -0.1], [0.17, 0], [0.08, 0.08], [0.07, 0.2], [0.075, 0.22]];
+  const createTube = (x, z, shape = 'tube') => {
     const root = new THREE.Group();
-    const glass = new THREE.Mesh(lathe(TUBE_GLASS), glassMat);
+    const glass = new THREE.Mesh(lathe(shape === 'flask' ? FLASK_GLASS : TUBE_GLASS), glassMat);
     glass.castShadow = true;
     const content = new THREE.Mesh(lathe(TUBE_INNER), new THREE.MeshPhysicalMaterial({ color: 0xffffff, roughness: 0.12, transparent: true, opacity: 0.9, clearcoat: 0.6 }));
     content.visible = false;
@@ -426,15 +452,15 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
     });
     root.position.set(x, TOP + 0.22, z);
     root.userData = {
-      kind: 'tube', content, contents: [], lastAdded: null, reacted: new Set(), reactionColor: null,
-      target: new THREE.Color(0xffffff), fx: [], emitAcc: {}, temp: 20, volume: 1, home: [x, z],
+      kind: 'tube', content, contents: [], amounts: {}, capacity: shape === 'flask' ? CAPACITY_ML.flask : CAPACITY_ML.tube, lastAdded: null, reacted: new Set(), reactionColor: null,
+      target: new THREE.Color(0xffffff), fx: [], emitAcc: {}, temp: 20, volume: 1, home: [x, z], added: {}, shape,
     };
     scene.add(root);
     return root;
   };
   const tubes = TUBE_START.map(([x, z]) => createTube(x, z));
-  const spawnTube = (x, z) => {
-    const t = createTube(x, z);
+  const spawnTube = (x, z, shape = 'tube') => {
+    const t = createTube(x, z, shape);
     tubes.push(t);
     return t;
   };
@@ -579,6 +605,7 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
   let reachT = 0;           // elin uzanma animasyonu
   let moving = false;
   let shake = 0;
+  let loadedKey = null;     // pipet ya da büretin doldurulduğu sıvı
   let evaporatedOnce = false; // su bir kez tamamen buharlaştı mı (kılavuz için)
   let disposed = false;
   let time = 0;
@@ -595,9 +622,9 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
   };
   const tubeInfo = tube => {
     const d = tube.userData;
-    const mix = mixtureProps(d.contents);
+    const mix = amountsMixture(d.amounts);
     const contents = d.contents.length ? d.contents.map(itemName).join(' + ') : 'boş';
-    return `Tüp: ${d.temp.toFixed(1)}°C · ${mix.volumeMl} mL · ${mix.massG} g · yoğunluk ${mix.densityGmL} g/mL · ${contents}`;
+    return `${d.shape === 'flask' ? 'Balon' : 'Tüp'}: ${d.temp.toFixed(1)}°C · ${mix.volumeMl} / ${d.capacity} mL · ${mix.massG} g · yoğunluk ${mix.densityGmL} g/mL · ${contents}`;
   };
   const emit = (message, tone, info) => {
     if (disposed) return;
@@ -649,12 +676,37 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
     if (d.contents.includes(key)) return say(`${s.name} bu tüpte zaten var.`, 'warn');
     if (d.contents.length >= MAX_CONTENTS) return say('Tüp dolu: en fazla üç malzeme karıştırılabilir.', 'warn');
     d.contents.push(key);
+    d.amounts[key] = (d.amounts[key] ?? 0) + (SUBSTANCES[key]?.kind === 'liquid' ? POUR_AMOUNT.liquid : POUR_AMOUNT.solid);
     d.lastAdded = key;
     d.target.copy(d.reactionColor ?? averageColor(d));
     heldKey = null;
     say(`${s.name} tüpe döküldü.`, 'info');
     checkReactions(tube);
     return null;
+  };
+
+  // Pipet ya da büretle mL bazında dökme: araç elde kalır, eklenen hacim tüpte kaydedilir
+  const dispenseFromTool = (tube, tool) => {
+    const d = tube.userData;
+    const spec = SUBSTANCES[tool];
+    const key = loadedKey;
+    const action = (key === 'asit' || key === 'baz') ? 'pour_acid_base' : 'pour';
+    if (!requirePpe(action, 'Dökme')) return null;
+    if (!d.contents.includes(key)) {
+      if (d.contents.length >= MAX_CONTENTS) return say('Tüp dolu: en fazla üç malzeme karıştırılabilir.', 'warn');
+      d.contents.push(key);
+    }
+    d.lastAdded = key;
+    d.added[key] = (d.added[key] ?? 0) + spec.dispense;
+    d.amounts[key] = (d.amounts[key] ?? 0) + spec.dispense;
+    d.target.copy(d.reactionColor ?? averageColor(d));
+    checkReactions(tube);
+    if (key === 'baz' && d.contents.includes('asit')) {
+      // Asit hacmi bilinmiyorsa başlangıçta 20 mL kabul edilir
+      const st = titrationState({ acidMl: d.added.asit ?? 20, acidM: 2, baseMl: d.added.baz, baseM: 1 });
+      return say(`${spec.dispense} mL baz eklendi (toplam ${d.added.baz} mL). pH ≈ ${st.pH}. ${st.note}${st.phenolphthaleinPink ? ' Fenolftalein pembe.' : ''}`, st.endpointReached ? 'ok' : 'info');
+    }
+    return say(`${spec.dispense} mL ${itemName(key)} tüpe eklendi (toplam ${d.added[key]} mL).`, 'info');
   };
 
   // ---------- Giyme animasyonu ----------
@@ -871,13 +923,30 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
       return say(`${info.name} (${info.symbol}) alındı. Tüpe dökün ya da tabloya dönüp bırakın.`, 'ok');
     }
 
-    if (heldKey === 'tup') {
+    if (heldKey === 'tup' || heldKey === 'balon') {
       const p = tableTarget();
-      if (!p || target?.userData.kind === 'tube') return say('Yeni tüpü masanın boş bir yerine tıklayarak koyun.', 'warn');
-      if (tubes.length >= MAX_TUBES) return say(`En fazla ${MAX_TUBES} tüp olabilir.`, 'warn');
-      spawnTube(THREE.MathUtils.clamp(p.x, -TABLE.hx + 0.2, TABLE.hx - 0.2), THREE.MathUtils.clamp(p.z, -TABLE.hz + 0.2, TABLE.hz - 0.2));
+      if (!p || target?.userData.kind === 'tube') return say('Masanın boş bir yerine tıklayarak koyun.', 'warn');
+      if (tubes.length >= MAX_TUBES) return say(`En fazla ${MAX_TUBES} kap olabilir.`, 'warn');
+      const isFlask = heldKey === 'balon';
+      spawnTube(THREE.MathUtils.clamp(p.x, -TABLE.hx + 0.2, TABLE.hx - 0.2), THREE.MathUtils.clamp(p.z, -TABLE.hz + 0.2, TABLE.hz - 0.2), isFlask ? 'flask' : 'tube');
       heldKey = null;
-      return say(`Yeni tüp masaya kondu (${tubes.length}/${MAX_TUBES}).`, 'ok');
+      return say(`${isFlask ? 'Cam balon' : 'Yeni tüp'} masaya kondu (${tubes.length}/${MAX_TUBES}).`, 'ok');
+    }
+
+    if (heldKey === 'pipet' || heldKey === 'buret') {
+      if (target?.userData.kind === 'bottle') {
+        const k = target.userData.key;
+        if (SUBSTANCES[k]?.kind !== 'liquid') return say('Pipet ve büret yalnızca sıvılarla doldurulur.', 'warn');
+        loadedKey = k;
+        return say(`${itemName(heldKey)} ${itemName(k)} ile dolduruldu. Tüpe tıklayarak dökün.`, 'ok');
+      }
+      if (target?.userData.kind === 'tube') {
+        if (!loadedKey) return say('Önce bir sıvı şişesine tıklayarak doldurun.', 'warn');
+        return dispenseFromTool(target, heldKey);
+      }
+      heldKey = null;
+      loadedKey = null;
+      return say('Pipet/büret bırakıldı.', 'info');
     }
 
     if (heldKey) {
@@ -1041,15 +1110,15 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
         const yGoal = onGauze ? TOP + 0.72 : TOP + 0.22;
         tube.position.y += (yGoal - tube.position.y) * Math.min(1, dt * 8);
       }
-      const r = stepTemperature(d.temp, d.contents, dt, heating);
+      const r = stepTemperature(d.temp, d.amounts, dt, heating);
       d.temp = r.temp;
       if (r.evaporatedMl > 0 && d.contents.includes('su')) {
-        d.volume = Math.max(0, d.volume - r.evaporatedMl / 50);
-        if (d.volume <= 0.02) {
+        d.amounts.su = Math.max(0, (d.amounts.su ?? 0) - r.evaporatedMl);
+        if (d.amounts.su <= 0.5) {
+          delete d.amounts.su;
           d.contents = d.contents.filter(k => k !== 'su');
           d.reacted.delete('kaynama');
           d.fx = d.fx.filter(f => f.type !== 'steam');
-          d.volume = 1;
           evaporatedOnce = true;
           say('Su tamamen buharlaştı ve havaya karıştı.', 'info');
         }
@@ -1059,8 +1128,7 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
       }
       checkReactions(tube);
 
-      const fillSum = d.contents.reduce((s, k) => s + (SUBSTANCES[k]?.fill ?? 0), 0);
-      const level = Math.min(1, fillSum) * d.volume;
+      const level = fillFraction(d.amounts, d.capacity);
       d.content.visible = level > 0.001;
       if (d.content.visible) {
         const h = Math.max(0.001, level * CONTENT_H);
@@ -1122,7 +1190,8 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
     else if (heldKey === 'cimbiz') hint = tongsSample ? `Cımbızda ${tongsSample}: kutuya tıklayarak geri koyun` : 'Cımbız: kutuya bakıp tıklayın';
     else if (heldKey === 'termometre') hint = 'Termometre elinizde: tüpe bakıp tıklayın (ekranda okunur)';
     else if (heldKey === 'radyasyon') hint = 'Radyasyon ölçer elinizde: kutuya ya da örneğe yaklaşın';
-    else if (heldKey === 'tup') hint = 'Yeni tüp elinizde: masanın boş bir yerine tıklayın';
+    else if (heldKey === 'tup' || heldKey === 'balon') hint = 'Kap elinizde: masanın boş bir yerine tıklayın';
+    else if (heldKey === 'pipet' || heldKey === 'buret') hint = loadedKey ? `${itemName(heldKey)} (${itemName(loadedKey)}): tüpe tıklayarak dökün` : 'Pipet/büret: önce bir sıvı şişesine tıklayın';
     else if (heldKey) hint = `Elinizde ${itemName(heldKey)}: tüpe/ocağa tıklayın, boşluğa tıklayın ya da Q`;
     else if (root?.userData.kind === 'bottle') hint = `Al: ${itemName(root.userData.key)}`;
     else if (root?.userData.kind === 'tube') { hint = 'Tüp: elinizde malzeme varsa dökün, yoksa alın'; info = tubeInfo(root); }
@@ -1218,7 +1287,7 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
       removeExtraTubes();
       tubes.forEach((tube, i) => {
         const d = tube.userData;
-        Object.assign(d, { contents: [], lastAdded: null, reactionColor: null, fx: [], emitAcc: {}, temp: 20, volume: 1, home: [TUBE_START[i][0], TUBE_START[i][1]] });
+        Object.assign(d, { contents: [], amounts: {}, lastAdded: null, reactionColor: null, fx: [], emitAcc: {}, temp: 20, volume: 1, home: [TUBE_START[i][0], TUBE_START[i][1]], added: {} });
         d.reacted.clear();
         d.content.visible = false;
         d.target.set(0xffffff);
@@ -1227,6 +1296,7 @@ export function initChem3d(containerId, { onStatus = () => {} } = {}) {
       pLife.fill(0);
       for (let i = 0; i < MAX_PARTICLES; i++) pPos[i * 3 + 1] = -100;
       evaporatedOnce = false;
+      loadedKey = null;
       lit = false;
       tripodOn = false;
       heldKey = null;

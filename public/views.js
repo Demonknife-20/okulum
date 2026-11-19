@@ -4072,7 +4072,17 @@ function labPushedHtml() {
   const options = Object.entries(SURFACES).map(([k, v]) => `<option value="${k}"${k === 'tahta' ? ' selected' : ''}>${v.label} (μ = ${v.mu})</option>`).join('');
   return `<div class="lab-grid">
     <div class="lab-controls" data-lab="itme">
-      ${physSlider('mass', 'Blok kütlesi (ağırlık ekleyin)', 0.5, 10, 0.5, 2, 'kg')}
+      ${physSlider('mass', 'Blok kütlesi', 0.5, 10, 0.5, 2, 'kg')}
+      <div class="weights-tray" aria-label="Ağırlıklar">
+        <span class="muted">Ağırlığı sürükleyip bloğun üstüne bırakın:</span>
+        <div class="weight-chips">
+          <button class="weight-chip" type="button" data-weight="0.5">0,5 kg</button>
+          <button class="weight-chip" type="button" data-weight="1">1 kg</button>
+          <button class="weight-chip" type="button" data-weight="2">2 kg</button>
+        </div>
+        <div class="block-drop" data-drop="blok">🧱 Blok · <b data-out="mass">2</b> kg</div>
+        <button class="btn ghost sm" type="button" data-weight-reset>Kütleyi sıfırla (2 kg)</button>
+      </div>
       ${physSlider('force', 'İtme kuvveti', 0, 30, 0.5, 8, 'N')}
       <label class="field"><span>Sürtünme yüzeyi</span><select data-in="surface">${options}</select></label>
       ${physSlider('dist', 'Alınacak mesafe', 0.5, 10, 0.5, 3, 'm')}
@@ -4092,6 +4102,41 @@ function drawSymmetric(canvas, pts, yLabel, yMax) {
   const tMax = pts[pts.length - 1].x || 1;
   const f = plotFrame(ctx, w, h, { xMin: 0, xMax: tMax, yMin: -yMax, yMax, xTicks: 6, yTicks: 4, xLabel: 't (s)', yLabel });
   plotCurve(ctx, pts, f.X, f.Y, f.Y(0), '#1b6b50');
+}
+
+// Sürükle-bırak ağırlıklar: çipi tutup "blok" alanının üstünde bırakınca kütle artar
+function setupWeightDrag(box) {
+  const massInput = box.querySelector('[data-in=mass]');
+  const addMass = delta => {
+    const next = Math.min(Number(massInput.max), Number(massInput.value) + delta);
+    massInput.value = String(next);
+    massInput.dispatchEvent(new Event('input', { bubbles: true }));
+  };
+  box.querySelectorAll('[data-weight]').forEach(chip => {
+    chip.addEventListener('pointerdown', event => {
+      event.preventDefault();
+      const delta = Number(chip.dataset.weight);
+      const ghost = document.createElement('div');
+      ghost.className = 'weight-ghost';
+      ghost.textContent = chip.textContent;
+      ghost.style.left = `${event.clientX}px`;
+      ghost.style.top = `${event.clientY}px`;
+      document.body.appendChild(ghost);
+      const move = e => { ghost.style.left = `${e.clientX}px`; ghost.style.top = `${e.clientY}px`; };
+      const up = e => {
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', up);
+        ghost.remove();
+        if (document.elementFromPoint(e.clientX, e.clientY)?.closest('[data-drop=blok]')) addMass(delta);
+      };
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', up);
+    });
+  });
+  box.querySelector('[data-weight-reset]')?.addEventListener('click', () => {
+    massInput.value = '2';
+    massInput.dispatchEvent(new Event('input', { bubbles: true }));
+  });
 }
 
 function setupPhysics3() {
@@ -4133,6 +4178,7 @@ function setupPhysics3() {
     };
     itme.addEventListener('input', update);
     itme.addEventListener('change', update);
+    setupWeightDrag(itme);
     update();
   }
 }
@@ -4210,6 +4256,7 @@ function labReportHtml(key, label) {
     </div>
     <p class="lab-error" data-report-err></p>
     <ul class="lab-results" data-report-list></ul>
+    <div class="lab-report-detail" data-report-detail hidden></div>
   </div>`;
 }
 
@@ -4229,7 +4276,7 @@ async function setupLabReport(key) {
     try {
       const [reports, prog] = await Promise.all([api('/lab/reports'), api('/lab/progress')]);
       progress.textContent = prog.total ? `Toplam ${prog.total} tamamlanmış deney` : 'Henüz kayıtlı deney yok';
-      list.innerHTML = reports.slice(0, 5).map(r => `<li><span>${esc(r.title)}</span><b>${new Date(r.created_at).toLocaleDateString('tr-TR')}</b></li>`).join('')
+      list.innerHTML = reports.slice(0, 5).map(r => `<li><button class="report-link" type="button" data-report-open="${esc(r.id)}">${esc(r.title)}</button><b>${new Date(r.created_at).toLocaleDateString('tr-TR')}</b></li>`).join('')
         || '<li class="muted">Henüz rapor yok.</li>';
       err.textContent = '';
     } catch (error) {
@@ -4254,6 +4301,35 @@ async function setupLabReport(key) {
       err.textContent = error.message;
     } finally {
       setBusy(button, false);
+    }
+  });
+  // Rapor açma ve silme (sahiplik sunucuda denetlenir)
+  const detail = root.querySelector('[data-report-detail]');
+  list.addEventListener('click', async event => {
+    const btn = event.target.closest('[data-report-open]');
+    if (!btn) return;
+    try {
+      const r = await api(`/lab/reports/${encodeURIComponent(btn.dataset.reportOpen)}`);
+      detail.hidden = false;
+      detail.innerHTML = `<h4 class="c3d-sub">${esc(r.title)}</h4>
+        <ol class="lab-steps">${(r.lines || []).map(l => `<li>${esc(l)}</li>`).join('') || '<li class="muted">Satır yok.</li>'}</ol>
+        <button class="btn ghost sm" type="button" data-report-delete="${esc(r.id)}">Raporu sil</button>`;
+    } catch (error) {
+      err.textContent = error.message;
+    }
+  });
+  root.addEventListener('click', async event => {
+    const del = event.target.closest('[data-report-delete]');
+    if (!del) return;
+    if (!(await confirmDialog('Raporu sil', 'Bu deney raporu kalıcı olarak silinir. Bu işlem geri alınamaz.'))) return;
+    try {
+      await api(`/lab/reports/${encodeURIComponent(del.dataset.reportDelete)}`, { method: 'DELETE' });
+      detail.hidden = true;
+      detail.innerHTML = '';
+      toast('Rapor silindi');
+      await refresh();
+    } catch (error) {
+      err.textContent = error.message;
     }
   });
   refresh();
@@ -4445,6 +4521,7 @@ function chem3dHtml() {
       <div class="c3d-actions">
         <button class="btn primary sm" id="chem3d-heat" type="button">🔥 Ocağı aç</button>
         <button class="btn sm" id="chem3d-reset" type="button">↺ Sıfırla</button>
+        <button class="btn ghost sm" id="chem3d-fullscreen" type="button" aria-pressed="false" title="Tam ekran">⛶ Tam ekran</button>
         <button class="btn ghost sm" id="chem3d-help" type="button" aria-expanded="false" aria-controls="chem3d-helpbox">? Yardım</button>
       </div>
     </header>
@@ -4560,6 +4637,35 @@ function mountChem3d() {
   }
 }
 
+// Tam ekran: sahne kapsayıcısı tarayıcının tam ekran alanına alınır; boyut ResizeObserver ile güncellenir
+function setupChem3dFullscreen() {
+  const btn = document.getElementById('chem3d-fullscreen');
+  const wrap = document.querySelector('.chem3d-wrap');
+  if (!btn || !wrap) return;
+  const supported = Boolean(document.fullscreenEnabled && wrap.requestFullscreen);
+  if (!supported) {
+    btn.disabled = true;
+    btn.title = 'Bu tarayıcı tam ekranı desteklemiyor';
+    return;
+  }
+  const sync = () => {
+    const on = document.fullscreenElement === wrap;
+    wrap.classList.toggle('is-fullscreen', on);
+    btn.setAttribute('aria-pressed', String(on));
+    btn.textContent = on ? '⤓ Çık' : '⛶ Tam ekran';
+  };
+  btn.addEventListener('click', async () => {
+    try {
+      if (document.fullscreenElement === wrap) await document.exitFullscreen();
+      else await wrap.requestFullscreen();
+    } catch (error) {
+      toast('Tam ekran açılamadı. Tarayıcınızı kontrol edin.', 'error');
+    }
+  });
+  document.addEventListener('fullscreenchange', sync);
+  sync();
+}
+
 async function pageKimya3d() {
   return {
     html: `${head('Kimya 3D Laboratuvarı', 'Malzeme seçin, tüpe tıklayın, brülörle ısıtın ve tepkimeyi üç boyutlu izleyin.', '')}
@@ -4568,6 +4674,7 @@ async function pageKimya3d() {
     after: () => {
       mountChem3d();
       setupLabReport('kimya3d');
+      setupChem3dFullscreen();
       // Sekmeler
       const tabs = [...document.querySelectorAll('.c3d-tab')];
       const selectTab = tab => {

@@ -192,17 +192,14 @@ document.addEventListener('input', event => {
 
 // Okul vitrini arama ve filtre
 document.addEventListener('input', event => {
-  if (!event.target.matches('#schoolSearch, #schoolFilter')) return;
+  if (!event.target.matches('#schoolSearch')) return;
   const query = document.querySelector('#schoolSearch')?.value.trim().toLocaleLowerCase('tr-TR') || '';
-  const level = document.querySelector('#schoolFilter')?.value || '';
   const cards = [...document.querySelectorAll('.school-card')];
   let visible = 0;
   for (const card of cards) {
     const text = card.textContent.toLocaleLowerCase('tr-TR');
     const matchesQuery = text.includes(query);
-    const matchesLevel = !level || card.querySelector('.school-meta')?.textContent.includes(level);
-    card.hidden = !(matchesQuery && matchesLevel);
-    if (!card.hidden) visible += 1;
+    card.hidden = !matchesQuery;
   }
 });
 
@@ -271,62 +268,42 @@ FORMS.setup = async form => {
   window.dispatchEvent(new Event('okulum:login'));
 };
 
-// ===== Okul Vitrini / Tanıtım Sayfası =====
-const SCHOOLS = [
-  { id: 'okul-1', name: 'Anadolu Lisesi', city: 'İstanbul', district: 'Kadıköy', students: 1200, teachers: 85, founded: 1995, rating: 4.8, level: 'Lise', features: ['Fen', 'Sosyal', 'Dil'], logo: '🏛️' },
-  { id: 'okul-2', name: 'Çağdaş İlkokulu', city: 'Ankara', district: 'Çankaya', students: 850, teachers: 60, founded: 2008, rating: 4.6, level: 'İlkokul', features: ['Sanat', 'Spor', 'Teknoloji'], logo: '🏫' },
-  { id: 'okul-3', name: 'Mimar Sinan Ortaokulu', city: 'İzmir', district: 'Konak', students: 600, teachers: 45, founded: 2012, rating: 4.4, level: 'Ortaokul', features: ['Fen', 'Mimari', 'Müzik'], logo: '🏗️' },
-  { id: 'okul-4', name: 'Akdeniz Fen Lisesi', city: 'Antalya', district: 'Muratpaşa', students: 900, teachers: 70, founded: 2000, rating: 4.9, level: 'Lise', features: ['Fen', 'Matematik', 'Bilgisayar'], logo: '🔬' },
-  { id: 'okul-5', name: 'Ege İlkokulu', city: 'Bursa', district: 'Osmangazi', students: 700, teachers: 55, founded: 2015, rating: 4.5, level: 'İlkokul', features: ['Dil', 'Spor', 'Sanat'], logo: '🌿' },
-];
+// ===== Okul vitrini: gerçek okul listesi (/api/schools) =====
+const schoolInitials = name => String(name || '?').trim().split(/\s+/).slice(0, 2).map(w => w[0]).join('').toLocaleUpperCase('tr-TR');
 
-const schoolCard = s => `
-<article class="school-card" data-id="${esc(s.id)}">
-  <div class="school-logo">${esc(s.logo)}</div>
+const schoolCard = school => `
+<article class="school-card" data-id="${esc(school.slug)}">
+  <div class="school-logo" aria-hidden="true">${esc(schoolInitials(school.name))}</div>
   <div class="school-info">
-    <h3 class="school-name">${esc(s.name)}</h3>
-    <p class="school-meta">${esc(s.city)} · ${esc(s.district)} · ${esc(s.level)}</p>
-    <div class="school-stats">
-      <span class="stat"><strong>${esc(s.students)}</strong> Öğrenci</span>
-      <span class="stat"><strong>${esc(s.teachers)}</strong> Öğretmen</span>
-      <span class="stat"><strong>${esc(s.founded)}</strong> Kuruldu</span>
-    </div>
-    <div class="school-tags">${s.features.map(f => `<span class="tag">${esc(f)}</span>`).join('')}</div>
-    <div class="school-rating">${'★'.repeat(Math.floor(s.rating))}${s.rating % 1 >= 0.5 ? '☆' : ''} <span class="rating-num">${esc(s.rating.toFixed(1))}</span></div>
+    <h3 class="school-name">${esc(school.name)}</h3>
+    <p class="school-meta">${esc(school.city || 'Şehir belirtilmemiş')}</p>
   </div>
-  <a href="#/school/${esc(s.id)}" class="btn primary sm">Giriş Yap</a>
-</article>
-`;
+  <a href="${esc(school.url)}" class="btn primary sm">Okula git</a>
+</article>`;
 
-const schoolShowcaseView = () => `
+async function schoolShowcaseView() {
+  const { schools } = await api('/schools').catch(() => ({ schools: [] }));
+  const grid = schools.length
+    ? schools.map(schoolCard).join('')
+    : '<p class="muted">Henüz listelenen okul yok. Okulunuz Okulum\'a katıldıysa müdürünüzden bağlantıyı isteyebilirsiniz.</p>';
+  return { html: `
 <section class="school-showcase">
   <div class="container">
     <div class="page-header">
-      <h1>Okullar</h1>
-      <p class="subtitle">Okulum'a katılmış okulları keşfedin ve giriş yapın.</p>
+      <h1>Okulunu bul</h1>
+      <p class="subtitle">Okulum kullanan okulları bulun ve kendi giriş sayfalarına gidin.</p>
     </div>
-
     <div class="school-search">
-      <input type="search" id="schoolSearch" placeholder="Okul, şehir veya ilçe ara…" aria-label="Okul arama">
-      <select id="schoolFilter" aria-label="Düzey filtresi">
-        <option value="">Tüm düzeyler</option>
-        <option value="İlkokul">İlkokul</option>
-        <option value="Ortaokul">Ortaokul</option>
-        <option value="Lise">Lise</option>
-      </select>
+      <input type="search" id="schoolSearch" placeholder="Okul adı veya şehir ara…" aria-label="Okul arama" autocomplete="off">
     </div>
-
-    <div class="school-grid" id="schoolGrid">
-      ${SCHOOLS.map(schoolCard).join('')}
-    </div>
-
+    <div class="school-grid" id="schoolGrid">${grid}</div>
     <div class="school-cta">
       <h2>Okulunuz burada mı?</h2>
-      <p>Okulum'a katılmak ve öğrencilere erişmek için müdür girişi yapın ve okulunuzu sisteme ekleyin.</p>
-      <a href="#/login?role=principal" class="btn primary">Müdür Girişi Yap</a>
+      <p>Okulunuzu eklemek için müdür girişi yapın.</p>
+      <a href="#/mudur-girisi" class="btn primary">Müdür girişi</a>
     </div>
   </div>
-</section>
-`;
+</section>` };
+}
 
 export { schoolShowcaseView };

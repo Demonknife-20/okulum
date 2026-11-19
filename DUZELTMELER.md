@@ -159,3 +159,79 @@ Render'da gerekli ortam değişkenleri: DATABASE_URL (ayarlı). Üretimde SUPABA
 ## Kimya 3D: rehberli deney kılavuzu
 - Durum sekmesinde bir deney seçilir (nötrleşme, suyun kaynaması, metal ile asit). Adımlar sahnenin anlık durumundan otomatik işaretlenir: giyilen ekipman, ocak, üçayak, tüplerdeki maddeler ve sıcaklık.
 - Kontrol mantığı public/chem-guide.js içinde, testler test/chem-guide.test.mjs.
+
+## Kimya 3D: pipet, büret, cam balon; titrasyon; fizik sürükle-bırak ağırlıklar
+- Pipet (5 mL) ve büret (1 mL damla): önce bir sıvı şişesine tıklayıp doldurulur, sonra tüpe tıklanarak dökülür. Araç elde kalır; her dökülen hacim tüpte mL olarak kaydedilir.
+- Titrasyon: büretle asite baz eklenince pH ve dönüm noktası mesajda görünür; dönüm noktasından sonra fenolftalein pembeleşir. Hesap public/titration.js ve labs.js içindeki titrationPH'a dayanır.
+- Cam balon: tabloya konur, tüp gibi karıştırılır; daha büyük şekilde görünür.
+- Fizik sürtünmeli itme: ağırlık çiplerini (0,5/1/2 kg) tutup bloğun üstüne bırakınca kütle artar; sıfırlama düğmesi var.
+- Sınır: tüpler hâlâ yüzde (doluluk) modeliyle çalışır; tüm kaplarda gerçek mL izlemesi yalnızca pipet, büret ve titrasyon için vardır.
+
+## Kimya 3D: tam ekran
+- Başlıktaki "⛶ Tam ekran" düğmesi sahneyi tarayıcının tam ekran alanına alır; çıkmak için aynı düğme ya da Esc. Sahne boyutu otomatik uyar.
+- Tarayıcı tam ekranı desteklemiyorsa düğme devre dışı kalır (ör. iPhone Safari, sayfa öğelerinde tam ekran desteklemez).
+
+## Genel menü: "Okulunu bul"
+- Genel menüye "Okulunu bul" bağlantısı eklendi (#/okullar).
+- Okul vitrini sabit örnek okullar yerine gerçek okul listesini (/api/schools) gösterir: ad, şehir ve okulun kendi giriş sayfasına bağlantı. Arama ad ve şehirde çalışır.
+- Okul listesi boşsa açıklayıcı bir mesaj gösterilir. Seviye filtresi kaldırıldı (veritabanında düzey bilgisi yok).
+
+## API temizliği: çift rotalar kaldırıldı
+- /api/push/key, /api/push/subscribe ve /api/push/unsubscribe rotalarının ikişer tanımı vardı. Yönlendirici ilk eşleşeni kullandığı için ikinci tanımlar hiç çalışmıyordu. Tek tanım kaldı: aboneliğin https olma kontrolü korundu, hazır olmayan bildirim sunucusu için 503 döner, abonelik denetim kaydına yazılır.
+- Yönlendirmedeki tüm rotalar tarandı; başka çift tanım yok.
+
+## Kimya 3D arayüzü v10 (görsel cila)
+- Başlık ve durum rozetlerinde vurgu rengi ve hafif parlama; ocak göstergesi için yumuşak nabız.
+- Malzeme düğmelerinde simge kutuları ve üstüne gelince ışıma; seçili malzeme vurgu renginde.
+- Mesaj çubuğu ve kılavuz adımları için renkli kenar ve vurgulanan sıradaki adım.
+- Hareket azaltma tercihinde tüm bu animasyonlar kapanır. Sahne ve oynanış değişmedi.
+
+## Site arka planı
+- Arka plan birden çok kez tanımlanmış ve çakışıyordu. Dosyanın sonuna tek yetkili tanım eklendi: iki yumuşak ışık lekesi ve ince nokta ızgara.
+- Koyu modda aynı yapı koyu zeminle uygulanır. Mobilde arka plan sabitleme kapatılır (kaydırmada daha akıcı).
+
+## Güvenlik sıkılaştırma
+- Denetlendi ve sağlam bulundu: oturum çerezleri HttpOnly + SameSite=Lax (üretimde Secure); değiştirici isteklerde Origin denetimi (CSRF); içerik türü kontrolü; 8 MB gövde sınırı; giriş ve parola değişiminde deneme sınırı; genel oran sınırlamaları; sıkı içerik güvenlik politikası (CSP), nosniff, DENY, HSTS (üretim).
+- Düzeltildi: PDF önizleme yanıtında tam CSP yerine tek başına basit bir politika kullanılıyordu (object-src ve base-uri korumaları düşüyordu). Artık tam politika korunuyor; yalnızca aynı site çerçevesine izin veriliyor.
+- Bilinen sınır: bağımlılık açıkları bu ortamda taranamadı. Deploy öncesi `npm audit` çalıştırılmalı.
+
+## Backend: istek kimliği ve zaman aşımları
+- Her isteğe X-Request-Id yanıt başlığı eklenir. Sunucu hatalarında günlük ve 500 yanıtı aynı kimliği içerir; bir kullanıcı hata kimliğini bildirirse günlükte aramak mümkün.
+- HTTP zaman aşımları açıkça tanımlandı: başlıklar 30 sn, istek 60 sn, keep-alive 65 sn (yük dengeleyicinin zaman aşımından uzun).
+- Gözden geçirmede bulunan hata düzeltildi: istek kimliği için crypto modülü içe aktarılmamıştı (ilk istekte sunucu hatası verecekti).
+
+## Kimya 3D: rapor yönetimi (arka uç ve arayüz)
+- Arka uç: GET /api/lab/reports/:id (öğrenci kendininkini, müdür herhangi birini) ve DELETE /api/lab/reports/:id (öğrenci kendininkini siler). Kimlik biçimi ve sahiplik sunucuda denetlenir; yetkisi olmayana rapor "bulunamadı" döner.
+- Arayüz: rapor listesindeki başlığa tıklanınca ölçüm satırları açılır; öğrenci raporu silebilir (onay ister).
+
+## Kalite kontrolü: npm run check
+- scripts/check.mjs ağ ya da veritabanı gerektirmeden şunları denetler: tüm JavaScript dosyalarının sözdizimi, API'de çift rota tanımı, test/ altındaki her testin package.json test listesinde olması.
+- Her değişiklikten sonra çalıştırılmalı: `npm run check`.
+
+## Güvenlik testi (statik analiz + birim testleri)
+- Canlı siteye saldırı testi yapılmadı (bu ortamda erişim yok). Yapılan: kaynak kodun tehlikeli kalıplara göre taranması ve güvenlik fonksiyonlarının testi.
+- Tarama sonuçları: eval yok; SQL'e giren şema ve tablo adları doğrulanmış ya da sabit listeden geliyor; oturum sırrı üretimde zorunlu; innerHTML'de kullanıcı verisi kaçışlanıyor (graph ve diğer yerler). Yanlış alarm olan eşleşmeler (regex exec) incelendi.
+- test/security-hardening.test.mjs: parola doğrulama, rastgele tuz, düz metin içermeme, HttpOnly/SameSite çerez, değiştirilmiş jeton reddi, deneme sınırı.
+- Açık kalan: bağımlılık taraması (npm audit) ve dışarıdan yapılan canlı sızma testi.
+
+## Kimya 3D: cihaza göre kalite
+- Telefonlarda (dar ekran), 4 veya daha az çekirdekli ya da 2 GB'dan az bellekli cihazlarda piksel oranı 1'e iner ve gölgeler kapanır/küçülür. Masaüstünde tam kalite korunur.
+
+## Kimya 3D: mL/gram miktar modeli ve genişletilmiş tepkimeler
+- Tüm kaplar (tüp ve cam balon) artık gerçek miktarlarla çalışır: sıvılar mL, katılar gram. Standart döküm 20 mL (sıvı) ya da 2 g (katı). Doluluk = toplam hacim / kapasite (tüp 50 mL, balon 250 mL). Yüzde modeli kaldırıldı.
+- Isınma ve buharlaşma bu miktarlara göre hesaplanır; su mL olarak azalır.
+- Tepkime kapsamı genişledi: bakırın yer değiştirmesi (Fe, Mg, Al, Zn, Ni, Co, Cr, Mn, Sn, Pb, Ti), alüminyum ve çinkonun bazla hidrojen vermesi, magnezyum (470 °C) ve kükürt (232 °C) yanması, demir + kükürt → FeS, sıcak suda magnezyum, iyot süblimleşmesi.
+- Element bilgisi her elementin tepkime durumunu söyler; tepki vermeyen elementler açıkça belirtilir (çoğu element bu deney koşullarında tepkime vermez).
+- Testler: test/chem-volume.test.mjs, test/chem-reactions.test.mjs.
+
+## Kimya: tepkime kuralları veri tablosundan
+- Element tepkimeleri artık kimyasal kurallara dayalı bir veri tablosundan üretilir (chemistry.js): aktivite serisi (asitle hidrojen, bakırın yer değiştirmesi), suyla tepkime (alkali ve toprak alkali), bazla tepkime (Al, Zn), ısıtınca yanma sıcaklıkları (Mg, Al, Fe, C, P, S), sıcak suda Mg, iyot süblimleşmesi, demir + kükürt.
+- Soy ve kararlı elementler (He, Ne, Ar, Kr, Xe, Rn, Au, Pt, Hg, Ag, Cu) açıkça tepkime vermez olarak işaretlenir. Element bilgisi bunu gösterir.
+- Yeni bir kural eklemek için tabloya bir satır eklemek yeterli.
+- Kapsam sınırı: halojenler, tuz çözeltileri (başka metal tuzları) ve oksit/asit ürünleri henüz yok; bunlar için aynı tabloya ayrı kurallar gerekir.
+
+## Kimya 3D: tarayıcısız duman testi (npm run test:chem3d)
+- Sahne, THREE ve DOM taklit edilerek çalıştırılır (test/chem3d-smoke). Kaynak her seferinde geçici klasöre kopyalanır; proje dosyaları değişmez.
+- Kapsam: 300 karelik döngü, malzeme dökme ve mL kaydı, nötrleşme ve ürün mesajı, ocak ve üçayak uyarısı, tartı, periyodik tablo, pipet dolum ve 5 mL dökme, cam balon.
+- Sonuç: tanımlı yollarda çalışma zamanı hatası yok.
+- Sınır: GPU, gerçek görünüm (renkler, gölgeler, yerleşim) ve dokunmatik davranış bu testte kapsanmaz; bunlar gerçek cihazda denenmelidir.

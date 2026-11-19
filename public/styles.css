@@ -2966,3 +2966,97 @@ input:valid:not(:placeholder-shown){border-color:var(--ok);box-shadow:0 0 0 4px 
 .chem3d-checklist li.done{color:#1e6b3a}
 .chem3d-checklist li.done::before{background:#2e7d32;border-color:#2e7d32}
 .chem3d-checklist li.next{color:var(--ink);box-shadow:inset 0 0 0 1px var(--brand,#1b6b50)}
+
+/* ---------- Fizik: sürükle-bırak ağırlıklar ---------- */
+.weights-tray{display:grid;gap:8px;padding:10px;border-radius:12px;background:var(--surface-2);margin:6px 0}
+.weight-chips{display:flex;gap:8px;flex-wrap:wrap}
+.weight-chip{padding:8px 12px;border-radius:999px;border:1px solid var(--line,#c9d6cf);background:var(--surface);cursor:grab;font:600 13px/1 var(--f-body);touch-action:none;user-select:none;-webkit-user-select:none}
+.weight-chip:active{cursor:grabbing;transform:scale(.97)}
+.block-drop{padding:14px;border-radius:12px;border:2px dashed var(--brand,#1b6b50);text-align:center;font-weight:600;color:var(--ink);background:color-mix(in srgb,var(--brand,#1b6b50) 6%,transparent)}
+.weight-ghost{position:fixed;transform:translate(-50%,-50%);padding:8px 12px;border-radius:999px;background:var(--brand,#1b6b50);color:#fff;font:600 13px/1 var(--f-body);pointer-events:none;box-shadow:0 10px 24px -10px rgba(0,0,0,.5);z-index:999}
+
+/* ---------- Kimya 3D: tam ekran ---------- */
+.chem3d-wrap:fullscreen{background:#0d1512;padding:12px;gap:8px;display:flex;flex-direction:column;overflow:hidden}
+.chem3d-wrap:fullscreen .chem3d-stage{flex:1 1 auto;height:auto!important;min-height:0;border-radius:14px}
+.chem3d-wrap:fullscreen .chem3d-keys .chip{background:rgba(255,255,255,.08);color:#cfe3d9}
+.chem3d-wrap:fullscreen .chem3d-keys kbd{background:rgba(255,255,255,.12);color:#fff}
+.chem3d-wrap:fullscreen::backdrop{background:#0d1512}
+
+/* ==========================================================================
+   KİMYA 3D: ARAYÜZ v10 (görsel cila)
+   Sahne ve davranış değişmez; yalnızca görünüm iyileştirilir.
+   ========================================================================== */
+.c3d{--c3d-accent:var(--brand,#1b6b50);--c3d-glow:color-mix(in srgb,var(--c3d-accent) 22%,transparent)}
+.c3d-top{position:relative;overflow:hidden}
+.c3d-top::after{content:"";position:absolute;inset:auto -10% -60% auto;width:320px;height:160px;background:radial-gradient(closest-side,var(--c3d-glow),transparent);pointer-events:none}
+.c3d-title strong{background:linear-gradient(90deg,var(--ink),var(--c3d-accent));-webkit-background-clip:text;background-clip:text;color:transparent}
+.c3d-dot{animation:c3d-pulse 2.4s ease-in-out infinite}
+@keyframes c3d-pulse{0%,100%{box-shadow:0 0 0 4px var(--c3d-glow)}50%{box-shadow:0 0 0 8px transparent}}
+.c3d-pill{transition:background-color .2s ease,color .2s ease,transform .2s ease;border:1px solid color-mix(in srgb,var(--line,#d7e2dc) 70%,transparent)}
+.c3d-pill:hover{transform:translateY(-1px)}
+.c3d-pill b{min-width:2.4em;text-align:right}
+.c3d-actions .btn{transition:transform .15s ease,box-shadow .2s ease}
+.c3d-actions .btn:hover{transform:translateY(-1px);box-shadow:var(--sh-2,0 8px 18px -10px rgba(0,0,0,.35))}
+.c3d-actions .btn:active{transform:translateY(0)}
+.c3d-tabs{box-shadow:inset 0 1px 2px rgba(0,0,0,.05)}
+.c3d-tab[aria-selected="true"],.c3d-tab.on{color:var(--c3d-accent)}
+.c3d-side{scrollbar-width:thin;scrollbar-color:var(--line,#c9d6cf) transparent}
+.c3d-side .c3d-sub{display:flex;align-items:center;gap:8px}
+.c3d-side .c3d-sub::after{content:"";flex:1;height:1px;background:var(--line,#d7e2dc)}
+.material-btn{position:relative;overflow:hidden;background:linear-gradient(180deg,var(--surface),var(--surface-2))}
+.material-btn::before{content:"";position:absolute;inset:0;background:radial-gradient(120% 80% at 50% 0%,var(--c3d-glow),transparent 60%);opacity:0;transition:opacity .2s ease;pointer-events:none}
+.material-btn:hover::before{opacity:1}
+.material-btn .m-icon{width:30px;height:30px;display:grid;place-items:center;border-radius:10px;background:var(--surface);box-shadow:inset 0 0 0 1px var(--line,#d7e2dc)}
+.material-btn.active .m-icon{background:var(--c3d-accent);color:#fff}
+.material-btn:focus-visible{outline:2px solid var(--c3d-accent);outline-offset:2px}
+.chem3d-banner,#chem3d-msg{transition:transform .25s ease,opacity .25s ease}
+.chem3d-msg.ok,.c3d-banner.ok{border-left:4px solid #2e7d32}
+.chem3d-msg.warn,.c3d-banner.warn{border-left:4px solid #e65100}
+.c3d-help{position:relative}
+.c3d-help::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;border-radius:4px;background:var(--c3d-accent)}
+.chem3d-checklist li{transition:background-color .2s ease,color .2s ease}
+.chem3d-checklist li.next{background:var(--c3d-glow)}
+.chem3d-lcd{backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
+.chem3d-stage{position:relative;cursor:crosshair}
+.chem3d-stage::after{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;box-shadow:inset 0 0 60px rgba(0,0,0,.12)}
+.chem3d-keys .chip{transition:transform .15s ease}
+.chem3d-keys .chip:hover{transform:translateY(-1px)}
+@media (prefers-reduced-motion: reduce){
+  .c3d-dot,.c3d-pill,.material-btn::before,.c3d-actions .btn,.chem3d-msg,.chem3d-keys .chip{animation:none!important;transition:none!important}
+}
+
+/* ==========================================================================
+   SİTE ARKA PLANI: tek yetkili tanım (dosyanın sonu, önceki katmanların üstüne geçer)
+   - Yumuşak iki ışık lekesi + ince nokta ızgara
+   - Koyu modda aynı yapı, koyu zeminle
+   - Sabit arka plan (kaydırmada titremez); mobilde sabitleme atlanır
+   ========================================================================== */
+html,
+body {
+  background-color: var(--bg) !important;
+  background-image:
+    radial-gradient(1100px 620px at 100% -12%, color-mix(in srgb, var(--coral, #ef7e62) 12%, transparent), transparent 62%),
+    radial-gradient(900px 560px at -8% 112%, color-mix(in srgb, var(--brand, #1b6b50) 9%, transparent), transparent 64%),
+    radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--brand, #1b6b50) 9%, transparent) 1px, transparent 0) 0 0 / 24px 24px !important;
+  background-repeat: no-repeat, no-repeat, repeat;
+  background-attachment: fixed;
+}
+[data-theme=dark] html,
+[data-theme=dark] body {
+  background-color: var(--bg) !important;
+  background-image:
+    radial-gradient(1100px 620px at 100% -12%, color-mix(in srgb, var(--coral, #ef7e62) 8%, transparent), transparent 62%),
+    radial-gradient(900px 560px at -8% 112%, color-mix(in srgb, var(--brand, #1b6b50) 14%, transparent), transparent 64%),
+    radial-gradient(circle at 1px 1px, color-mix(in srgb, #fff 6%, transparent) 1px, transparent 0) 0 0 / 24px 24px !important;
+}
+@media (max-width: 760px) {
+  html, body { background-attachment: scroll; }
+}
+
+/* ---------- Deney raporu kartı: açılabilir liste ve ayrıntı ---------- */
+.report-link{background:none;border:0;padding:0;font:inherit;color:var(--brand,#1b6b50);cursor:pointer;text-align:left;text-decoration:underline;text-underline-offset:3px;text-decoration-color:color-mix(in srgb,var(--brand,#1b6b50) 40%,transparent)}
+.report-link:hover{text-decoration-color:currentColor}
+.report-link:focus-visible{outline:2px solid var(--brand,#1b6b50);outline-offset:2px;border-radius:4px}
+.lab-report-detail{margin-top:12px;padding:12px;border-radius:12px;background:var(--surface-2);display:grid;gap:8px}
+.lab-report-detail[hidden]{display:none}
+.lab-report-detail .lab-steps{margin:0;padding-left:20px;font-size:13px;line-height:1.5}

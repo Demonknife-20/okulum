@@ -1,4 +1,5 @@
 const http = require('node:http');
+const crypto = require('crypto');
 const fs = require('node:fs');
 const path = require('node:path');
 const { q, pool, withTenant, hasDatabase } = require('./src/db');
@@ -124,6 +125,8 @@ function serveStatic(res, pathname, base) {
 }
 
 const server = http.createServer(async (req, res) => {
+  const requestId = (typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(36).slice(2)).slice(0, 36);
+  res.setHeader('X-Request-Id', requestId);
   for (const [key, value] of Object.entries(SECURITY)) res.setHeader(key, value);
   if (process.env.NODE_ENV === 'production') res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
   const url = new URL(req.url, 'http://localhost');
@@ -331,8 +334,9 @@ const server = http.createServer(async (req, res) => {
       const { buffer, mime, name, inline } = result.file;
       if (result.file.frameable) {
         // Pano PDF önizlemesi: yalnızca aynı site çerçevesinde gösterilebilir
+        // Tam güvenlik politikası korunur; yalnızca çerçeveleme aynı siteye açılır
         res.setHeader('X-Frame-Options', 'SAMEORIGIN');
-        res.setHeader('Content-Security-Policy', "default-src 'self'; frame-ancestors 'self'");
+        res.setHeader('Content-Security-Policy', SECURITY['Content-Security-Policy'].replace("frame-ancestors 'none'", "frame-ancestors 'self'"));
       }
       res.writeHead(200, {
         'Content-Type': mime,
@@ -346,8 +350,8 @@ const server = http.createServer(async (req, res) => {
   } catch (error) {
     const mapped = toHttpError(error);
     if (mapped) return send(res, mapped.status, { error: mapped.message });
-    console.error(new Date().toISOString(), req.method, url.pathname, error);
-    return send(res, 500, { error: 'Beklenmeyen bir hata oluştu.' });
+    console.error(new Date().toISOString(), `[${requestId}]`, req.method, url.pathname, error);
+    return send(res, 500, { error: 'Beklenmeyen bir hata oluştu.', requestId });
   }
 });
 
@@ -401,6 +405,12 @@ async function start() {
   dbReady = true;
   console.log(`Okulum hazır: depolama: ${storage.useSupabase ? 'Supabase' : 'yerel (geliştirme)'}`);
 }
+
+// Zaman aşımları: yavaş/takılı istemciler sunucu kaynaklarını tüketmesin.
+// keepAlive, yük dengeleyicinin (Render) bağlantı zaman aşımından uzun tutulur.
+server.headersTimeout = 30 * 1000;
+server.requestTimeout = 60 * 1000;
+server.keepAliveTimeout = 65 * 1000;
 
 function shutdown() {
   server.close(() => pool.end().then(() => process.exit(0)));
