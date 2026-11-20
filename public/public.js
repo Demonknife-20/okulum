@@ -22,7 +22,8 @@ const announcementsSection = list => !list.length ? '' : `
 
 const homeView = (announcements = [], schools = []) => {
   const firstSchool = schools[0];
-  const schoolPath = firstSchool?.url || '/okulum/';
+  // Taban adres: sondaki eğik çizgi kaldırılır (çift eğik çizgi 404 üretir); okul yoksa yalnızca #/ kullanılır
+  const schoolPath = (firstSchool?.url || '').replace(/\/+$/, '');
   const schoolDirectory = schools.length > 1 ? `
     <section class="school-directory" id="school-directory">
       <div class="announce-head"><h2>Okulunuzu seçin</h2><p class="muted">Devam etmek için okulunuza ait giriş sayfasını açın.</p></div>
@@ -45,9 +46,9 @@ const homeView = (announcements = [], schools = []) => {
       <div class="hero-actions">
         ${schools.length > 1
           ? '<button class="btn primary lg" type="button" data-action="school-directory">Okulunu seç</button>'
-          : `<a class="btn primary lg" href="${schoolPath}/#/mudur-girisi">Müdür girişi</a><a class="btn ghost lg" href="${schoolPath}/#/giris">Öğretmen / Öğrenci girişi</a>`}
+          : `<a class="btn primary lg" href="${schoolPath}#/mudur-girisi">Müdür girişi</a><a class="btn ghost lg" href="${schoolPath}#/giris">Öğretmen / Öğrenci girişi</a>`}
       </div>
-      <p class="muted small">${schools.length > 1 ? 'Giriş yapmak için aşağıdan okulunuzu seçin.' : schools.length ? 'Okul hesabınızla giriş yapın.' : `Okul henüz kurulmadıysa <a href="${schoolPath}/#/kurulum">kurulum sayfasını açın</a>.`} ${schools.length > 1 ? '' : `Nasıl kullanılacağını <a href="${schoolPath}/#/yardim">kullanım kılavuzunda</a> bulabilirsiniz.`}</p>
+      <p class="muted small">${schools.length > 1 ? 'Giriş yapmak için aşağıdan okulunuzu seçin.' : schools.length ? 'Okul hesabınızla giriş yapın.' : `Okul henüz kurulmadıysa <a href="${schoolPath}#/kurulum">kurulum sayfasını açın</a>.`} ${schools.length > 1 ? '' : `Nasıl kullanılacağını <a href="${schoolPath}#/yardim">kullanım kılavuzunda</a> bulabilirsiniz.`}</p>
     </div>
     <div class="hero-cards">
       <article class="role-card">

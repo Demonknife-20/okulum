@@ -3060,3 +3060,57 @@ body {
 .lab-report-detail{margin-top:12px;padding:12px;border-radius:12px;background:var(--surface-2);display:grid;gap:8px}
 .lab-report-detail[hidden]{display:none}
 .lab-report-detail .lab-steps{margin:0;padding-left:20px;font-size:13px;line-height:1.5}
+
+/* ==========================================================================
+   GENEL MENÜ (üst çubuk): son ve tek yetkili tanım
+   - Bağlantılar her temada okunur; ekran daralınca taşma yerine yatay kaydırma
+   - Düğmeler ve bağlantılar aynı yükseklikte hizalı
+   ========================================================================== */
+.public-nav {
+  display: flex !important;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.public-nav::-webkit-scrollbar { display: none; }
+.public-nav > a:not(.btn) {
+  display: inline-flex !important;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 12px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  color: var(--ink) !important;
+  text-decoration: none;
+  transition: background-color .2s ease, color .2s ease;
+}
+.public-nav > a:not(.btn):hover,
+.public-nav > a.current {
+  background: var(--brand-soft, rgba(27, 107, 80, .12));
+  color: var(--brand, #1b6b50) !important;
+}
+.public-nav > a:not(.btn):focus-visible,
+.public-nav .btn:focus-visible {
+  outline: 2px solid var(--brand, #1b6b50);
+  outline-offset: 2px;
+}
+.public-nav .btn {
+  min-height: 40px;
+  padding: 0 14px;
+  font-size: 14px;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+}
+@media (max-width: 600px) {
+  .public-nav > a:not(.btn) { min-height: 38px; padding: 0 10px; font-size: 13px; }
+  .public-nav .btn { min-height: 38px; padding: 0 10px; font-size: 13px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .public-nav > a:not(.btn) { transition: none; }
+}

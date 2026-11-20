@@ -240,3 +240,8 @@ Render'da gerekli ortam değişkenleri: DATABASE_URL (ayarlı). Üretimde SUPABA
 - Yeni kılavuzlar: titrasyon (dönüm noktası), kireç taşı ile asit, çinko ile bakır sülfat, magnezyumun yanması, yağ ve su. Önceki üç deneyle birlikte toplam sekiz örnek deney.
 - Her deney adımları sahneden otomatik işaretler; sahne anlık durumuna tüp miktarları (mL/g) eklendi.
 - Testler: test/chem-guide.test.mjs.
+
+## Ana sayfa bağlantıları düzeltildi (404 hatası)
+- Müdür girişi, öğretmen/öğrenci girişi, kurulum ve kılavuz düğmeleri "/okulum//#/..." gibi çift eğik çizgili adres üretiyordu; sunucu bunu tanımadığı için 404 veriyordu. Taban adres artık normalize ediliyor ve bağlantılar "#/..." biçiminde.
+- "Gizlilik" bağlantısı göreli "gizlilik" yerine "/gizlilik" oldu.
+- Üst menü stilleri tek ve açık bir blokta toplandı: okunabilir renk, hizalı düğmeler, dar ekranda yatay kaydırma.
